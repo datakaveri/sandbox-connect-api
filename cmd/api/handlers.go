@@ -7,6 +7,50 @@ import (
 	"sandbox-backend-service/pkg/utils"
 )
 
+func (app *application) checkNotebookExists(w http.ResponseWriter, r *http.Request) {
+	logger := getLogger(r)
+	checkReq, err := utils.DecodeAndValidate[CheckExistsRequest](r.Body, logger)
+	if err != nil {
+		logger.Error("invalid body", "error", err)
+		sendResponse(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
+		return
+	}
+
+	ctx := context.Background()
+	var exists bool
+	query := `SELECT EXISTS(SELECT 1 FROM notebooks WHERE name = $1 AND namespace = $2)`
+	err = app.pgPool.Pool.QueryRow(ctx, query, checkReq.Name, checkReq.Namespace).Scan(&exists)
+	if err != nil {
+		logger.Error("failed to check notebook existence", "error", err)
+		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to check notebook existence")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]bool{"exists": exists})
+}
+
+func (app *application) checkPVCExists(w http.ResponseWriter, r *http.Request) {
+	logger := getLogger(r)
+	checkReq, err := utils.DecodeAndValidate[CheckExistsRequest](r.Body, logger)
+	if err != nil {
+		logger.Error("invalid body", "error", err)
+		sendResponse(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
+		return
+	}
+
+	ctx := context.Background()
+	var exists bool
+	query := `SELECT EXISTS(SELECT 1 FROM notebooks WHERE pvc_name = $1 AND namespace = $2)`
+	err = app.pgPool.Pool.QueryRow(ctx, query, checkReq.Name, checkReq.Namespace).Scan(&exists)
+	if err != nil {
+		logger.Error("failed to check PVC existence", "error", err)
+		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to check PVC existence")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]bool{"exists": exists})
+}
+
 func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
 	notebookReq, err := utils.DecodeAndValidate[NotebookRequest](r.Body, logger)

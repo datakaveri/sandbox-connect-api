@@ -26,6 +26,11 @@ type GPUResource struct {
 	Type  string `json:"type" validate:"omitempty"`
 	Limit int    `json:"limit" validate:"omitempty"`
 }
+type CheckExistsRequest struct {
+	Name      string `json:"name" validate:"required"`
+	Namespace string `json:"namespace" validate:"required"`
+}
+
 type NotebookRequest struct {
 	Name            string      `json:"name" validate:"required"`
 	Namespace       string      `json:"namespace" validate:"required"`

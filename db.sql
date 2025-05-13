@@ -22,5 +22,6 @@ CREATE TABLE notebooks (
 
     events VARCHAR(255)[] NOT NULL DEFAULT ARRAY['scheduled'],
 
-    CONSTRAINT unique_name_namespace UNIQUE (name, namespace)
+    CONSTRAINT unique_name_namespace UNIQUE (name, namespace),
+    CONSTRAINT unique_pvc_namespace UNIQUE (pvc_name, namespace)
 );
