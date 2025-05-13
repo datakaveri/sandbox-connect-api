@@ -21,6 +21,11 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, http.StatusUnprocessableEntity, map[string]string{"error": "Invalid GPU Type"})
 		return
 	}
+	if notebookReq.TemplateName != "ai" && notebookReq.TemplateName != "ml" {
+		logger.Error("invalid template name", "template_name", notebookReq.TemplateName)
+		jsonResponse(w, http.StatusUnprocessableEntity, map[string]string{"error": "Invalid Template Name"})
+		return
+	}
 
 	memoryRequest := fmt.Sprintf("%dGi", int(notebookReq.MemoryInGi.Request))
 	memoryLimit := fmt.Sprintf("%dGi", int(notebookReq.MemoryInGi.Limit))

@@ -11,43 +11,24 @@ import (
 
 func (app *application) spinner() {
 	sem := make(chan struct{}, app.env.MAX_CONCURRENT_WORKER)
-	
-	// Start workers for notebook creation
-	for i := 0; i < app.env.MAX_CONCURRENT_WORKER/2; i++ {
+	for true {
 		sem <- struct{}{}
-		go app.worker(sem, false)
-	}
-	
-	// Start workers for cleanup operations
-	for i := 0; i < app.env.MAX_CONCURRENT_WORKER/2; i++ {
-		sem <- struct{}{}
-		go app.worker(sem, true)
+		go app.worker(sem)
 	}
 }
 
-func (app *application) worker(sem chan struct{}, isCleanupWorker bool) {
+func (app *application) worker(sem chan struct{}) {
 	defer func() {
 		<-sem
 	}()
 	ctx := context.Background()
 	var notebook Notebook
-	
 	for {
-		var notebookArr []Notebook
-		var err error
-		
-		if isCleanupWorker {
-			// Fetch notebooks marked for cleanup
-			notebookArr, err = FetchNotebooksForCleanup(app.pgPool, ctx)
-		} else {
-			// Fetch notebooks for creation
-			notebookArr, err = FetchAndMarkNotebook(app.pgPool, ctx)
-		}
-		
+		notebookArr, err := FetchAndMarkNotebook(app.pgPool, ctx)
 		if err != nil {
-			slog.Error("failed fetching notebook", "error", err, "isCleanupWorker", isCleanupWorker)
+			slog.Error("failed fetching notebook", "error", err)
 		} else if len(notebookArr) == 0 {
-			slog.Info("no notebook found", "isCleanupWorker", isCleanupWorker)
+			slog.Info("no notebook found")
 		} else {
 			notebook = notebookArr[0]
 			break
@@ -55,20 +36,9 @@ func (app *application) worker(sem chan struct{}, isCleanupWorker bool) {
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	logger := slog.With(
-		"notebookName", notebook.Name,
-		"namespace", notebook.Namespace,
-		"notebookId", notebook.ID,
-		"isCleanupWorker", isCleanupWorker,
-	)
+	logger := slog.With("notebookName", notebook.Name,
+		"namespace", notebook.Namespace)
 
-	// Handle cleanup if this is a cleanup worker
-	if isCleanupWorker {
-		app.cleanupNotebookResources(ctx, notebook, logger)
-		return
-	}
-
-	// Regular notebook creation flow
 	uploadPodName := notebook.Name + "-upload-pod-" + uuid.New().String()
 	if err := CreatePVC(app.k8sClient, notebook.Namespace, notebook.PVCname, notebook.StorageSize); err != nil {
 		logger.Error("failed to create pv", "error", err)
@@ -144,70 +114,4 @@ func (app *application) worker(sem chan struct{}, isCleanupWorker bool) {
 	if queryErr != nil {
 		logger.Error("failed to update notebook status", "error", queryErr, "status", constants.StatusNotebookApplied)
 	}
-}
-
-// cleanupNotebookResources handles the cleanup of all Kubernetes resources associated with a notebook
-func (app *application) cleanupNotebookResources(ctx context.Context, notebook Notebook, logger *slog.Logger) {
-	// Mark the notebook as being cleaned up
-	if err := NotebookStatusUpdate(app.pgPool, ctx, notebook.ID, constants.StatusCleanupStarted); err != nil {
-		logger.Error("failed to update notebook cleanup status", "error", err)
-		return
-	}
-	
-	// 1. Delete the Notebook CR first
-	logger.Info("Starting cleanup of notebook resources")
-	if err := DeleteNotebook(app.k8sClient, notebook.Namespace, notebook.Name); err != nil {
-		logger.Error("failed to delete notebook CR", "error", err)
-		if updateErr := NotebookStatusUpdate(app.pgPool, ctx, notebook.ID, constants.StatusNotebookDeleteFailed); updateErr != nil {
-			logger.Error("failed to update notebook status", "error", updateErr)
-		}
-		return
-	}
-	
-	// Update status after notebook deletion
-	if err := NotebookStatusUpdate(app.pgPool, ctx, notebook.ID, constants.StatusNotebookDeleted); err != nil {
-		logger.Error("failed to update notebook status after deletion", "error", err)
-		return
-	}
-	
-	// 2. Find and delete any upload pods associated with this notebook
-	// We'll look for pods with the naming pattern: notebook.Name + "-upload-pod-"
-	podPrefix := notebook.Name + "-upload-pod-"
-	
-	// This would require listing pods in the namespace and filtering by name prefix
-	// For now, we'll use the PVC name which we have
-	if err := DeletePod(app.k8sClient, notebook.Namespace, podPrefix); err != nil {
-		logger.Error("failed to delete upload pod", "error", err)
-		if updateErr := NotebookStatusUpdate(app.pgPool, ctx, notebook.ID, constants.StatusPodDeleteFailed); updateErr != nil {
-			logger.Error("failed to update notebook status", "error", updateErr)
-		}
-		// Continue with PVC deletion even if pod deletion fails
-	} else {
-		if err := NotebookStatusUpdate(app.pgPool, ctx, notebook.ID, constants.StatusPodDeleted); err != nil {
-			logger.Error("failed to update notebook status after pod deletion", "error", err)
-		}
-	}
-	
-	// 3. Delete the PVC
-	if err := DeletePVC(app.k8sClient, notebook.Namespace, notebook.PVCname); err != nil {
-		logger.Error("failed to delete PVC", "error", err)
-		if updateErr := NotebookStatusUpdate(app.pgPool, ctx, notebook.ID, constants.StatusPVCDeleteFailed); updateErr != nil {
-			logger.Error("failed to update notebook status", "error", updateErr)
-		}
-		return
-	}
-	
-	// Update status after PVC deletion
-	if err := NotebookStatusUpdate(app.pgPool, ctx, notebook.ID, constants.StatusPVCDeleted); err != nil {
-		logger.Error("failed to update notebook status after PVC deletion", "error", err)
-		return
-	}
-	
-	// Mark cleanup as completed
-	if err := NotebookStatusUpdate(app.pgPool, ctx, notebook.ID, constants.StatusCleanupCompleted); err != nil {
-		logger.Error("failed to mark cleanup as completed", "error", err)
-		return
-	}
-	
-	logger.Info("Successfully completed cleanup of all notebook resources")
 }

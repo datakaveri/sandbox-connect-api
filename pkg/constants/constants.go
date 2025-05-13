@@ -14,15 +14,4 @@ const (
 	StatusPVCUploadFailed       Events = "pvc-upload-failed"
 	StatusNotebookApplied       Events = "notebook-applied"
 	StatusNotebookAppliedFailed Events = "notebook-applied-failed"
-	
-	// Cleanup status events
-	StatusCleanupRequested      Events = "cleanup-requested"
-	StatusCleanupStarted        Events = "cleanup-started"
-	StatusNotebookDeleted       Events = "notebook-deleted"
-	StatusNotebookDeleteFailed  Events = "notebook-delete-failed"
-	StatusPodDeleted            Events = "pod-deleted"
-	StatusPodDeleteFailed       Events = "pod-delete-failed"
-	StatusPVCDeleted            Events = "pvc-deleted"
-	StatusPVCDeleteFailed       Events = "pvc-delete-failed"
-	StatusCleanupCompleted      Events = "cleanup-completed"
 )
