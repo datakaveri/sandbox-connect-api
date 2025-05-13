@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sandbox-backend-service/pkg/constants"
 	"sandbox-backend-service/pkg/k8s"
-	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -53,7 +53,7 @@ func PVCWatcher(k8sClient *k8s.K8sClient, namespace, pvcName string) error {
 		Version:  "v1",
 		Resource: "persistentvolumeclaims",
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), constants.PVCWatchTimeout)
 	defer cancel()
 	watcher, err := k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Watch(ctx, metav1.ListOptions{
 		FieldSelector: fmt.Sprintf("metadata.name=%s", pvcName),
@@ -82,7 +82,7 @@ func PVCWatcher(k8sClient *k8s.K8sClient, namespace, pvcName string) error {
 			return nil
 		}
 		if event.Type == watch.Deleted {
-			return errors.New("PVC was deleted before becoming bound.")
+			return errors.New("PVC was deleted before becoming bound")
 		}
 	}
 	if ctx.Err() == context.DeadlineExceeded {
@@ -170,7 +170,7 @@ func CheckStatusOfUploadFilePod(k8sClient *k8s.K8sClient, namespace, notebookNam
 		Version:  "v1",
 		Resource: "pods",
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), constants.UploadPodTimeout)
 	defer cancel()
 	watcher, err := k8sClient.Dynamic.Resource(podGVR).Namespace(namespace).Watch(ctx, metav1.ListOptions{
 		FieldSelector: fmt.Sprintf("metadata.name=%s", fileUploadPodName),

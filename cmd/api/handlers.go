@@ -12,13 +12,13 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 	notebookReq, err := utils.DecodeAndValidate[NotebookRequest](r.Body, logger)
 	if err != nil {
 		logger.Error("invalid body", "error", err)
-		jsonResponse(w, http.StatusUnprocessableEntity, map[string]string{"error": "Invalid Body"})
+		sendResponse(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
 		return
 	}
 
 	if notebookReq.GPU.Limit > 0 && !IsValidGPUResource(notebookReq.GPU.Type) {
 		logger.Error("invalid gpu type", "gpu_type", notebookReq.GPU.Type)
-		jsonResponse(w, http.StatusUnprocessableEntity, map[string]string{"error": "Invalid GPU Type"})
+		sendResponse(w, r, logger, http.StatusUnprocessableEntity, "Invalid GPU Type")
 		return
 	}
 	if notebookReq.TemplateName != "ai" && notebookReq.TemplateName != "ml" {
@@ -76,12 +76,8 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 	err = app.pgPool.Pool.QueryRow(ctx, query, args...).Scan(&notebookId)
 	if err != nil {
 		logger.Error("failed to create notebook", "error", err)
-		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create notebook"})
+		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to create notebook")
 		return
 	}
-	response := map[string]interface{}{
-		"message": "Notebook created successfully",
-		"id":      notebookId,
-	}
-	jsonResponse(w, http.StatusCreated, response)
+	sendResponse(w, r, logger, http.StatusCreated, "Notebook created successfully")
 }
