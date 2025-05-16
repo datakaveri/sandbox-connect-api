@@ -285,3 +285,107 @@ func CreateNotebook(k8sClient *k8s.K8sClient, nb Notebook, pvcName string) error
 	_, err := k8sClient.Dynamic.Resource(notebookGVR).Namespace(nb.Namespace).Create(context.Background(), notebookObj, metav1.CreateOptions{})
 	return err
 }
+func DeleteNotebook(k8sClient *k8s.K8sClient, namespace, notebookName string) error {
+	logger := slog.With(
+		"notebookName", notebookName,
+		"namespace", namespace,
+		"action", "delete",
+	)
+
+	notebookGVR := schema.GroupVersionResource{
+		Group:    "kubeflow.org",
+		Version:  "v1alpha1",
+		Resource: "notebooks",
+	}
+
+	logger.Info("Deleting Notebook resource")
+
+	_, err := k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Get(context.Background(), notebookName, metav1.GetOptions{})
+	if err != nil {
+		logger.Warn("Notebook not found, may have been already deleted", "error", err)
+		return nil
+	}
+
+	deletePolicy := metav1.DeletePropagationBackground
+	deleteOptions := metav1.DeleteOptions{
+		PropagationPolicy: &deletePolicy,
+	}
+
+	err = k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Delete(context.Background(), notebookName, deleteOptions)
+	if err != nil {
+		logger.Error("Failed to delete Notebook resource", "error", err)
+		return err
+	}
+
+	logger.Info("Successfully deleted Notebook resource")
+	return nil
+}
+func DeletePod(k8sClient *k8s.K8sClient, namespace, podName string) error {
+	logger := slog.With(
+		"podName", podName,
+		"namespace", namespace,
+		"action", "delete",
+	)
+
+	podGVR := schema.GroupVersionResource{
+		Group:    "",
+		Version:  "v1",
+		Resource: "pods",
+	}
+
+	_, err := k8sClient.Dynamic.Resource(podGVR).Namespace(namespace).Get(context.Background(), podName, metav1.GetOptions{})
+	if err != nil {
+		logger.Warn("Pod not found, may have been already deleted", "error", err)
+		return nil
+	}
+
+	deletePolicy := metav1.DeletePropagationBackground
+	deleteOptions := metav1.DeleteOptions{
+		PropagationPolicy: &deletePolicy,
+	}
+
+	err = k8sClient.Dynamic.Resource(podGVR).Namespace(namespace).Delete(context.Background(), podName, deleteOptions)
+	if err != nil {
+		logger.Error("Failed to delete Pod", "error", err)
+		return err
+	}
+
+	logger.Info("Successfully deleted Pod")
+	return nil
+}
+
+func DeletePVC(k8sClient *k8s.K8sClient, namespace, pvcName string) error {
+	logger := slog.With(
+		"pvcName", pvcName,
+		"namespace", namespace,
+		"action", "delete",
+	)
+
+	pvcGVR := schema.GroupVersionResource{
+		Group:    "",
+		Version:  "v1",
+		Resource: "persistentvolumeclaims",
+	}
+
+	logger.Info("Deleting PersistentVolumeClaim")
+
+	_, err := k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Get(context.Background(), pvcName, metav1.GetOptions{})
+	if err != nil {
+		logger.Warn("PVC not found, may have been already deleted", "error", err)
+		return nil
+	}
+
+	deletePolicy := metav1.DeletePropagationBackground
+	deleteOptions := metav1.DeleteOptions{
+		PropagationPolicy: &deletePolicy,
+	}
+
+	err = k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Delete(context.Background(), pvcName, deleteOptions)
+	if err != nil {
+		logger.Error("Failed to delete PVC", "error", err)
+		return err
+	}
+
+	logger.Info("Successfully deleted PVC")
+	return nil
+}

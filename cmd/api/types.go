@@ -41,3 +41,8 @@ type NotebookRequest struct {
 	GPU             GPUResource `json:"gpu" validate:"omitempty"`
 	TemplateName    string      `json:"templateName" validate:"omitempty"`
 }
+
+type StopNotebookRequest struct {
+	Name      string `json:"name" validate:"required"`
+	Namespace string `json:"namespace" validate:"required"`
+}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+
+	"sandbox-backend-service/pkg/constants"
 	"sandbox-backend-service/pkg/utils"
 )
 
@@ -123,5 +125,44 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to create notebook")
 		return
 	}
-	sendResponse(w, r, logger, http.StatusCreated, "Notebook created successfully")
+	sendResponse(w, r, logger, http.StatusCreated, "notebook creation is process")
+}
+func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
+	logger := getLogger(r)
+	stopReq, err := utils.DecodeAndValidate[StopNotebookRequest](r.Body, logger)
+	if err != nil {
+		logger.Error("invalid body", "error", err)
+		sendResponse(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
+		return
+	}
+
+	ctx := context.Background()
+	var notebookID int64
+	var latestEvent string
+	query := `
+		SELECT id, events[array_upper(events, 1)] as latest_event
+		FROM notebooks
+		WHERE name = $1 AND namespace = $2
+	`
+	err = app.pgPool.Pool.QueryRow(ctx, query, stopReq.Name, stopReq.Namespace).Scan(&notebookID, &latestEvent)
+	if err != nil {
+		logger.Error("failed to find notebook", "error", err)
+		sendResponse(w, r, logger, http.StatusNotFound, "Notebook not found")
+		return
+	}
+
+	if latestEvent != string(constants.StatusNotebookApplied) {
+		logger.Error("cannot stop notebook that is not in applied state", "currentState", latestEvent)
+		sendResponse(w, r, logger, http.StatusBadRequest, "Cannot stop notebook that is not in applied state")
+		return
+	}
+
+	err = addStoppedAnnotationToNotebook(app.k8sClient, stopReq.Namespace, stopReq.Name)
+	if err != nil {
+		logger.Error("failed to add stopped annotation to notebook", "error", err)
+		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to stop notebook")
+		return
+	}
+
+	sendResponse(w, r, logger, http.StatusOK, "Notebook stopped successfully")
 }
