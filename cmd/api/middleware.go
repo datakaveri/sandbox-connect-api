@@ -2,14 +2,21 @@ package main
 
 import (
 	"context"
-	"github.com/google/uuid"
 	"net/http"
 	"time"
+
+	"github.com/google/uuid"
 )
+
+var allowedOrigins = []string{"http://localhost:3000"}
 
 func enableCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("origin")
+		if !contains(allowedOrigins, origin) {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, PUT")
 		w.Header().Set("Access-Control-Allow-Credentials", "true")

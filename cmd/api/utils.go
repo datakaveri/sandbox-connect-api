@@ -54,8 +54,11 @@ var SupportedGPUResources = []string{
 }
 
 func IsValidGPUResource(gpuType string) bool {
-	for _, validType := range SupportedGPUResources {
-		if validType == gpuType {
+	return contains(SupportedGPUResources, gpuType)
+}
+func contains(s []string, e string) bool {
+	for _, a := range s {
+		if a == e {
 			return true
 		}
 	}

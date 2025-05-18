@@ -127,7 +127,7 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to create notebook")
 		return
 	}
-	sendResponse(w, r, logger, http.StatusCreated, "notebook creation is process")
+	sendResponse(w, r, logger, http.StatusCreated, "notebook creation is in process")
 }
 func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
@@ -235,6 +235,12 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 		}
 		logger.Error("failed to select notebook", "error", err)
 		sendResponse(w, r, logger, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	if latestEvent != string(constants.StatusNotebookApplied) {
+		logger.Error("cannot delete notebook that is not in applied state", "currentState", latestEvent)
+		sendResponse(w, r, logger, http.StatusBadRequest, "Cannot delete notebook that is not in applied state")
 		return
 	}
 
