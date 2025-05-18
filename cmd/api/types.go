@@ -42,7 +42,42 @@ type NotebookRequest struct {
 	TemplateName    string      `json:"templateName" validate:"omitempty"`
 }
 
+type NotebookDetails struct {
+	ID            int64          `json:"id"`
+	Name          string         `json:"name"`
+	Namespace     string         `json:"namespace"`
+	StorageSize   string         `json:"storage_size"`
+	PVCName       string         `json:"pvc_name"`
+	CPURequest    float64        `json:"cpu_request"`
+	CPULimit      float64        `json:"cpu_limit"`
+	MemoryRequest string         `json:"memory_request"`
+	MemoryLimit   string         `json:"memory_limit"`
+	GPUType       *string        `json:"gpu_type,omitempty"`
+	GPUCount      *int           `json:"gpu_count,omitempty"`
+	TemplateName  *string        `json:"template_name,omitempty"`
+	LatestEvent   string         `json:"latest_event"`
+	K8sSpec       map[string]any `json:"k8s_spec,omitempty"`
+}
+
 type StopNotebookRequest struct {
 	Name      string `json:"name" validate:"required"`
 	Namespace string `json:"namespace" validate:"required"`
+}
+type StartNotebookRequest struct {
+	Name      string `json:"name" validate:"required"`
+	Namespace string `json:"namespace" validate:"required"`
+}
+type DeleteNotebookRequest struct {
+	Name      string `json:"name" validate:"required"`
+	Namespace string `json:"namespace" validate:"required"`
+}
+
+type ListNotebooksRequest struct {
+	Namespace string `json:"namespace" validate:"required"`
+}
+
+type ListNotebooksResponse struct {
+	Successful []NotebookDetails `json:"successful"`
+	Pending    []NotebookDetails `json:"pending"`
+	Failed     []NotebookDetails `json:"failed"`
 }

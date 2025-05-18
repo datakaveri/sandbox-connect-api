@@ -24,6 +24,17 @@ func sendResponse(w http.ResponseWriter, r *http.Request, logger *slog.Logger, s
 		"status", status)
 	jsonResponse(w, status, message)
 }
+func sendResponseJson(w http.ResponseWriter, r *http.Request, logger *slog.Logger, status int, userMessage any) {
+	startTime, ok := r.Context().Value("startTime").(time.Time)
+	if !ok {
+		startTime = time.Now()
+	}
+	duration := time.Since(startTime)
+	logger.Info("Request End",
+		"duration_ms", duration.Milliseconds(),
+		"status", status)
+	jsonResponse(w, status, userMessage)
+}
 func getLogger(r *http.Request) *slog.Logger {
 	requestID := r.Context().Value("requestID").(string)
 	logger := slog.With(
