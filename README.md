@@ -247,11 +247,11 @@ Notebooks in the `pending` category are still in the process of being created or
 ### Failed
 
 Notebooks in the `failed` category encountered errors during creation. A notebook is categorized as failed if its latest event is one of:
-- `pvc-apply-failed`: PVC application failed
+- `pvc-apply-failed`: PVC apply failed
 - `pvc-creation-failed`: PVC creation failed
 - `pvc-upload-failed`: PVC upload failed
-- `pvc-upload-apply-failed`: PVC upload application failed
-- `notebook-apply-failed`: Notebook application failed
+- `pvc-upload-apply-failed`: PVC upload apply failed
+- `notebook-apply-failed`: Notebook apply failed
 
 Failed notebooks indicate that something went wrong during the creation process and manual intervention may be required.
 
