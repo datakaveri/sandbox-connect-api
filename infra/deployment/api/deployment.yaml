@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sandbox-api
+  namespace: sandbox
+  labels:
+    app: sandbox-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sandbox-api
+  template:
+    metadata:
+      labels:
+        app: sandbox-api
+    spec:
+      serviceAccountName: notebook-manager-sa 
+      containers:
+      - name: sandbox-api
+        image: ghcr.io/datakaveri/tgdex-sandbox-connect-api:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: ADDRESS
+          value: "0.0.0.0:3000"
+        - name: POSTGRES_URL
+          valueFrom:
+            secretKeyRef:
+              name: database-creds
+              key: POSTGRES_URL
+        - name: KUBE_CONFIG_MODE
+          value: "cluster"
+        - name: CORS_ORIGINS
+          value: "*"
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: api-auth
+              key: API_KEY
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sandbox-api
+  namespace: sandbox
+spec:
+  selector:
+    app: sandbox-api
+  ports:
+  - port: 80
+    targetPort: 3000
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sandbox-api-ingress
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - host: api.sandbox.tgdex.telangana.gov.in
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: sandbox-api
+            port:
+              number: 80
+  tls:
+  - hosts:
+    - api.sandbox.tgdex.telangana.gov.in
+    secretName: sandbox-api-tls

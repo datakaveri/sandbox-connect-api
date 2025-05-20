@@ -11,6 +11,7 @@ type ApiEnv struct {
 	KubeConfigPath string `env:"KUBE_CONFIG_PATH" envDefault:""`
 	KubeConfigMode string `env:"KUBE_CONFIG_MODE" envDefault:"cluster"`
 	CORS_ORIGINS   string `env:"CORS_ORIGINS" envDefault:""`
+	API_KEY        string `env:"API_KEY,required"`
 }
 
 type application struct {

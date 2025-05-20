@@ -53,3 +53,27 @@ func loggingMiddleware(next http.Handler) http.Handler {
 
 	})
 }
+
+func (app *application) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		apiKey := r.Header.Get("X-API-Key")
+		if apiKey == "" {
+			apiKey = r.URL.Query().Get("api_key")
+		}
+
+		if apiKey == "" || apiKey != app.env.API_KEY {
+			logger := getLogger(r)
+			logger.Warn("Unauthorized request: Invalid or missing API key")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"error": "Unauthorized: Invalid or missing API key"}`))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}

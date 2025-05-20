@@ -44,7 +44,7 @@ func main() {
 	slog.Info(fmt.Sprintf("server is serving from : http://%s", config.Address))
 	server := http.Server{
 		Addr:    config.Address,
-		Handler: loggingMiddleware(app.enableCORS(app.router())),
+		Handler: loggingMiddleware(app.enableCORS(app.authMiddleware(app.router()))),
 	}
 	if err := server.ListenAndServe(); err != nil {
 		utils.LogErrorAndExit("Can't start server", "address", config.Address, "error", err)
