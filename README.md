@@ -271,9 +271,9 @@ Orphaned notebooks should be investigated and cleaned up.
 ### Event Flow
 
 The typical event flow for a notebook is:
-1. `picked`: The worker has picked up the notebook creation request
-2. `pvc-applied`: PVC manifest has been applied to Kubernetes
-3. `pvc-created`: PVC has been created in Kubernetes
+1. `scheduled`: The notebook creation request has been scheduled
+2. `picked`: The worker has picked up the notebook creation request
+3. `pvc-applied`: PVC manifest has been applied to Kubernetes
 4. `notebook-applied`: Notebook manifest has been applied to Kubernetes
 
 After `notebook-applied`, the notebook will be in the `pending` category until Kubernetes reports that it's ready (`readyReplicas` = 1), at which point it moves to the `successful` category.

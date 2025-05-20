@@ -18,7 +18,7 @@ spec:
       serviceAccountName: notebook-manager-sa 
       containers:
       - name: worker
-        image: ghcr.io/datakaveri/tgdex-sandbox-connect-worker:latest
+        image: ghcr.io/datakaveri/tgdex-sandbox-connect-api:worker
         env:
         - name: POSTGRES_URL
           valueFrom:
