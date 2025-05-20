@@ -15,7 +15,7 @@ const (
 	StatusPVCUploadApplyFailed Events = "pvc-upload-apply-failed"
 	StatusPVCUploadFailed      Events = "pvc-upload-failed"
 	StatusNotebookApplied      Events = "notebook-applied"
-	StatusNotebookAppllyFailed Events = "notebook-applied-failed"
+	StatusNotebookApplyFailed  Events = "notebook-apply-failed"
 )
 
 const (

@@ -15,6 +15,7 @@ A backend service for managing Jupyter notebooks in Kubernetes.
   - [Start Notebook](#start-notebook)
   - [Delete Notebook](#delete-notebook)
   - [List Notebooks](#list-notebooks)
+- [Notebook Status Categories](#notebook-status-categories)
 - [Development](#development)
 
 ## Overview
@@ -207,10 +208,73 @@ curl -X POST http://localhost:3000/notebook/list \
 ```json
 {
   "successful": [],
+  "stopped": [],
   "pending": [],
-  "failed": []
+  "failed": [],
+  "orphaned": []
 }
 ```
 
+## Notebook Status Categories
 
+When listing notebooks, the API categorizes them into different groups based on their status:
+
+### Successful
+
+Notebooks in the `successful` category are fully deployed and ready to use. These notebooks:
+- Have `notebook-applied` as their latest event
+- Exist in Kubernetes
+- Have `readyReplicas` set to 1 or more in their status
+
+Users can connect to and use these notebooks.
+
+### Stopped
+
+Notebooks in the `stopped` category are valid notebooks that have been temporarily stopped by the user. These notebooks:
+- Have `notebook-applied` as their latest event
+- Exist in Kubernetes
+- Have the `kubeflow-resource-stopped` annotation
+
+These notebooks can be restarted using the start endpoint.
+
+### Pending
+
+Notebooks in the `pending` category are still in the process of being created or are waiting for resources. A notebook is categorized as pending if:
+- Its latest event is not `notebook-applied` and not one of the failure events
+- Its latest event is `notebook-applied` but it doesn't have `readyReplicas` set to 1 or more
+- Its latest event is `notebook-applied` but there was an error parsing its Kubernetes spec
+
+### Failed
+
+Notebooks in the `failed` category encountered errors during creation. A notebook is categorized as failed if its latest event is one of:
+- `pvc-apply-failed`: PVC application failed
+- `pvc-creation-failed`: PVC creation failed
+- `pvc-upload-failed`: PVC upload failed
+- `pvc-upload-apply-failed`: PVC upload application failed
+- `notebook-apply-failed`: Notebook application failed
+
+Failed notebooks indicate that something went wrong during the creation process and manual intervention may be required.
+
+### Orphaned
+
+Notebooks in the `orphaned` category represent an inconsistency between the database and Kubernetes. A notebook is categorized as orphaned if:
+- Its latest event is `notebook-applied` (indicating it should exist in Kubernetes)
+- BUT it cannot be found in the Kubernetes cluster
+
+This should not happen under normal circumstances and may indicate:
+- The notebook was deleted directly from Kubernetes without updating the database
+- There was a communication issue with Kubernetes
+- There was a database inconsistency
+
+Orphaned notebooks should be investigated and cleaned up.
+
+### Event Flow
+
+The typical event flow for a notebook is:
+1. `picked`: The worker has picked up the notebook creation request
+2. `pvc-applied`: PVC manifest has been applied to Kubernetes
+3. `pvc-created`: PVC has been created in Kubernetes
+4. `notebook-applied`: Notebook manifest has been applied to Kubernetes
+
+After `notebook-applied`, the notebook will be in the `pending` category until Kubernetes reports that it's ready (`readyReplicas` = 1), at which point it moves to the `successful` category.
 

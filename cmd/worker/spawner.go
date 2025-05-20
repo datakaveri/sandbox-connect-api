@@ -24,13 +24,12 @@ func (app *application) worker(sem chan struct{}) {
 	}()
 	ctx := context.Background()
 	var notebook Notebook
+	slog.Info("Waiting for notebook")
 	for {
 		notebookArr, err := FetchAndMarkNotebook(app.pgPool, ctx)
 		if err != nil {
 			slog.Error("failed fetching notebook", "error", err)
-		} else if len(notebookArr) == 0 {
-			slog.Info("no notebook found")
-		} else {
+		} else if len(notebookArr) > 0 {
 			notebook = notebookArr[0]
 			break
 		}
@@ -39,10 +38,11 @@ func (app *application) worker(sem chan struct{}) {
 
 	logger := slog.With("notebookName", notebook.Name,
 		"namespace", notebook.Namespace)
+	logger.Info("Spawning notebook")
 
 	uploadPodName := notebook.Name + "-upload-pod-" + uuid.New().String()
-	cleanupResources := func(failed bool) {
-		if failed {
+	cleanupResources := func(failed *bool) {
+		if *failed {
 			logger.Info("Cleaning up resources due to failure")
 
 			if err := DeleteNotebook(app.k8sClient, notebook.Namespace, notebook.Name); err != nil {
@@ -64,10 +64,10 @@ func (app *application) worker(sem chan struct{}) {
 			}
 		}
 	}
-
 	var failed bool = true
+	var failedPtr *bool = &failed
 
-	defer cleanupResources(failed)
+	defer cleanupResources(failedPtr)
 
 	if err := CreatePVC(app.k8sClient, notebook.Namespace, notebook.PVCname, notebook.StorageSize); err != nil {
 		logger.Error("failed to create pv", "error", err)
@@ -81,19 +81,22 @@ func (app *application) worker(sem chan struct{}) {
 		logger.Error("failed to update notebook status", "error", err, "status", constants.StatusPVCApplied)
 		return
 	}
-	if err := PVCWatcher(app.k8sClient, notebook.Namespace, notebook.PVCname); err != nil {
-		logger.Error("failed to create pv", "error", err)
-		queryErr := NotebookStatusUpdate(app.pgPool, ctx, notebook.ID, constants.StatusPVCCreationFailed)
-		if queryErr != nil {
-			logger.Error("failed to update notebook status", "error", queryErr, "status", constants.StatusPVCCreationFailed)
-		}
-		return
-	}
-	if err := NotebookStatusUpdate(app.pgPool, ctx, notebook.ID, constants.StatusPVCCreated); err != nil {
-		logger.Error("failed to update notebook status", "error", err, "status", constants.StatusPVCCreated)
-		return
-	}
 
+	/*
+		if err := PVCWatcher(app.k8sClient, notebook.Namespace, notebook.PVCname); err != nil {
+			logger.Error("failed to create pv", "error", err)
+			queryErr := NotebookStatusUpdate(app.pgPool, ctx, notebook.ID, constants.StatusPVCCreationFailed)
+			if queryErr != nil {
+				logger.Error("failed to update notebook status", "error", queryErr, "status", constants.StatusPVCCreationFailed)
+			}
+			return
+		}
+		if err := NotebookStatusUpdate(app.pgPool, ctx, notebook.ID, constants.StatusPVCCreated); err != nil {
+			logger.Error("failed to update notebook status", "error", err, "status", constants.StatusPVCCreated)
+			return
+		}
+	*/
+	logger.Info("PVC created")
 	var presignedUrl *string
 	if notebook.TemplateName != nil {
 		var err error
@@ -128,13 +131,14 @@ func (app *application) worker(sem chan struct{}) {
 			logger.Error("failed to update notebook status", "error", queryErr, "status", constants.StatusPVCUploadSuccessful)
 			return
 		}
+		logger.Info("PVC uploaded successfully")
 	}
-	err := CreateNotebook(app.k8sClient, notebook, notebook.PVCname)
+	err := CreateNotebook(app.k8sClient, notebook)
 	if err != nil {
-		logger.Error("failed to apply notebook manifest", "error", err, "notebookStatus", constants.StatusNotebookAppllyFailed)
-		queryErr := NotebookStatusUpdate(app.pgPool, ctx, notebook.ID, constants.StatusNotebookAppllyFailed)
+		logger.Error("failed to apply notebook manifest", "error", err, "notebookStatus", constants.StatusNotebookApplyFailed)
+		queryErr := NotebookStatusUpdate(app.pgPool, ctx, notebook.ID, constants.StatusNotebookApplyFailed)
 		if queryErr != nil {
-			logger.Error("failed to update notebook status", "error", queryErr, "status", constants.StatusNotebookAppllyFailed)
+			logger.Error("failed to update notebook status", "error", queryErr, "status", constants.StatusNotebookApplyFailed)
 		}
 		return
 	}
@@ -143,6 +147,6 @@ func (app *application) worker(sem chan struct{}) {
 	if queryErr != nil {
 		logger.Error("failed to update notebook status", "error", queryErr, "status", constants.StatusNotebookApplied)
 	}
-
+	logger.Info("Notebook applied successfully")
 	failed = false
 }

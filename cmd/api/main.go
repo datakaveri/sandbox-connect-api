@@ -2,14 +2,15 @@ package main
 
 import (
 	"fmt"
-	"github.com/caarlos0/env/v11"
-	"github.com/joho/godotenv"
 	"log/slog"
 	"net/http"
 	"os"
 	"sandbox-backend-service/pkg/db"
 	"sandbox-backend-service/pkg/k8s"
 	"sandbox-backend-service/pkg/utils"
+
+	"github.com/caarlos0/env/v11"
+	"github.com/joho/godotenv"
 )
 
 func main() {
@@ -43,7 +44,7 @@ func main() {
 	slog.Info(fmt.Sprintf("server is serving from : http://%s", config.Address))
 	server := http.Server{
 		Addr:    config.Address,
-		Handler: loggingMiddleware(enableCORS(app.router())),
+		Handler: loggingMiddleware(app.enableCORS(app.router())),
 	}
 	if err := server.ListenAndServe(); err != nil {
 		utils.LogErrorAndExit("Can't start server", "address", config.Address, "error", err)

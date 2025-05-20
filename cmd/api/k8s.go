@@ -13,7 +13,7 @@ import (
 func addStoppedAnnotationToNotebook(k8sClient *k8s.K8sClient, namespace, notebookName string) error {
 	notebookGVR := schema.GroupVersionResource{
 		Group:    "kubeflow.org",
-		Version:  "v1alpha1",
+		Version:  "v1beta1",
 		Resource: "notebooks",
 	}
 
@@ -49,7 +49,7 @@ func addStoppedAnnotationToNotebook(k8sClient *k8s.K8sClient, namespace, noteboo
 func removeStoppedAnnotationFromNotebook(k8sClient *k8s.K8sClient, namespace, notebookName string) error {
 	notebookGVR := schema.GroupVersionResource{
 		Group:    "kubeflow.org",
-		Version:  "v1alpha1",
+		Version:  "v1beta1",
 		Resource: "notebooks",
 	}
 
@@ -89,7 +89,7 @@ func removeStoppedAnnotationFromNotebook(k8sClient *k8s.K8sClient, namespace, no
 func deleteNotebookFromK8s(k8sClient *k8s.K8sClient, namespace, notebookName string) error {
 	notebookGVR := schema.GroupVersionResource{
 		Group:    "kubeflow.org",
-		Version:  "v1alpha1",
+		Version:  "v1beta1",
 		Resource: "notebooks",
 	}
 
@@ -114,7 +114,7 @@ func deleteNotebookFromK8s(k8sClient *k8s.K8sClient, namespace, notebookName str
 func getNotebooksJSON(k8sClient *k8s.K8sClient, namespace string) (map[string]any, error) {
 	notebookGVR := schema.GroupVersionResource{
 		Group:    "kubeflow.org",
-		Version:  "v1alpha1",
+		Version:  "v1beta1",
 		Resource: "notebooks",
 	}
 

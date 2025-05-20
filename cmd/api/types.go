@@ -10,6 +10,7 @@ type ApiEnv struct {
 	POSTGRES_URL   string `env:"POSTGRES_URL,required"`
 	KubeConfigPath string `env:"KUBE_CONFIG_PATH" envDefault:""`
 	KubeConfigMode string `env:"KUBE_CONFIG_MODE" envDefault:"cluster"`
+	CORS_ORIGINS   string `env:"CORS_ORIGINS" envDefault:""`
 }
 
 type application struct {
@@ -43,20 +44,19 @@ type NotebookRequest struct {
 }
 
 type NotebookDetails struct {
-	ID            int64          `json:"id"`
-	Name          string         `json:"name"`
-	Namespace     string         `json:"namespace"`
-	StorageSize   string         `json:"storage_size"`
-	PVCName       string         `json:"pvc_name"`
-	CPURequest    float64        `json:"cpu_request"`
-	CPULimit      float64        `json:"cpu_limit"`
-	MemoryRequest string         `json:"memory_request"`
-	MemoryLimit   string         `json:"memory_limit"`
-	GPUType       *string        `json:"gpu_type,omitempty"`
-	GPUCount      *int           `json:"gpu_count,omitempty"`
-	TemplateName  *string        `json:"template_name,omitempty"`
-	LatestEvent   string         `json:"latest_event"`
-	K8sSpec       map[string]any `json:"k8s_spec,omitempty"`
+	ID            int64    `json:"id"`
+	Name          string   `json:"name"`
+	Namespace     string   `json:"namespace"`
+	StorageSize   string   `json:"storage_size"`
+	PVCName       string   `json:"pvc_name"`
+	CPURequest    float64  `json:"cpu_request"`
+	CPULimit      float64  `json:"cpu_limit"`
+	MemoryRequest string   `json:"memory_request"`
+	MemoryLimit   string   `json:"memory_limit"`
+	GPUType       *string  `json:"gpu_type,omitempty"`
+	GPUCount      *int     `json:"gpu_count,omitempty"`
+	TemplateName  *string  `json:"template_name,omitempty"`
+	Events        []string `json:"events"`
 }
 
 type StopNotebookRequest struct {
@@ -78,6 +78,8 @@ type ListNotebooksRequest struct {
 
 type ListNotebooksResponse struct {
 	Successful []NotebookDetails `json:"successful"`
+	Stopped    []NotebookDetails `json:"stopped"`
 	Pending    []NotebookDetails `json:"pending"`
 	Failed     []NotebookDetails `json:"failed"`
+	Orphaned   []NotebookDetails `json:"orphaned"`
 }

@@ -3,16 +3,31 @@ package main
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-var allowedOrigins = []string{"http://localhost:3000"}
+func parseAllowedOrigins(originsStr string) []string {
+	if originsStr == "" {
+		return []string{}
+	}
+	origins := strings.Split(originsStr, ",")
+	for i := range origins {
+		origins[i] = strings.TrimSpace(origins[i])
+	}
+	return origins
+}
 
-func enableCORS(next http.Handler) http.Handler {
+func (app *application) enableCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("origin")
+		if r.Method != http.MethodOptions {
+			next.ServeHTTP(w, r)
+			return
+		}
+		allowedOrigins := parseAllowedOrigins(app.env.CORS_ORIGINS)
 		if !contains(allowedOrigins, origin) {
 			w.WriteHeader(http.StatusForbidden)
 			return
@@ -21,14 +36,9 @@ func enableCORS(next http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, PUT")
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		next.ServeHTTP(w, r)
+		w.WriteHeader(http.StatusOK)
 	})
 }
-
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestID := uuid.New().String()

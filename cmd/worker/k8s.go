@@ -27,7 +27,7 @@ func CreatePVC(k8sClient *k8s.K8sClient, namespace, pvcName, storageSize string)
 				"accessModes": []any{
 					"ReadWriteOnce",
 				},
-				"storageClassName": "eb2",
+				"storageClassName": "ebs-csi-storage-class",
 				"resources": map[string]any{
 					"requests": map[string]any{
 						"storage": storageSize,
@@ -214,7 +214,7 @@ func CheckStatusOfUploadFilePod(k8sClient *k8s.K8sClient, namespace, notebookNam
 		return errors.New("watch ended unexpectedly")
 	}
 }
-func CreateNotebook(k8sClient *k8s.K8sClient, nb Notebook, pvcName string) error {
+func CreateNotebook(k8sClient *k8s.K8sClient, nb Notebook) error {
 	var limit map[string]any
 	if nb.GPUType != nil && nb.GPUCount != nil && *nb.GPUCount != 0 {
 		limit = map[string]any{
@@ -231,7 +231,7 @@ func CreateNotebook(k8sClient *k8s.K8sClient, nb Notebook, pvcName string) error
 
 	notebookObj := &unstructured.Unstructured{
 		Object: map[string]any{
-			"apiVersion": "kubeflow.org/v1alpha1",
+			"apiVersion": "kubeflow.org/v1beta1",
 			"kind":       "Notebook",
 			"metadata": map[string]any{
 				"name":      nb.Name,
@@ -246,7 +246,7 @@ func CreateNotebook(k8sClient *k8s.K8sClient, nb Notebook, pvcName string) error
 						"containers": []any{
 							map[string]any{
 								"name":  nb.Name,
-								"image": "kubeflownotebookswg/jupyter-scipy:v1.9.2",
+								"image": "ghcr.io/kubeflow/kubeflow/notebook-servers/jupyter-scipy:v1.10.0",
 								"env":   []any{},
 								"resources": map[string]any{
 									"requests": map[string]any{
@@ -267,7 +267,7 @@ func CreateNotebook(k8sClient *k8s.K8sClient, nb Notebook, pvcName string) error
 							map[string]any{
 								"name": "data-volume",
 								"persistentVolumeClaim": map[string]any{
-									"claimName": pvcName,
+									"claimName": nb.PVCname,
 								},
 							},
 						},
@@ -279,7 +279,7 @@ func CreateNotebook(k8sClient *k8s.K8sClient, nb Notebook, pvcName string) error
 	}
 	notebookGVR := schema.GroupVersionResource{
 		Group:    "kubeflow.org",
-		Version:  "v1alpha1",
+		Version:  "v1beta1",
 		Resource: "notebooks",
 	}
 	_, err := k8sClient.Dynamic.Resource(notebookGVR).Namespace(nb.Namespace).Create(context.Background(), notebookObj, metav1.CreateOptions{})
@@ -294,7 +294,7 @@ func DeleteNotebook(k8sClient *k8s.K8sClient, namespace, notebookName string) er
 
 	notebookGVR := schema.GroupVersionResource{
 		Group:    "kubeflow.org",
-		Version:  "v1alpha1",
+		Version:  "v1beta1",
 		Resource: "notebooks",
 	}
 

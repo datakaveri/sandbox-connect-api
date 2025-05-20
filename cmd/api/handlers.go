@@ -64,22 +64,25 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if notebookReq.GPU.Limit > 0 && !IsValidGPUResource(notebookReq.GPU.Type) {
+	hasGPU := notebookReq.GPU.Limit > 0
+	if hasGPU && !IsValidGPUResource(notebookReq.GPU.Type) {
 		logger.Error("invalid gpu type", "gpu_type", notebookReq.GPU.Type)
 		sendResponse(w, r, logger, http.StatusUnprocessableEntity, "Invalid GPU Type")
 		return
 	}
-	if notebookReq.TemplateName != "ai" && notebookReq.TemplateName != "ml" {
+
+	hasTemplate := notebookReq.TemplateName != ""
+	if hasTemplate && !contains([]string{"ai", "ml"}, notebookReq.TemplateName) {
 		logger.Error("invalid template name", "template_name", notebookReq.TemplateName)
 		jsonResponse(w, http.StatusUnprocessableEntity, map[string]string{"error": "Invalid Template Name"})
 		return
 	}
 
+	userID := "00000000-0000-0000-0000-000000000000"
+	storageSize := fmt.Sprintf("%.2fGi", notebookReq.StorageSizeInGi)
 	memoryRequest := fmt.Sprintf("%dGi", int(notebookReq.MemoryInGi.Request))
 	memoryLimit := fmt.Sprintf("%dGi", int(notebookReq.MemoryInGi.Limit))
-	storageSize := fmt.Sprintf("%.2fGi", notebookReq.StorageSizeInGi)
 
-	userID := "00000000-0000-0000-0000-000000000000"
 	baseArgs := []any{
 		userID,
 		notebookReq.Name,
@@ -91,13 +94,12 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		memoryRequest,
 		memoryLimit,
 	}
+
 	var query string
 	var args []any
 
-	ctx := context.Background()
-
-	var notebookId int64
-	if notebookReq.GPU.Limit > 0 {
+	switch {
+	case hasGPU && hasTemplate:
 		query = `
 		INSERT INTO notebooks (
 			user_id, name, namespace, storage_size, pvc_name, 
@@ -106,9 +108,20 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
 		) RETURNING id`
-
 		args = append(baseArgs, notebookReq.GPU.Type, notebookReq.GPU.Limit, notebookReq.TemplateName)
-	} else {
+
+	case hasGPU && !hasTemplate:
+		query = `
+		INSERT INTO notebooks (
+			user_id, name, namespace, storage_size, pvc_name, 
+			cpu_request, cpu_limit, memory_request, memory_limit, 
+			gpu_type, gpu_count
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+		) RETURNING id`
+		args = append(baseArgs, notebookReq.GPU.Type, notebookReq.GPU.Limit)
+
+	case !hasGPU && hasTemplate:
 		query = `
 		INSERT INTO notebooks (
 			user_id, name, namespace, storage_size, pvc_name, 
@@ -117,18 +130,31 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10
 		) RETURNING id`
-
 		args = append(baseArgs, notebookReq.TemplateName)
+
+	default:
+		query = `
+		INSERT INTO notebooks (
+			user_id, name, namespace, storage_size, pvc_name, 
+			cpu_request, cpu_limit, memory_request, memory_limit
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9
+		) RETURNING id`
+		args = baseArgs
 	}
 
+	ctx := context.Background()
+	var notebookId int64
 	err = app.pgPool.Pool.QueryRow(ctx, query, args...).Scan(&notebookId)
 	if err != nil {
 		logger.Error("failed to create notebook", "error", err)
 		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to create notebook")
 		return
 	}
+
 	sendResponse(w, r, logger, http.StatusCreated, "notebook creation is in process")
 }
+
 func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
 	stopReq, err := utils.DecodeAndValidate[StopNotebookRequest](r.Body, logger)
@@ -284,7 +310,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		SELECT id, name, namespace, storage_size, pvc_name, 
 		       cpu_request, cpu_limit, memory_request, memory_limit, 
 		       gpu_type, gpu_count, template_name, 
-		       events[array_upper(events, 1)] as latest_event
+		       events
 		FROM notebooks
 		WHERE namespace = $1
 	`
@@ -298,8 +324,10 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 
 	response := ListNotebooksResponse{
 		Successful: []NotebookDetails{},
+		Stopped:    []NotebookDetails{},
 		Pending:    []NotebookDetails{},
 		Failed:     []NotebookDetails{},
+		Orphaned:   []NotebookDetails{},
 	}
 
 	for rows.Next() {
@@ -308,32 +336,64 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 			&notebook.ID, &notebook.Name, &notebook.Namespace, &notebook.StorageSize,
 			&notebook.PVCName, &notebook.CPURequest, &notebook.CPULimit,
 			&notebook.MemoryRequest, &notebook.MemoryLimit, &notebook.GPUType,
-			&notebook.GPUCount, &notebook.TemplateName, &notebook.LatestEvent,
+			&notebook.GPUCount, &notebook.TemplateName, &notebook.Events,
 		)
 		if err != nil {
 			logger.Error("failed to scan notebook row", "error", err)
 			continue
 		}
 
-		if notebook.LatestEvent == string(constants.StatusNotebookApplied) {
-			k8sSpec, exists := k8sNotebooks[notebook.Name]
+		latestEvent := ""
+		if len(notebook.Events) == 0 {
+			response.Pending = append(response.Pending, notebook)
+			continue
+		}
+
+		latestEvent = notebook.Events[len(notebook.Events)-1]
+		if latestEvent == string(constants.StatusPVCApplyFailed) ||
+			latestEvent == string(constants.StatusPVCUploadFailed) ||
+			latestEvent == string(constants.StatusPVCUploadApplyFailed) ||
+			latestEvent == string(constants.StatusNotebookApplyFailed) ||
+			latestEvent == string(constants.StatusPVCCreationFailed) {
+			response.Failed = append(response.Failed, notebook)
+			continue
+		}
+
+		if latestEvent == string(constants.StatusNotebookApplied) {
+			spec, exists := k8sNotebooks[notebook.Name]
 			if !exists {
 				logger.Warn("notebook marked as applied but not found in k8s", "name", notebook.Name)
-				response.Pending = append(response.Pending, notebook)
+				response.Orphaned = append(response.Orphaned, notebook)
 				continue
 			}
-			k8sSpecMap, ok := k8sSpec.(map[string]any)
+
+			k8sSpecMap, ok := spec.(map[string]any)
 			if !ok {
 				logger.Warn("expected map[string]any for k8s notebook spec", "name", notebook.Name)
 				response.Pending = append(response.Pending, notebook)
 				continue
 			}
-			notebook.K8sSpec = k8sSpecMap
-			response.Successful = append(response.Successful, notebook)
-		} else if notebook.LatestEvent == string(constants.StatusNotebookAppllyFailed) ||
-			notebook.LatestEvent == string(constants.StatusPVCUploadFailed) ||
-			notebook.LatestEvent == string(constants.StatusPVCUploadApplyFailed) {
-			response.Failed = append(response.Failed, notebook)
+
+			if metadataMap, hasMetadata := k8sSpecMap["metadata"].(map[string]any); hasMetadata {
+				if annotationsMap, hasAnnotations := metadataMap["annotations"].(map[string]any); hasAnnotations {
+					_, isStopped := annotationsMap["kubeflow-resource-stopped"]
+					if isStopped {
+						response.Stopped = append(response.Stopped, notebook)
+						continue
+					}
+				}
+			}
+			if statusMap, hasStatus := k8sSpecMap["status"].(map[string]any); hasStatus {
+				logger.Info("notebook status", "status", statusMap, "type", fmt.Sprintf("%T", statusMap["readyReplicas"]))
+				readyReplicas, ok := statusMap["readyReplicas"].(int64)
+				logger.Info("readyReplicas", "readyReplicas", readyReplicas, "ok", ok)
+				if ok && readyReplicas == 1 {
+					response.Successful = append(response.Successful, notebook)
+					continue
+				}
+			}
+			response.Pending = append(response.Pending, notebook)
+
 		} else {
 			response.Pending = append(response.Pending, notebook)
 		}
