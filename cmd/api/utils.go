@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sandbox-backend-service/pkg/constants"
 	"time"
 )
 
@@ -45,6 +46,46 @@ func getLogger(r *http.Request) *slog.Logger {
 		slog.String("user_agent", r.UserAgent()),
 	)
 	return logger
+}
+
+func determineNotebookState(latestEvent string, k8sSpec any, logger *slog.Logger) NotebookState {
+	if k8sSpec == nil {
+		if latestEvent == string(constants.StatusPVCApplyFailed) ||
+			latestEvent == string(constants.StatusPVCUploadFailed) ||
+			latestEvent == string(constants.StatusPVCUploadApplyFailed) ||
+			latestEvent == string(constants.StatusNotebookApplyFailed) ||
+			latestEvent == string(constants.StatusPVCCreationFailed) {
+			return NotebookStateFailed
+		}
+
+		if latestEvent == "" || latestEvent != string(constants.StatusNotebookApplied) {
+			return NotebookStatePending
+		}
+
+		return NotebookStateOrphaned
+	}
+
+	k8sSpecMap, ok := k8sSpec.(map[string]any)
+	if !ok {
+		logger.Warn("expected map[string]any for k8s notebook spec")
+		return NotebookStatePending
+	}
+
+	if metadataMap, hasMetadata := k8sSpecMap["metadata"].(map[string]any); hasMetadata {
+		if annotationsMap, hasAnnotations := metadataMap["annotations"].(map[string]any); hasAnnotations {
+			_, isStopped := annotationsMap["kubeflow-resource-stopped"]
+			if isStopped {
+				return NotebookStateStopped
+			}
+		}
+	}
+
+	if statusMap, hasStatus := k8sSpecMap["status"].(map[string]any); hasStatus {
+		if readyReplicas, ok := statusMap["readyReplicas"].(int64); ok && readyReplicas > 0 {
+			return NotebookStateRunning
+		}
+	}
+	return NotebookStatePending
 }
 
 var SupportedGPUResources = []string{

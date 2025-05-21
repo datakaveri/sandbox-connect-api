@@ -52,7 +52,11 @@ kubectl create secret generic api-auth \
   --from-literal=API_KEY="<your-secure-api-key>" -n sandbox
 ```
 
+# Configuration of notebook 
+```bash
+kubectl apply -f infra/api/configmap.yaml
 
+```
 4. Deploy the api and workers:
 
 ```bash

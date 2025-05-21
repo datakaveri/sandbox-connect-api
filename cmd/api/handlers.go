@@ -2,57 +2,32 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"net/http"
-
 	"sandbox-backend-service/pkg/constants"
 	"sandbox-backend-service/pkg/utils"
 
 	"github.com/jackc/pgx/v5"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 func (app *application) checkNotebookExists(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
-	checkReq, err := utils.DecodeAndValidate[CheckExistsRequest](r.Body, logger)
-	if err != nil {
-		logger.Error("invalid body", "error", err)
-		sendResponse(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
+	notebookName := r.PathValue("notebook_name")
+	if notebookName == "" {
+		logger.Error("notebook name is empty", "notebookName", notebookName)
+		sendResponse(w, r, logger, http.StatusBadRequest, "Notebook name is empty")
 		return
 	}
-
 	ctx := context.Background()
 	var exists bool
 	query := `SELECT EXISTS(SELECT 1 FROM notebooks WHERE name = $1 AND namespace = $2)`
-	err = app.pgPool.Pool.QueryRow(ctx, query, checkReq.Name, checkReq.Namespace).Scan(&exists)
+	err := app.pgPool.Pool.QueryRow(ctx, query, notebookName, app.env.NotebookConfig.Namespace).Scan(&exists)
 	if err != nil {
 		logger.Error("failed to check notebook existence", "error", err)
 		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to check notebook existence")
 		return
 	}
-
-	jsonResponse(w, http.StatusOK, map[string]bool{"exists": exists})
-}
-
-func (app *application) checkPVCExists(w http.ResponseWriter, r *http.Request) {
-	logger := getLogger(r)
-	checkReq, err := utils.DecodeAndValidate[CheckExistsRequest](r.Body, logger)
-	if err != nil {
-		logger.Error("invalid body", "error", err)
-		sendResponse(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
-		return
-	}
-
-	ctx := context.Background()
-	var exists bool
-	query := `SELECT EXISTS(SELECT 1 FROM notebooks WHERE pvc_name = $1 AND namespace = $2)`
-	err = app.pgPool.Pool.QueryRow(ctx, query, checkReq.Name, checkReq.Namespace).Scan(&exists)
-	if err != nil {
-		logger.Error("failed to check PVC existence", "error", err)
-		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to check PVC existence")
-		return
-	}
-
-	jsonResponse(w, http.StatusOK, map[string]bool{"exists": exists})
+	sendResponseJson(w, r, logger, http.StatusOK, map[string]bool{"exists": exists})
 }
 
 func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
@@ -64,75 +39,36 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hasGPU := notebookReq.GPU.Limit > 0
-	if hasGPU && !IsValidGPUResource(notebookReq.GPU.Type) {
-		logger.Error("invalid gpu type", "gpu_type", notebookReq.GPU.Type)
-		sendResponse(w, r, logger, http.StatusUnprocessableEntity, "Invalid GPU Type")
+	if notebookReq.Type != "cpu" && notebookReq.Type != "gpu" {
+		logger.Error("invalid notebook type", "type", notebookReq.Type)
+		sendResponse(w, r, logger, http.StatusUnprocessableEntity, "Invalid Notebook Type")
 		return
 	}
-
-	hasTemplate := notebookReq.TemplateName != ""
-	if hasTemplate && !contains([]string{"ai", "ml"}, notebookReq.TemplateName) {
-		logger.Error("invalid template name", "template_name", notebookReq.TemplateName)
-		jsonResponse(w, http.StatusUnprocessableEntity, map[string]string{"error": "Invalid Template Name"})
-		return
-	}
-
-	userID := "00000000-0000-0000-0000-000000000000"
-	storageSize := fmt.Sprintf("%.2fGi", notebookReq.StorageSizeInGi)
-	memoryRequest := fmt.Sprintf("%dGi", int(notebookReq.MemoryInGi.Request))
-	memoryLimit := fmt.Sprintf("%dGi", int(notebookReq.MemoryInGi.Limit))
 
 	baseArgs := []any{
-		userID,
+		app.env.NotebookConfig.UserID,
 		notebookReq.Name,
-		notebookReq.Namespace,
-		storageSize,
-		notebookReq.PVCName,
-		notebookReq.CPU.Request,
-		notebookReq.CPU.Limit,
-		memoryRequest,
-		memoryLimit,
+		app.env.NotebookConfig.Namespace,
+		app.env.NotebookConfig.StorageSize,
+		notebookReq.Name + "-pvc",
+		app.env.NotebookConfig.CPURequest,
+		app.env.NotebookConfig.CPULimit,
+		app.env.NotebookConfig.MemoryRequest,
+		app.env.NotebookConfig.MemoryLimit,
 	}
 
 	var query string
-	var args []any
-
-	switch {
-	case hasGPU && hasTemplate:
+	if notebookReq.Type == "gpu" {
+		baseArgs = append(baseArgs, app.env.NotebookConfig.GPUType, app.env.NotebookConfig.GPULimit)
 		query = `
-		INSERT INTO notebooks (
-			user_id, name, namespace, storage_size, pvc_name, 
-			cpu_request, cpu_limit, memory_request, memory_limit, 
-			gpu_type, gpu_count, template_name
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
-		) RETURNING id`
-		args = append(baseArgs, notebookReq.GPU.Type, notebookReq.GPU.Limit, notebookReq.TemplateName)
-
-	case hasGPU && !hasTemplate:
-		query = `
-		INSERT INTO notebooks (
-			user_id, name, namespace, storage_size, pvc_name, 
-			cpu_request, cpu_limit, memory_request, memory_limit, 
-			gpu_type, gpu_count
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
-		) RETURNING id`
-		args = append(baseArgs, notebookReq.GPU.Type, notebookReq.GPU.Limit)
-
-	case !hasGPU && hasTemplate:
-		query = `
-		INSERT INTO notebooks (
-			user_id, name, namespace, storage_size, pvc_name, 
-			cpu_request, cpu_limit, memory_request, memory_limit, 
-			template_name
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-		) RETURNING id`
-		args = append(baseArgs, notebookReq.TemplateName)
-
-	default:
+			INSERT INTO notebooks (
+				user_id, name, namespace, storage_size, pvc_name, 
+				cpu_request, cpu_limit, memory_request, memory_limit,
+				gpu_type, gpu_count
+			) VALUES (
+				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+			) RETURNING id`
+	} else {
 		query = `
 		INSERT INTO notebooks (
 			user_id, name, namespace, storage_size, pvc_name, 
@@ -140,18 +76,16 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9
 		) RETURNING id`
-		args = baseArgs
 	}
-
 	ctx := context.Background()
 	var notebookId int64
-	err = app.pgPool.Pool.QueryRow(ctx, query, args...).Scan(&notebookId)
+	err = app.pgPool.Pool.QueryRow(ctx, query, baseArgs...).Scan(&notebookId)
 	if err != nil {
-		logger.Error("failed to create notebook", "error", err)
-		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to create notebook")
+		logger.Error("failed to create notebook in database", "error", err)
+		sendResponse(w, r, logger, http.StatusInternalServerError, "internal server error")
 		return
 	}
-
+	logger.Info("notebook created successfully", "notebookId", notebookId)
 	sendResponse(w, r, logger, http.StatusCreated, "notebook creation is in process")
 }
 
@@ -163,7 +97,7 @@ func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
 		sendResponse(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
 		return
 	}
-	logger = logger.With("method", "stopNotebook", "namespace", stopReq.Namespace, "name", stopReq.Name)
+	logger = logger.With("method", "stopNotebook", "namespace", app.env.NotebookConfig.Namespace, "name", stopReq.Name)
 
 	ctx := context.Background()
 	var notebookID int64
@@ -173,7 +107,7 @@ func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
 		FROM notebooks
 		WHERE name = $1 AND namespace = $2
 	`
-	err = app.pgPool.Pool.QueryRow(ctx, query, stopReq.Name, stopReq.Namespace).Scan(&notebookID, &latestEvent)
+	err = app.pgPool.Pool.QueryRow(ctx, query, stopReq.Name, app.env.NotebookConfig.Namespace).Scan(&notebookID, &latestEvent)
 	if err != nil {
 		logger.Error("failed to find notebook", "error", err)
 		sendResponse(w, r, logger, http.StatusNotFound, "Notebook not found")
@@ -186,7 +120,7 @@ func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = addStoppedAnnotationToNotebook(app.k8sClient, stopReq.Namespace, stopReq.Name)
+	err = addStoppedAnnotationToNotebook(app.k8sClient, app.env.NotebookConfig.Namespace, stopReq.Name)
 	if err != nil {
 		logger.Error("failed to add stopped annotation to notebook", "error", err)
 		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to stop notebook")
@@ -204,7 +138,7 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 		sendResponse(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
 		return
 	}
-	logger = logger.With("method", "startNotebook", "namespace", startReq.Namespace, "name", startReq.Name)
+	logger = logger.With("method", "startNotebook", "namespace", app.env.NotebookConfig.Namespace, "name", startReq.Name)
 	ctx := context.Background()
 	var notebookID int64
 	var latestEvent string
@@ -213,7 +147,7 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 		FROM notebooks
 		WHERE name = $1 AND namespace = $2
 	`
-	err = app.pgPool.Pool.QueryRow(ctx, query, startReq.Name, startReq.Namespace).Scan(&notebookID, &latestEvent)
+	err = app.pgPool.Pool.QueryRow(ctx, query, startReq.Name, app.env.NotebookConfig.Namespace).Scan(&notebookID, &latestEvent)
 	if err != nil {
 		logger.Error("failed to find notebook", "error", err)
 		sendResponse(w, r, logger, http.StatusNotFound, "Notebook not found")
@@ -226,7 +160,7 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = removeStoppedAnnotationFromNotebook(app.k8sClient, startReq.Namespace, startReq.Name)
+	err = removeStoppedAnnotationFromNotebook(app.k8sClient, app.env.NotebookConfig.Namespace, startReq.Name)
 	if err != nil {
 		logger.Error("failed to remove stopped annotation from notebook", "error", err)
 		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to start notebook")
@@ -244,7 +178,7 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 		sendResponse(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
 		return
 	}
-	logger = logger.With("method", "deleteNotebook", "namespace", deleteReq.Namespace, "name", deleteReq.Name)
+	logger = logger.With("method", "deleteNotebook", "namespace", app.env.NotebookConfig.Namespace, "name", deleteReq.Name)
 	query := `
 		SELECT events[array_upper(events, 1)] as latest_event
 		FROM notebooks
@@ -252,7 +186,7 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 	`
 	var latestEvent string
 	ctx := context.Background()
-	err = app.pgPool.Pool.QueryRow(ctx, query, deleteReq.Name, deleteReq.Namespace).Scan(&latestEvent)
+	err = app.pgPool.Pool.QueryRow(ctx, query, deleteReq.Name, app.env.NotebookConfig.Namespace).Scan(&latestEvent)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			logger.Error("notebook not found", "error", err)
@@ -264,48 +198,53 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if latestEvent != string(constants.StatusNotebookApplied) {
+	notebookFailed := latestEvent == string(constants.StatusPVCUploadFailed) ||
+		latestEvent == string(constants.StatusPVCUploadApplyFailed) ||
+		latestEvent == string(constants.StatusNotebookApplyFailed) ||
+		latestEvent == string(constants.StatusPVCCreationFailed) ||
+		latestEvent == string(constants.StatusPVCApplyFailed)
+
+	if latestEvent != string(constants.StatusNotebookApplied) && !notebookFailed {
 		logger.Error("cannot delete notebook that is not in applied state", "currentState", latestEvent)
 		sendResponse(w, r, logger, http.StatusBadRequest, "Cannot delete notebook that is not in applied state")
 		return
 	}
 
 	deleteQuery := `DELETE FROM notebooks WHERE name = $1 AND namespace = $2`
-	_, err = app.pgPool.Pool.Exec(ctx, deleteQuery, deleteReq.Name, deleteReq.Namespace)
+	_, err = app.pgPool.Pool.Exec(ctx, deleteQuery, deleteReq.Name, app.env.NotebookConfig.Namespace)
 	if err != nil {
 		logger.Error("failed to delete notebook from database", "error", err)
 		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to delete notebook from database")
 		return
 	}
 
-	err = deleteNotebookFromK8s(app.k8sClient, deleteReq.Namespace, deleteReq.Name)
-	if err != nil {
-		logger.Error("failed to delete notebook from Kubernetes", "error", err)
-		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to delete notebook from Kubernetes")
-		return
+	if !notebookFailed {
+		err = deleteNotebookFromK8s(app.k8sClient, app.env.NotebookConfig.Namespace, deleteReq.Name)
+		if err != nil {
+			logger.Error("failed to delete notebook from Kubernetes", "error", err)
+			sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to delete notebook from Kubernetes")
+			return
+		}
+		err = deletePVCFromK8s(app.k8sClient, app.env.NotebookConfig.Namespace, deleteReq.Name+"-pvc")
+		if err != nil {
+			logger.Error("failed to delete PVC from Kubernetes", "error", err)
+			sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to delete PVC from Kubernetes")
+			return
+		}
 	}
-
 	sendResponse(w, r, logger, http.StatusOK, "Notebook deleted successfully")
 }
 
 func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
-	listReq, err := utils.DecodeAndValidate[ListNotebooksRequest](r.Body, logger)
-	if err != nil {
-		logger.Error("invalid body", "error", err)
-		sendResponse(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
-		return
-	}
-	logger = logger.With("method", "listNotebooks", "namespace", listReq.Namespace)
+	logger = logger.With("method", "listNotebooks")
 	ctx := context.Background()
-
-	k8sNotebooks, err := getNotebooksJSON(app.k8sClient, listReq.Namespace)
+	k8sNotebooks, err := getNotebooksJSON(app.k8sClient, app.env.NotebookConfig.Namespace)
 	if err != nil {
 		logger.Warn("failed to get notebooks from Kubernetes", "error", err)
 		sendResponse(w, r, logger, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
-
 	query := `
 		SELECT id, name, namespace, storage_size, pvc_name, 
 		       cpu_request, cpu_limit, memory_request, memory_limit, 
@@ -314,7 +253,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		FROM notebooks
 		WHERE namespace = $1
 	`
-	rows, err := app.pgPool.Pool.Query(ctx, query, listReq.Namespace)
+	rows, err := app.pgPool.Pool.Query(ctx, query, app.env.NotebookConfig.Namespace)
 	if err != nil {
 		logger.Error("failed to query notebooks", "error", err)
 		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to query notebooks")
@@ -344,57 +283,26 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		}
 
 		latestEvent := ""
-		if len(notebook.Events) == 0 {
-			response.Pending = append(response.Pending, notebook)
-			continue
+		if len(notebook.Events) > 0 {
+			latestEvent = notebook.Events[len(notebook.Events)-1]
 		}
 
-		latestEvent = notebook.Events[len(notebook.Events)-1]
-		if latestEvent == string(constants.StatusPVCApplyFailed) ||
-			latestEvent == string(constants.StatusPVCUploadFailed) ||
-			latestEvent == string(constants.StatusPVCUploadApplyFailed) ||
-			latestEvent == string(constants.StatusNotebookApplyFailed) ||
-			latestEvent == string(constants.StatusPVCCreationFailed) {
-			response.Failed = append(response.Failed, notebook)
-			continue
-		}
-
+		var k8sSpec any
 		if latestEvent == string(constants.StatusNotebookApplied) {
-			spec, exists := k8sNotebooks[notebook.Name]
-			if !exists {
-				logger.Warn("notebook marked as applied but not found in k8s", "name", notebook.Name)
-				response.Orphaned = append(response.Orphaned, notebook)
-				continue
-			}
+			k8sSpec = k8sNotebooks[notebook.Name]
+		}
+		state := determineNotebookState(latestEvent, k8sSpec, logger)
 
-			k8sSpecMap, ok := spec.(map[string]any)
-			if !ok {
-				logger.Warn("expected map[string]any for k8s notebook spec", "name", notebook.Name)
-				response.Pending = append(response.Pending, notebook)
-				continue
-			}
-
-			if metadataMap, hasMetadata := k8sSpecMap["metadata"].(map[string]any); hasMetadata {
-				if annotationsMap, hasAnnotations := metadataMap["annotations"].(map[string]any); hasAnnotations {
-					_, isStopped := annotationsMap["kubeflow-resource-stopped"]
-					if isStopped {
-						response.Stopped = append(response.Stopped, notebook)
-						continue
-					}
-				}
-			}
-			if statusMap, hasStatus := k8sSpecMap["status"].(map[string]any); hasStatus {
-				logger.Info("notebook status", "status", statusMap, "type", fmt.Sprintf("%T", statusMap["readyReplicas"]))
-				readyReplicas, ok := statusMap["readyReplicas"].(int64)
-				logger.Info("readyReplicas", "readyReplicas", readyReplicas, "ok", ok)
-				if ok && readyReplicas == 1 {
-					response.Successful = append(response.Successful, notebook)
-					continue
-				}
-			}
-			response.Pending = append(response.Pending, notebook)
-
-		} else {
+		switch state {
+		case NotebookStateRunning:
+			response.Successful = append(response.Successful, notebook)
+		case NotebookStateStopped:
+			response.Stopped = append(response.Stopped, notebook)
+		case NotebookStateFailed:
+			response.Failed = append(response.Failed, notebook)
+		case NotebookStateOrphaned:
+			response.Orphaned = append(response.Orphaned, notebook)
+		default:
 			response.Pending = append(response.Pending, notebook)
 		}
 	}
@@ -406,4 +314,60 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sendResponseJson(w, r, logger, http.StatusOK, response)
+}
+func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Request) {
+	logger := getLogger(r)
+	notebookName := r.PathValue("notebook_name")
+	if notebookName == "" {
+		logger.Error("notebook name is required", "error", "notebook name is required")
+		sendResponse(w, r, logger, http.StatusBadRequest, "Notebook name is required")
+		return
+	}
+	logger = logger.With("method", "checkNotebookStatus", "namespace", app.env.NotebookConfig.Namespace, "name", notebookName)
+	ctx := context.Background()
+	var status NotebookStatus
+	query := `
+		SELECT id, name, namespace, storage_size, pvc_name, 
+			cpu_request, cpu_limit, memory_request, memory_limit,
+			gpu_type, gpu_count, template_name, events
+		FROM notebooks
+		WHERE namespace= $1 and name = $2`
+
+	err := app.pgPool.Pool.QueryRow(ctx, query, app.env.NotebookConfig.Namespace, notebookName).Scan(
+		&status.ID,
+		&status.Name,
+		&status.Namespace,
+		&status.StorageSize,
+		&status.PVCName,
+		&status.CPURequest,
+		&status.CPULimit,
+		&status.MemoryRequest,
+		&status.MemoryLimit,
+		&status.GPUType,
+		&status.GPUCount,
+		&status.TemplateName,
+		&status.Events,
+	)
+	if err != nil {
+		sendResponseJson(w, r, logger, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	latestEvent := ""
+	if len(status.Events) > 0 {
+		latestEvent = status.Events[len(status.Events)-1]
+	}
+
+	var k8sSpec *unstructured.Unstructured
+	if latestEvent == string(constants.StatusNotebookApplied) {
+		var err error
+		k8sSpec, err = getNotebookJSON(app.k8sClient, status.Namespace, status.Name)
+		if err != nil {
+			logger.Error("failed to get notebook from Kubernetes", "error", err)
+			k8sSpec = nil
+		}
+	}
+
+	status.Status = string(determineNotebookState(latestEvent, k8sSpec.Object, logger))
+	sendResponseJson(w, r, logger, http.StatusOK, status)
 }

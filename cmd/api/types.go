@@ -12,6 +12,7 @@ type ApiEnv struct {
 	KubeConfigMode string `env:"KUBE_CONFIG_MODE" envDefault:"cluster"`
 	CORS_ORIGINS   string `env:"CORS_ORIGINS" envDefault:""`
 	API_KEY        string `env:"API_KEY,required"`
+	NotebookConfig NotebookConfig
 }
 
 type application struct {
@@ -28,20 +29,25 @@ type GPUResource struct {
 	Type  string `json:"type" validate:"omitempty"`
 	Limit int    `json:"limit" validate:"omitempty"`
 }
-type CheckExistsRequest struct {
-	Name      string `json:"name" validate:"required"`
-	Namespace string `json:"namespace" validate:"required"`
+
+type CheckStatusRequest struct {
+	Id int64 `json:"id" validate:"required"`
+}
+type NotebookConfig struct {
+	UserID        string `env:"DEFAULT_USER_ID"`
+	Namespace     string `env:"DEFAULT_NAMESPACE,required"`
+	StorageSize   string `env:"DEFAULT_STORAGE_SIZE,required"`
+	CPURequest    string `env:"DEFAULT_CPU_REQUEST,required"`
+	CPULimit      string `env:"DEFAULT_CPU_LIMIT,required"`
+	MemoryRequest string `env:"DEFAULT_MEMORY_REQUEST,required"`
+	MemoryLimit   string `env:"DEFAULT_MEMORY_LIMIT,required"`
+	GPUType       string `env:"DEFAULT_GPU_TYPE,required"`
+	GPULimit      string `env:"DEFAULT_GPU_LIMIT,required"`
 }
 
 type NotebookRequest struct {
-	Name            string      `json:"name" validate:"required"`
-	Namespace       string      `json:"namespace" validate:"required"`
-	StorageSizeInGi float64     `json:"storageSizeInGi" validate:"required"`
-	PVCName         string      `json:"PVCName" validate:"required"`
-	CPU             Resource    `json:"cpu" validate:"required"`
-	MemoryInGi      Resource    `json:"memoryInGi" validate:"required"`
-	GPU             GPUResource `json:"gpu" validate:"omitempty"`
-	TemplateName    string      `json:"templateName" validate:"omitempty"`
+	Name string `json:"name" validate:"required"`
+	Type string `json:"type" validate:"required"`
 }
 
 type NotebookDetails struct {
@@ -60,22 +66,42 @@ type NotebookDetails struct {
 	Events        []string `json:"events"`
 }
 
-type StopNotebookRequest struct {
-	Name      string `json:"name" validate:"required"`
-	Namespace string `json:"namespace" validate:"required"`
-}
-type StartNotebookRequest struct {
-	Name      string `json:"name" validate:"required"`
-	Namespace string `json:"namespace" validate:"required"`
-}
-type DeleteNotebookRequest struct {
-	Name      string `json:"name" validate:"required"`
-	Namespace string `json:"namespace" validate:"required"`
+type NotebookStatus struct {
+	ID            int64    `json:"id"`
+	Name          string   `json:"name"`
+	Namespace     string   `json:"namespace"`
+	StorageSize   string   `json:"storage_size"`
+	PVCName       string   `json:"pvc_name"`
+	CPURequest    float64  `json:"cpu_request"`
+	CPULimit      float64  `json:"cpu_limit"`
+	MemoryRequest string   `json:"memory_request"`
+	MemoryLimit   string   `json:"memory_limit"`
+	GPUType       *string  `json:"gpu_type,omitempty"`
+	GPUCount      *int     `json:"gpu_count,omitempty"`
+	TemplateName  *string  `json:"template_name,omitempty"`
+	Events        []string `json:"events"`
+	Status        string   `json:"status"`
 }
 
-type ListNotebooksRequest struct {
-	Namespace string `json:"namespace" validate:"required"`
+type StopNotebookRequest struct {
+	Name string `json:"name" validate:"required"`
 }
+type StartNotebookRequest struct {
+	Name string `json:"name" validate:"required"`
+}
+type DeleteNotebookRequest struct {
+	Name string `json:"name" validate:"required"`
+}
+
+type NotebookState string
+
+const (
+	NotebookStatePending  NotebookState = "pending"
+	NotebookStateRunning  NotebookState = "running"
+	NotebookStateStopped  NotebookState = "stopped"
+	NotebookStateFailed   NotebookState = "failed"
+	NotebookStateOrphaned NotebookState = "orphaned"
+)
 
 type ListNotebooksResponse struct {
 	Successful []NotebookDetails `json:"successful"`

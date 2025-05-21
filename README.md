@@ -1,55 +1,87 @@
-# Sandbox Backend Services
+# Sandbox Connect API
 
-A backend service for managing Jupyter notebooks in Kubernetes.
+A backend service for managing Jupyter notebooks in Kubernetes with a RESTful API interface.
 
 ## Table of Contents
 
 - [Overview](#overview)
-- [Setup](#setup)
+- [System Architecture](#system-architecture)
+- [Installation](#installation)
 - [API Documentation](#api-documentation)
   - [Notebook Endpoints](#notebook-endpoints)
-- [Example Usage](#example-usage)
-  - [Create Notebook](#create-notebook)
-  - [Check Notebook Exists](#check-notebook-exists)
-  - [Stop Notebook](#stop-notebook)
-  - [Start Notebook](#start-notebook)
-  - [Delete Notebook](#delete-notebook)
-  - [List Notebooks](#list-notebooks)
+  - [Request and Response Examples](#request-and-response-examples)
 - [Notebook Status Categories](#notebook-status-categories)
-- [Development](#development)
 
 ## Overview
 
-This service provides a REST API for managing Jupyter notebooks in a Kubernetes cluster. It allows users to create, start, stop, delete, and list notebooks.
+Sandbox Connect API provides a RESTful API for managing Jupyter notebooks in a Kubernetes cluster. It allows users to create, start, stop, delete, and list notebooks. The system consists of two main components:
 
-## Setup
+1. **API Server**: Handles HTTP requests and communicates with the database
+2. **Worker**: Processes notebook creation requests and interacts with Kubernetes
+
+## System Architecture
+
+The system is designed with the following components:
+
+- **API Server**: Handles HTTP requests, validates user input, and communicates with the database
+- **Worker**: Monitors the database for new notebook requests and creates the necessary Kubernetes resources
+- **PostgreSQL Database**: Stores notebook configurations and states
+- **Kubernetes**: Hosts the Jupyter notebook instances
+
+## Installation
+
+### Prerequisites
+
+- Go 1.21 or higher
+- PostgreSQL database
+- Kubernetes cluster (or access to one)
+- Docker (for containerized deployment)
+
+### Setup
 
 1. Clone the repository
-2. Configure the `.env` file with your database and Kubernetes configuration
-3. Run the service:
-
 ```bash
-go run ./cmd/api/*.go
+git clone https://github.com/datakaveri/sandbox-connect-api.git
+cd sandbox-connect-api
+```
+
+2. Copy `.env.api.example` to `.env` for the API server
+```bash
+cp .env.api.example .env
+```
+
+4. Initialize the database
+```bash
+psql -U <username> -d <database_name> -f db.sql
+```
+
+5. Run the API server
+```bash
+go run ./cmd/api/
+```
+
+6. In a separate terminal, run the worker
+```bash
+go run ./cmd/worker/
 ```
 
 ## API Documentation
 
 ### Notebook Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/notebook/create` | POST | Create a new notebook |
-| `/notebook/check-exists` | POST | Check if a notebook exists |
-| `/notebook/stop` | POST | Stop a running notebook |
-| `/notebook/start` | POST | Start a stopped notebook |
-| `/notebook/delete` | POST | Delete a notebook |
-| `/notebook/list` | POST | List all notebooks in a namespace |
-| `/pvc/check-exists` | POST | Check if a PVC exists |
+| Endpoint | Method | Description | Success Response |
+|----------|--------|-------------|------------------|
+| `/notebook/create` | POST | Create a new notebook  | 201 Created |
+| `/notebook/stop` | PATCH | Stop a running notebook  | 200 OK |
+| `/notebook/start` | PATCH | Start a stopped notebook  | 200 OK |
+| `/notebook/delete` | DELETE | Delete a notebook  | 200 OK |
+| `/notebook/list` | GET | List all notebooks  | 200 OK |
+| `/notebook/check-exists/{notebook_name}` | GET | Check if notebook exists  | 200 OK |
+| `/notebook/status/{notebook_name}` | GET | Get notebook status  | 200 OK |
 
+### Request and Response Examples
 
-## Example Usage
-
-### Create Notebook
+#### Create Notebook
 
 Creates a new notebook in the specified namespace.
 
@@ -58,24 +90,10 @@ Creates a new notebook in the specified namespace.
 ```bash
 curl -X POST http://localhost:3000/notebook/create \
   -H "Content-Type: application/json" \
+  -H "Authentication: your_api_key" \
   -d '{
     "name": "my-notebook",
-    "namespace": "default",
-    "storageSizeInGi": 10.0,
-    "PVCName": "my-pvc",
-    "cpu": {
-      "request": 1.0,
-      "limit": 2.0
-    },
-    "memoryInGi": {
-      "request": 2.0,
-      "limit": 4.0
-    },
-    "gpu": {
-      "type": "nvidia.com/gpu",
-      "limit": 1
-    },
-    "templateName": "ai"
+    "type": "cpu"
   }'
 ```
 
@@ -87,21 +105,15 @@ curl -X POST http://localhost:3000/notebook/create \
 }
 ```
 
+#### Check Notebook Exists
 
-
-### Check Notebook Exists
-
-Checks if a notebook with the given name exists in the specified namespace.
+Checks if a notebook with the given name exists.
 
 **Request:**
 
 ```bash
-curl -X POST http://localhost:3000/notebook/check-exists \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "my-notebook",
-    "namespace": "default"
-  }'
+curl -X GET http://localhost:3000/notebook/check-exists/my-notebook \
+  -H "Authentication: your_api_key"
 ```
 
 **Response (200 OK):**
@@ -112,20 +124,49 @@ curl -X POST http://localhost:3000/notebook/check-exists \
 }
 ```
 
+#### Check Notebook Status
 
+Checks the current status of a notebook.
 
-### Stop Notebook
+**Request:**
+
+```bash
+curl -X GET http://localhost:3000/notebook/status/my-notebook \
+  -H "Authentication: your_api_key"
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "id": 123,
+  "name": "my-notebook",
+  "namespace": "test-user",
+  "storage_size": "10Gi",
+  "pvc_name": "my-notebook-pvc",
+  "cpu_request": 1,
+  "cpu_limit": 2,
+  "memory_request": "2Gi",
+  "memory_limit": "4Gi",
+  "gpu_type": "nvidia",
+  "gpu_count": 1,
+  "events": ["scheduled", "picked", "pvc-applied", "notebook-applied"],
+  "status": "running"
+}
+```
+
+#### Stop Notebook
 
 Stops a running notebook.
 
 **Request:**
 
 ```bash
-curl -X POST http://localhost:3000/notebook/stop \
+curl -X PATCH http://localhost:3000/notebook/stop \
   -H "Content-Type: application/json" \
+  -H "Authentication: your_api_key" \
   -d '{
-    "name": "my-notebook",
-    "namespace": "default"
+    "name": "my-notebook"
   }'
 ```
 
@@ -137,20 +178,18 @@ curl -X POST http://localhost:3000/notebook/stop \
 }
 ```
 
-
-
-### Start Notebook
+#### Start Notebook
 
 Starts a stopped notebook.
 
 **Request:**
 
 ```bash
-curl -X POST http://localhost:3000/notebook/start \
+curl -X PATCH http://localhost:3000/notebook/start \
   -H "Content-Type: application/json" \
+  -H "Authentication: your_api_key" \
   -d '{
-    "name": "my-notebook",
-    "namespace": "default"
+    "name": "my-notebook"
   }'
 ```
 
@@ -162,20 +201,18 @@ curl -X POST http://localhost:3000/notebook/start \
 }
 ```
 
-
-
-### Delete Notebook
+#### Delete Notebook
 
 Deletes a notebook.
 
 **Request:**
 
 ```bash
-curl -X POST http://localhost:3000/notebook/delete \
+curl -X DELETE http://localhost:3000/notebook/delete \
   -H "Content-Type: application/json" \
+  -H "Authentication: your_api_key" \
   -d '{
-    "name": "my-notebook",
-    "namespace": "default"
+    "name": "my-notebook"
   }'
 ```
 
@@ -183,32 +220,55 @@ curl -X POST http://localhost:3000/notebook/delete \
 
 ```json
 {
-  "message": "Notebook deleted successfully"
+  "message": "Delete request accepted"
 }
 ```
 
+#### List Notebooks
 
-
-### List Notebooks
-
-Lists all notebooks in a namespace, categorized by status.
+Lists all notebooks.
 
 **Request:**
 
 ```bash
-curl -X POST http://localhost:3000/notebook/list \
-  -H "Content-Type: application/json" \
-  -d '{
-    "namespace": "default"
-  }'
+curl -X GET http://localhost:3000/notebook/list \
+  -H "Authentication: your_api_key"
 ```
 
 **Response (200 OK):**
 
 ```json
 {
-  "successful": [],
-  "stopped": [],
+  "successful": [
+    {
+      "id": 123,
+      "name": "running-notebook",
+      "namespace": "test-user",
+      "storage_size": "10Gi",
+      "pvc_name": "running-notebook-pvc",
+      "cpu_request": 1,
+      "cpu_limit": 2,
+      "memory_request": "2Gi",
+      "memory_limit": "4Gi",
+      "gpu_type": "nvidia",
+      "gpu_count": 1,
+      "events": ["scheduled", "picked", "pvc-applied", "notebook-applied"]
+    }
+  ],
+  "stopped": [
+    {
+      "id": 124,
+      "name": "stopped-notebook",
+      "namespace": "test-user",
+      "storage_size": "10Gi",
+      "pvc_name": "stopped-notebook-pvc",
+      "cpu_request": 1,
+      "cpu_limit": 2,
+      "memory_request": "2Gi",
+      "memory_limit": "4Gi",
+      "events": ["scheduled", "picked", "pvc-applied", "notebook-applied"]
+    }
+  ],
   "pending": [],
   "failed": [],
   "orphaned": []
@@ -277,4 +337,3 @@ The typical event flow for a notebook is:
 4. `notebook-applied`: Notebook manifest has been applied to Kubernetes
 
 After `notebook-applied`, the notebook will be in the `pending` category until Kubernetes reports that it's ready (`readyReplicas` = 1), at which point it moves to the `successful` category.
-

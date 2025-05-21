@@ -16,9 +16,11 @@ spec:
         app: sandbox-worker
     spec:
       serviceAccountName: notebook-manager-sa 
+      imagePullSecrets:
+      - name: tgdex-registry-cred
       containers:
       - name: worker
-        image: ghcr.io/datakaveri/tgdex-sandbox-connect-api:worker
+        image: ghcr.io/datakaveri/tgdex-sandbox-connect-worker:latest
         env:
         - name: POSTGRES_URL
           valueFrom:

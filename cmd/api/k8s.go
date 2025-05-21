@@ -131,3 +131,36 @@ func getNotebooksJSON(k8sClient *k8s.K8sClient, namespace string) (map[string]an
 
 	return notebooks, nil
 }
+func deletePVCFromK8s(k8sClient *k8s.K8sClient, namespace, pvcName string) error {
+	pvcGVR := schema.GroupVersionResource{
+		Group:    "",
+		Version:  "v1",
+		Resource: "persistentvolumeclaims",
+	}
+	_, err := k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Get(context.Background(), pvcName, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+
+	deletePolicy := metav1.DeletePropagationBackground
+	deleteOptions := metav1.DeleteOptions{
+		PropagationPolicy: &deletePolicy,
+	}
+
+	err = k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Delete(context.Background(), pvcName, deleteOptions)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+func getNotebookJSON(k8sClient *k8s.K8sClient, namespace, notebookName string) (*unstructured.Unstructured, error) {
+	notebookGVR := schema.GroupVersionResource{
+		Group:    "kubeflow.org",
+		Version:  "v1beta1",
+		Resource: "notebooks",
+	}
+
+	spec, errr := k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Get(context.Background(), notebookName, metav1.GetOptions{})
+	return spec, errr
+}
