@@ -90,7 +90,7 @@ Creates a new notebook in the specified namespace.
 ```bash
 curl -X POST http://localhost:3000/notebook/create \
   -H "Content-Type: application/json" \
-  -H "Authentication: your_api_key" \
+  -H "Authorization: your_api_key" \
   -d '{
     "name": "my-notebook",
     "type": "cpu"
@@ -113,7 +113,7 @@ Checks if a notebook with the given name exists.
 
 ```bash
 curl -X GET http://localhost:3000/notebook/check-exists/my-notebook \
-  -H "Authentication: your_api_key"
+  -H "Authorization: your_api_key"
 ```
 
 **Response (200 OK):**
@@ -132,7 +132,7 @@ Checks the current status of a notebook.
 
 ```bash
 curl -X GET http://localhost:3000/notebook/status/my-notebook \
-  -H "Authentication: your_api_key"
+  -H "Authorization: your_api_key"
 ```
 
 **Response (200 OK):**
@@ -164,7 +164,7 @@ Stops a running notebook.
 ```bash
 curl -X PATCH http://localhost:3000/notebook/stop \
   -H "Content-Type: application/json" \
-  -H "Authentication: your_api_key" \
+  -H "Authorization: your_api_key" \
   -d '{
     "name": "my-notebook"
   }'
@@ -187,7 +187,7 @@ Starts a stopped notebook.
 ```bash
 curl -X PATCH http://localhost:3000/notebook/start \
   -H "Content-Type: application/json" \
-  -H "Authentication: your_api_key" \
+  -H "Authorization: your_api_key" \
   -d '{
     "name": "my-notebook"
   }'
@@ -210,7 +210,7 @@ Deletes a notebook.
 ```bash
 curl -X DELETE http://localhost:3000/notebook/delete \
   -H "Content-Type: application/json" \
-  -H "Authentication: your_api_key" \
+  -H "Authorization: your_api_key" \
   -d '{
     "name": "my-notebook"
   }'
@@ -232,7 +232,7 @@ Lists all notebooks.
 
 ```bash
 curl -X GET http://localhost:3000/notebook/list \
-  -H "Authentication: your_api_key"
+  -H "Authorization: your_api_key"
 ```
 
 **Response (200 OK):**
