@@ -63,7 +63,7 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		authHeader := r.Header.Get("Authentication")
+		authHeader := r.Header.Get("Authorization")
 		if authHeader != app.env.API_KEY {
 			logger.Warn("Unauthorized request: Invalid or missing API key")
 			w.Header().Set("Content-Type", "application/json")
