@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"sandbox-backend-service/pkg/constants"
+	"strings"
 	"time"
 )
 
@@ -104,4 +106,15 @@ func contains(s []string, e string) bool {
 		}
 	}
 	return false
+}
+
+func generateNotebookURL(baseURL, namespace, notebookName string) string {
+	if baseURL == "" {
+		return ""
+	}
+	baseURL = strings.TrimSuffix(baseURL, "/")
+
+	notebookPath := fmt.Sprintf("notebook/%s/%s/lab", namespace, notebookName)
+
+	return baseURL + "/" + notebookPath
 }

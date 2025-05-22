@@ -7,7 +7,10 @@ import (
 	"sandbox-backend-service/pkg/utils"
 
 	"github.com/jackc/pgx/v5"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 func (app *application) checkNotebookExists(w http.ResponseWriter, r *http.Request) {
@@ -295,6 +298,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 
 		switch state {
 		case NotebookStateRunning:
+			notebook.URL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, notebook.Namespace, notebook.Name)
 			response.Successful = append(response.Successful, notebook)
 		case NotebookStateStopped:
 			response.Stopped = append(response.Stopped, notebook)
@@ -315,6 +319,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 
 	sendResponseJson(w, r, logger, http.StatusOK, response)
 }
+
 func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
 	notebookName := r.PathValue("notebook_name")
@@ -349,7 +354,7 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 		&status.Events,
 	)
 	if err != nil {
-		sendResponseJson(w, r, logger, http.StatusInternalServerError, "internal server error")
+		sendResponse(w, r, logger, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
@@ -368,6 +373,73 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	status.Status = string(determineNotebookState(latestEvent, k8sSpec.Object, logger))
+	var k8sObject map[string]interface{}
+	if k8sSpec != nil {
+		k8sObject = k8sSpec.Object
+	}
+	status.Status = string(determineNotebookState(latestEvent, k8sObject, logger))
+
+	if status.Status == string(NotebookStateRunning) {
+		status.URL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, status.Namespace, status.Name)
+	}
+
 	sendResponseJson(w, r, logger, http.StatusOK, status)
+}
+
+func (app *application) createProfile(w http.ResponseWriter, r *http.Request) {
+	logger := getLogger(r)
+
+	profileReq, err := utils.DecodeAndValidate[CreateProfileRequest](r.Body, logger)
+	if err != nil {
+		logger.Error("invalid body for profile creation", "error", err)
+		sendResponse(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
+		return
+	}
+
+	logger = logger.With("userId", profileReq.UserID, "email", profileReq.Email)
+
+	profile := unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "kubeflow.org/v1",
+			"kind":       "Profile",
+			"metadata": map[string]any{
+				"name": profileReq.UserID,
+			},
+			"spec": map[string]any{
+				"owner": map[string]any{
+					"kind": "User",
+					"name": profileReq.Email,
+				},
+				"plugins":           []any{},
+				"resourceQuotaSpec": map[string]any{},
+			},
+		},
+	}
+
+	unstructuredMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&profile)
+	if err != nil {
+		logger.Error("failed to convert profile to unstructured", "error", err)
+		sendResponse(w, r, logger, http.StatusInternalServerError, "Internal server error during profile conversion")
+		return
+	}
+
+	unstructuredProfile := &unstructured.Unstructured{Object: unstructuredMap}
+
+	profileGVR := schema.GroupVersionResource{
+		Group:    "kubeflow.org",
+		Version:  "v1",
+		Resource: "profiles",
+	}
+
+	ctx := context.Background()
+
+	_, err = app.k8sClient.Dynamic.Resource(profileGVR).Create(ctx, unstructuredProfile, metav1.CreateOptions{})
+	if err != nil {
+		logger.Error("failed to create kubeflow profile", "error", err, "profileName", profileReq.UserID)
+		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to create Kubeflow Profile")
+		return
+	}
+
+	logger.Info("kubeflow profile created successfully", "profileName", profileReq.UserID)
+	sendResponse(w, r, logger, http.StatusCreated, "Kubeflow Profile created successfully")
 }

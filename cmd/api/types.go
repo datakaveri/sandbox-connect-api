@@ -43,6 +43,7 @@ type NotebookConfig struct {
 	MemoryLimit   string `env:"DEFAULT_MEMORY_LIMIT,required"`
 	GPUType       string `env:"DEFAULT_GPU_TYPE,required"`
 	GPULimit      string `env:"DEFAULT_GPU_LIMIT,required"`
+	KubeFlowURL   string `env:"KUBEFLOW_URL,required"`
 }
 
 type NotebookRequest struct {
@@ -54,33 +55,35 @@ type NotebookDetails struct {
 	ID            int64    `json:"id"`
 	Name          string   `json:"name"`
 	Namespace     string   `json:"namespace"`
-	StorageSize   string   `json:"storage_size"`
-	PVCName       string   `json:"pvc_name"`
-	CPURequest    float64  `json:"cpu_request"`
-	CPULimit      float64  `json:"cpu_limit"`
-	MemoryRequest string   `json:"memory_request"`
-	MemoryLimit   string   `json:"memory_limit"`
-	GPUType       *string  `json:"gpu_type,omitempty"`
-	GPUCount      *int     `json:"gpu_count,omitempty"`
-	TemplateName  *string  `json:"template_name,omitempty"`
+	StorageSize   string   `json:"storageSize"`
+	PVCName       string   `json:"pvcName"`
+	CPURequest    float64  `json:"cpuRequest"`
+	CPULimit      float64  `json:"cpuLimit"`
+	MemoryRequest string   `json:"memoryRequest"`
+	MemoryLimit   string   `json:"memoryLimit"`
+	GPUType       *string  `json:"gpuType,omitempty"`
+	GPUCount      *int     `json:"gpuCount,omitempty"`
+	TemplateName  *string  `json:"templateName,omitempty"`
 	Events        []string `json:"events"`
+	URL           string   `json:"notebookUrl,omitempty"`
 }
 
 type NotebookStatus struct {
 	ID            int64    `json:"id"`
 	Name          string   `json:"name"`
 	Namespace     string   `json:"namespace"`
-	StorageSize   string   `json:"storage_size"`
-	PVCName       string   `json:"pvc_name"`
-	CPURequest    float64  `json:"cpu_request"`
-	CPULimit      float64  `json:"cpu_limit"`
-	MemoryRequest string   `json:"memory_request"`
-	MemoryLimit   string   `json:"memory_limit"`
-	GPUType       *string  `json:"gpu_type,omitempty"`
-	GPUCount      *int     `json:"gpu_count,omitempty"`
-	TemplateName  *string  `json:"template_name,omitempty"`
+	StorageSize   string   `json:"storageSize"`
+	PVCName       string   `json:"pvcName"`
+	CPURequest    float64  `json:"cpuRequest"`
+	CPULimit      float64  `json:"cpuLimit"`
+	MemoryRequest string   `json:"memoryRequest"`
+	MemoryLimit   string   `json:"memoryLimit"`
+	GPUType       *string  `json:"gpuType,omitempty"`
+	GPUCount      *int     `json:"gpuCount,omitempty"`
+	TemplateName  *string  `json:"templateName,omitempty"`
 	Events        []string `json:"events"`
 	Status        string   `json:"status"`
+	URL           string   `json:"notebookUrl,omitempty"`
 }
 
 type StopNotebookRequest struct {
@@ -109,4 +112,9 @@ type ListNotebooksResponse struct {
 	Pending    []NotebookDetails `json:"pending"`
 	Failed     []NotebookDetails `json:"failed"`
 	Orphaned   []NotebookDetails `json:"orphaned"`
+}
+
+type CreateProfileRequest struct {
+	UserID string `json:"userId" validate:"required,uuid"`
+	Email  string `json:"email" validate:"required,email"`
 }

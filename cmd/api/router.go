@@ -13,5 +13,8 @@ func (app *application) router() http.Handler {
 	v1.HandleFunc("GET /notebook/list", app.listNotebooks)
 	v1.HandleFunc("GET /notebook/check-exists/{notebook_name}", app.checkNotebookExists)
 	v1.HandleFunc("GET /notebook/status/{notebook_name}", app.checkNotebookStatus)
+
+	v1.HandleFunc("POST /profile/create", app.createProfile)
+
 	return v1
 }

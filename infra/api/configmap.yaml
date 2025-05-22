@@ -13,4 +13,5 @@ data:
   DEFAULT_MEMORY_LIMIT: "4Gi"
   DEFAULT_GPU_TYPE: "nvidia"
   DEFAULT_GPU_LIMIT: "1"
+  KUBEFLOW_URL: "https://sandbox.tgdex.telangana.gov.in"
   
