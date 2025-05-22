@@ -78,6 +78,7 @@ go run ./cmd/worker/
 | `/notebook/list` | GET | List all notebooks  | 200 OK |
 | `/notebook/check-exists/{notebook_name}` | GET | Check if notebook exists  | 200 OK |
 | `/notebook/status/{notebook_name}` | GET | Get notebook status  | 200 OK |
+| `/profile/create` | POST   | Create a new Kubeflow user profile/namespace | 201 Created      |
 
 ### Request and Response Examples
 
@@ -272,6 +273,30 @@ curl -X GET http://localhost:3000/notebook/list \
   "pending": [],
   "failed": [],
   "orphaned": []
+}
+```
+
+#### Create Profile
+
+Creates a new Kubeflow user profile, which in turn creates a new namespace in Kubernetes.
+
+**Request:**
+
+```bash
+curl -X POST http://localhost:3000/profile/create \
+  -H "Content-Type: application/json" \
+  -H "Authorization: your_api_key" \
+  -d '{
+    "userId": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+    "email": "user@example.com"
+  }'
+```
+
+**Response (201 Created):**
+
+```json
+{
+  "message": "Kubeflow Profile created successfully"
 }
 ```
 
