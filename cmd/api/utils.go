@@ -50,30 +50,23 @@ func getLogger(r *http.Request) *slog.Logger {
 	return logger
 }
 
-func determineNotebookState(latestEvent string, k8sSpec any, logger *slog.Logger) NotebookState {
+func determineNotebookState(latestEvent constants.Events, k8sSpec map[string]any, logger *slog.Logger) NotebookState {
 	if k8sSpec == nil {
-		if latestEvent == string(constants.StatusPVCApplyFailed) ||
-			latestEvent == string(constants.StatusPVCUploadFailed) ||
-			latestEvent == string(constants.StatusPVCUploadApplyFailed) ||
-			latestEvent == string(constants.StatusNotebookApplyFailed) ||
-			latestEvent == string(constants.StatusPVCCreationFailed) {
+		if latestEvent == constants.StatusPVCApplyFailed ||
+			latestEvent == constants.StatusPVCUploadFailed ||
+			latestEvent == constants.StatusPVCUploadApplyFailed ||
+			latestEvent == constants.StatusNotebookApplyFailed ||
+			latestEvent == constants.StatusPVCCreationFailed {
 			return NotebookStateFailed
 		}
 
-		if latestEvent == "" || latestEvent != string(constants.StatusNotebookApplied) {
+		if latestEvent == "" || latestEvent != constants.StatusNotebookApplied {
 			return NotebookStatePending
 		}
-
 		return NotebookStateOrphaned
 	}
 
-	k8sSpecMap, ok := k8sSpec.(map[string]any)
-	if !ok {
-		logger.Warn("expected map[string]any for k8s notebook spec")
-		return NotebookStatePending
-	}
-
-	if metadataMap, hasMetadata := k8sSpecMap["metadata"].(map[string]any); hasMetadata {
+	if metadataMap, hasMetadata := k8sSpec["metadata"].(map[string]any); hasMetadata {
 		if annotationsMap, hasAnnotations := metadataMap["annotations"].(map[string]any); hasAnnotations {
 			_, isStopped := annotationsMap["kubeflow-resource-stopped"]
 			if isStopped {
@@ -82,7 +75,7 @@ func determineNotebookState(latestEvent string, k8sSpec any, logger *slog.Logger
 		}
 	}
 
-	if statusMap, hasStatus := k8sSpecMap["status"].(map[string]any); hasStatus {
+	if statusMap, hasStatus := k8sSpec["status"].(map[string]any); hasStatus {
 		if readyReplicas, ok := statusMap["readyReplicas"].(int64); ok && readyReplicas > 0 {
 			return NotebookStateRunning
 		}

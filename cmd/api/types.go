@@ -1,6 +1,7 @@
 package main
 
 import (
+	"sandbox-backend-service/pkg/constants"
 	"sandbox-backend-service/pkg/db"
 	"sandbox-backend-service/pkg/k8s"
 )
@@ -34,16 +35,17 @@ type CheckStatusRequest struct {
 	Id int64 `json:"id" validate:"required"`
 }
 type NotebookConfig struct {
-	UserID        string `env:"DEFAULT_USER_ID"`
-	Namespace     string `env:"DEFAULT_NAMESPACE,required"`
-	StorageSize   string `env:"DEFAULT_STORAGE_SIZE,required"`
-	CPURequest    string `env:"DEFAULT_CPU_REQUEST,required"`
-	CPULimit      string `env:"DEFAULT_CPU_LIMIT,required"`
-	MemoryRequest string `env:"DEFAULT_MEMORY_REQUEST,required"`
-	MemoryLimit   string `env:"DEFAULT_MEMORY_LIMIT,required"`
-	GPUType       string `env:"DEFAULT_GPU_TYPE,required"`
-	GPULimit      string `env:"DEFAULT_GPU_LIMIT,required"`
-	KubeFlowURL   string `env:"KUBEFLOW_URL,required"`
+	UserID                   string `env:"DEFAULT_USER_ID"`
+	Namespace                string `env:"DEFAULT_NAMESPACE,required"`
+	StorageSize              string `env:"DEFAULT_STORAGE_SIZE,required"`
+	CPURequest               string `env:"DEFAULT_CPU_REQUEST,required"`
+	CPULimit                 string `env:"DEFAULT_CPU_LIMIT,required"`
+	MemoryRequest            string `env:"DEFAULT_MEMORY_REQUEST,required"`
+	MemoryLimit              string `env:"DEFAULT_MEMORY_LIMIT,required"`
+	GPUType                  string `env:"DEFAULT_GPU_TYPE,required"`
+	GPULimit                 string `env:"DEFAULT_GPU_LIMIT,required"`
+	KubeFlowURL              string `env:"KUBEFLOW_URL,required"`
+	DefaultNotebookListLimit int    `env:"DEFAULT_NOTEBOOK_LIST_LIMIT" envDefault:"10"`
 }
 
 type NotebookRequest struct {
@@ -51,39 +53,22 @@ type NotebookRequest struct {
 	Type string `json:"type" validate:"required"`
 }
 
-type NotebookDetails struct {
-	ID            int64    `json:"id"`
-	Name          string   `json:"name"`
-	Namespace     string   `json:"namespace"`
-	StorageSize   string   `json:"storageSize"`
-	PVCName       string   `json:"pvcName"`
-	CPURequest    float64  `json:"cpuRequest"`
-	CPULimit      float64  `json:"cpuLimit"`
-	MemoryRequest string   `json:"memoryRequest"`
-	MemoryLimit   string   `json:"memoryLimit"`
-	GPUType       *string  `json:"gpuType,omitempty"`
-	GPUCount      *int     `json:"gpuCount,omitempty"`
-	TemplateName  *string  `json:"templateName,omitempty"`
-	Events        []string `json:"events"`
-	URL           string   `json:"notebookUrl,omitempty"`
-}
-
 type NotebookStatus struct {
-	ID            int64    `json:"id"`
-	Name          string   `json:"name"`
-	Namespace     string   `json:"namespace"`
-	StorageSize   string   `json:"storageSize"`
-	PVCName       string   `json:"pvcName"`
-	CPURequest    float64  `json:"cpuRequest"`
-	CPULimit      float64  `json:"cpuLimit"`
-	MemoryRequest string   `json:"memoryRequest"`
-	MemoryLimit   string   `json:"memoryLimit"`
-	GPUType       *string  `json:"gpuType,omitempty"`
-	GPUCount      *int     `json:"gpuCount,omitempty"`
-	TemplateName  *string  `json:"templateName,omitempty"`
-	Events        []string `json:"events"`
-	Status        string   `json:"status"`
-	URL           string   `json:"notebookUrl,omitempty"`
+	ID            int64              `json:"id"`
+	Name          string             `json:"name"`
+	Namespace     string             `json:"namespace"`
+	StorageSize   string             `json:"storageSize"`
+	PVCName       string             `json:"pvcName"`
+	CPURequest    float64            `json:"cpuRequest"`
+	CPULimit      float64            `json:"cpuLimit"`
+	MemoryRequest string             `json:"memoryRequest"`
+	MemoryLimit   string             `json:"memoryLimit"`
+	GPUType       *string            `json:"gpuType,omitempty"`
+	GPUCount      *int               `json:"gpuCount,omitempty"`
+	TemplateName  *string            `json:"templateName,omitempty"`
+	Events        []constants.Events `json:"events"`
+	Status        NotebookState      `json:"status"`
+	URL           string             `json:"notebookUrl,omitempty"`
 }
 
 type StopNotebookRequest struct {
@@ -105,14 +90,6 @@ const (
 	NotebookStateFailed   NotebookState = "failed"
 	NotebookStateOrphaned NotebookState = "orphaned"
 )
-
-type ListNotebooksResponse struct {
-	Successful []NotebookDetails `json:"successful"`
-	Stopped    []NotebookDetails `json:"stopped"`
-	Pending    []NotebookDetails `json:"pending"`
-	Failed     []NotebookDetails `json:"failed"`
-	Orphaned   []NotebookDetails `json:"orphaned"`
-}
 
 type CreateProfileRequest struct {
 	UserID string `json:"userId" validate:"required,uuid"`

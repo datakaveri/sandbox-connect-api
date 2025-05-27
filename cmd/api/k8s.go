@@ -131,6 +131,7 @@ func getNotebooksJSON(k8sClient *k8s.K8sClient, namespace string) (map[string]an
 
 	return notebooks, nil
 }
+
 func deletePVCFromK8s(k8sClient *k8s.K8sClient, namespace, pvcName string) error {
 	pvcGVR := schema.GroupVersionResource{
 		Group:    "",
@@ -154,6 +155,7 @@ func deletePVCFromK8s(k8sClient *k8s.K8sClient, namespace, pvcName string) error
 
 	return nil
 }
+
 func getNotebookJSON(k8sClient *k8s.K8sClient, namespace, notebookName string) (*unstructured.Unstructured, error) {
 	notebookGVR := schema.GroupVersionResource{
 		Group:    "kubeflow.org",
@@ -163,4 +165,33 @@ func getNotebookJSON(k8sClient *k8s.K8sClient, namespace, notebookName string) (
 
 	spec, errr := k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Get(context.Background(), notebookName, metav1.GetOptions{})
 	return spec, errr
+}
+
+func CreateKubeflowProfile(k8sClient *k8s.K8sClient, userId, email string) error {
+	profile := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "kubeflow.org/v1",
+			"kind":       "Profile",
+			"metadata": map[string]any{
+				"name": userId,
+			},
+			"spec": map[string]any{
+				"owner": map[string]any{
+					"kind": "User",
+					"name": email,
+				},
+				"plugins":           []any{},
+				"resourceQuotaSpec": map[string]any{},
+			},
+		},
+	}
+
+	profileGVR := schema.GroupVersionResource{
+		Group:    "kubeflow.org",
+		Version:  "v1",
+		Resource: "profiles",
+	}
+
+	_, err := k8sClient.Dynamic.Resource(profileGVR).Create(context.Background(), profile, metav1.CreateOptions{})
+	return err
 }

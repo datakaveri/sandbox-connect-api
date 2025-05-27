@@ -75,7 +75,7 @@ go run ./cmd/worker/
 | `/notebook/stop` | PATCH | Stop a running notebook  | 200 OK |
 | `/notebook/start` | PATCH | Start a stopped notebook  | 200 OK |
 | `/notebook/delete` | DELETE | Delete a notebook  | 200 OK |
-| `/notebook/list` | GET | List all notebooks  | 200 OK |
+| `/notebook/list` | GET | List all notebooks (optionally filter by date range) | 200 OK |
 | `/notebook/check-exists/{notebook_name}` | GET | Check if notebook exists  | 200 OK |
 | `/notebook/status/{notebook_name}` | GET | Get notebook status  | 200 OK |
 | `/profile/create` | POST   | Create a new Kubeflow user profile/namespace | 201 Created      |
@@ -105,6 +105,57 @@ curl -X POST http://localhost:3000/notebook/create \
   "message": "notebook creation is in process"
 }
 ```
+
+#### List Notebooks
+
+Lists all notebooks. You can filter by creation date range using the `filter` query parameter.
+
+**Request (no filter):**
+
+```bash
+curl -X GET "http://localhost:3000/notebook/list" \
+  -H "Authorization: your_api_key"
+```
+
+**Request (with date filter):**
+
+Pass two `filter` query parameters, each as a separate key-value pair:
+
+```bash
+curl -X GET "http://localhost:3000/notebook/list?filter=2024-01-01&filter=2024-01-31" \
+  -H "Authorization: your_api_key"
+```
+
+**Note:**
+- You must provide **two** `filter` parameters, both in `YYYY-MM-DD` format (start and end date).
+- If only one filter is provided, you will get an error: `filter must be an array of two date strings or omitted entirely`.
+
+**Response (200 OK):**
+
+```json
+{
+  "notebooks": [
+    {
+      "id": 123,
+      "name": "my-notebook",
+      "namespace": "test-user",
+      "storageSize": "10Gi",
+      "pvcName": "my-notebook-pvc",
+      "cpuRequest": 1,
+      "cpuLimit": 2,
+      "memoryRequest": "2Gi",
+      "memoryLimit": "4Gi",
+      "gpuType": "nvidia",
+      "gpuCount": 1,
+      "events": ["scheduled", "picked", "pvc-applied", "notebook-applied"],
+      "status": "running"
+    }
+  ],
+  "next_offset": -1
+}
+```
+
+---
 
 #### Check Notebook Exists
 

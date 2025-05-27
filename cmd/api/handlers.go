@@ -5,12 +5,11 @@ import (
 	"net/http"
 	"sandbox-backend-service/pkg/constants"
 	"sandbox-backend-service/pkg/utils"
+	"strconv"
+	"time"
 
 	"github.com/jackc/pgx/v5"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 func (app *application) checkNotebookExists(w http.ResponseWriter, r *http.Request) {
@@ -242,21 +241,71 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
 	logger = logger.With("method", "listNotebooks")
 	ctx := context.Background()
+
+	filterVals := r.URL.Query()["filter"]
+	var filterDates [2]string
+	var filterActive bool
+	if len(filterVals) == 1 {
+		sendResponse(w, r, logger, http.StatusBadRequest, "filter must be an array of two date strings or omitted entirely")
+		return
+	} else if len(filterVals) == 2 {
+		for i, val := range filterVals {
+			if _, err := time.Parse("2006-01-02", val); err != nil {
+				sendResponse(w, r, logger, http.StatusBadRequest, "filter values must be valid date strings (YYYY-MM-DD)")
+				return
+			}
+			filterDates[i] = val
+		}
+		filterActive = true
+	}
+	limit := app.env.NotebookConfig.DefaultNotebookListLimit
+	if limStr := r.URL.Query().Get("limit"); limStr != "" {
+		if l, err := strconv.Atoi(limStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+	offset := 0
+	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
+		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
+			offset = o
+		}
+	}
+
 	k8sNotebooks, err := getNotebooksJSON(app.k8sClient, app.env.NotebookConfig.Namespace)
 	if err != nil {
 		logger.Warn("failed to get notebooks from Kubernetes", "error", err)
 		sendResponse(w, r, logger, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
-	query := `
-		SELECT id, name, namespace, storage_size, pvc_name, 
-		       cpu_request, cpu_limit, memory_request, memory_limit, 
-		       gpu_type, gpu_count, template_name, 
-		       events
-		FROM notebooks
-		WHERE namespace = $1
-	`
-	rows, err := app.pgPool.Pool.Query(ctx, query, app.env.NotebookConfig.Namespace)
+
+	var query string
+	var rows pgx.Rows
+	if filterActive {
+		query = `
+			SELECT id, name, namespace, storage_size, pvc_name,
+				cpu_request, cpu_limit, memory_request, memory_limit,
+				gpu_type, gpu_count, template_name, events
+			FROM notebooks
+			WHERE namespace = $1 AND created_at >= $2 AND created_at <= $3
+			ORDER BY id
+			LIMIT $4 OFFSET $5`
+		rows, err = app.pgPool.Pool.Query(ctx, query, app.env.NotebookConfig.Namespace, filterDates[0], filterDates[1], limit, offset)
+	} else {
+		query = `
+			SELECT id, name, namespace, storage_size, pvc_name,
+				cpu_request, cpu_limit, memory_request, memory_limit,
+				gpu_type, gpu_count, template_name, events
+			FROM notebooks
+			WHERE namespace = $1
+			ORDER BY id
+			LIMIT $2 OFFSET $3`
+		rows, err = app.pgPool.Pool.Query(ctx, query, app.env.NotebookConfig.Namespace, limit, offset)
+	}
+	if err != nil {
+		logger.Error("failed to query notebooks", "error", err)
+		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to query notebooks")
+		return
+	}
 	if err != nil {
 		logger.Error("failed to query notebooks", "error", err)
 		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to query notebooks")
@@ -264,60 +313,57 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	response := ListNotebooksResponse{
-		Successful: []NotebookDetails{},
-		Stopped:    []NotebookDetails{},
-		Pending:    []NotebookDetails{},
-		Failed:     []NotebookDetails{},
-		Orphaned:   []NotebookDetails{},
-	}
-
+	notebooks := []NotebookStatus{}
 	for rows.Next() {
-		var notebook NotebookDetails
+		var nb NotebookStatus
 		err := rows.Scan(
-			&notebook.ID, &notebook.Name, &notebook.Namespace, &notebook.StorageSize,
-			&notebook.PVCName, &notebook.CPURequest, &notebook.CPULimit,
-			&notebook.MemoryRequest, &notebook.MemoryLimit, &notebook.GPUType,
-			&notebook.GPUCount, &notebook.TemplateName, &notebook.Events,
+			&nb.ID, &nb.Name, &nb.Namespace, &nb.StorageSize, &nb.PVCName,
+			&nb.CPURequest, &nb.CPULimit, &nb.MemoryRequest, &nb.MemoryLimit,
+			&nb.GPUType, &nb.GPUCount, &nb.TemplateName, &nb.Events,
 		)
 		if err != nil {
 			logger.Error("failed to scan notebook row", "error", err)
 			continue
 		}
-
-		latestEvent := ""
-		if len(notebook.Events) > 0 {
-			latestEvent = notebook.Events[len(notebook.Events)-1]
+		var latestEvent constants.Events
+		if len(nb.Events) > 0 {
+			latestEvent = nb.Events[len(nb.Events)-1]
 		}
 
-		var k8sSpec any
-		if latestEvent == string(constants.StatusNotebookApplied) {
-			k8sSpec = k8sNotebooks[notebook.Name]
+		var k8sObject map[string]any = nil
+		if latestEvent == constants.StatusNotebookApplied {
+			if raw, ok := k8sNotebooks[nb.Name]; ok && raw != nil {
+				if obj, ok := raw.(map[string]any); ok {
+					k8sObject = obj
+				} else {
+					logger.Warn("k8sNotebooks entry is not a map[string]any", "name", nb.Name)
+				}
+			}
 		}
-		state := determineNotebookState(latestEvent, k8sSpec, logger)
-
-		switch state {
-		case NotebookStateRunning:
-			notebook.URL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, notebook.Namespace, notebook.Name)
-			response.Successful = append(response.Successful, notebook)
-		case NotebookStateStopped:
-			response.Stopped = append(response.Stopped, notebook)
-		case NotebookStateFailed:
-			response.Failed = append(response.Failed, notebook)
-		case NotebookStateOrphaned:
-			response.Orphaned = append(response.Orphaned, notebook)
-		default:
-			response.Pending = append(response.Pending, notebook)
+		nb.Status = determineNotebookState(latestEvent, k8sObject, logger)
+		if nb.Status == NotebookStateRunning {
+			nb.URL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, nb.Namespace, nb.Name)
 		}
+		notebooks = append(notebooks, nb)
 	}
-
 	if err := rows.Err(); err != nil {
 		logger.Error("error iterating notebook rows", "error", err)
 		sendResponse(w, r, logger, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
-	sendResponseJson(w, r, logger, http.StatusOK, response)
+	nextOffset := -1
+	if len(notebooks) == limit {
+		nextOffset = offset + limit
+	}
+	resp := struct {
+		Notebooks  []NotebookStatus `json:"notebooks"`
+		NextOffset int              `json:"next_offset"`
+	}{
+		Notebooks:  notebooks,
+		NextOffset: nextOffset,
+	}
+	sendResponseJson(w, r, logger, http.StatusOK, resp)
 }
 
 func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Request) {
@@ -358,13 +404,13 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	latestEvent := ""
+	var latestEvent constants.Events
 	if len(status.Events) > 0 {
 		latestEvent = status.Events[len(status.Events)-1]
 	}
 
 	var k8sSpec *unstructured.Unstructured
-	if latestEvent == string(constants.StatusNotebookApplied) {
+	if latestEvent == constants.StatusNotebookApplied {
 		var err error
 		k8sSpec, err = getNotebookJSON(app.k8sClient, status.Namespace, status.Name)
 		if err != nil {
@@ -373,13 +419,13 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	var k8sObject map[string]interface{}
+	var k8sObject map[string]any = nil
 	if k8sSpec != nil {
 		k8sObject = k8sSpec.Object
 	}
-	status.Status = string(determineNotebookState(latestEvent, k8sObject, logger))
+	status.Status = determineNotebookState(latestEvent, k8sObject, logger)
 
-	if status.Status == string(NotebookStateRunning) {
+	if status.Status == NotebookStateRunning {
 		status.URL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, status.Namespace, status.Name)
 	}
 
@@ -398,42 +444,7 @@ func (app *application) createProfile(w http.ResponseWriter, r *http.Request) {
 
 	logger = logger.With("userId", profileReq.UserID, "email", profileReq.Email)
 
-	profile := unstructured.Unstructured{
-		Object: map[string]any{
-			"apiVersion": "kubeflow.org/v1",
-			"kind":       "Profile",
-			"metadata": map[string]any{
-				"name": profileReq.UserID,
-			},
-			"spec": map[string]any{
-				"owner": map[string]any{
-					"kind": "User",
-					"name": profileReq.Email,
-				},
-				"plugins":           []any{},
-				"resourceQuotaSpec": map[string]any{},
-			},
-		},
-	}
-
-	unstructuredMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&profile)
-	if err != nil {
-		logger.Error("failed to convert profile to unstructured", "error", err)
-		sendResponse(w, r, logger, http.StatusInternalServerError, "Internal server error during profile conversion")
-		return
-	}
-
-	unstructuredProfile := &unstructured.Unstructured{Object: unstructuredMap}
-
-	profileGVR := schema.GroupVersionResource{
-		Group:    "kubeflow.org",
-		Version:  "v1",
-		Resource: "profiles",
-	}
-
-	ctx := context.Background()
-
-	_, err = app.k8sClient.Dynamic.Resource(profileGVR).Create(ctx, unstructuredProfile, metav1.CreateOptions{})
+	err = CreateKubeflowProfile(app.k8sClient, profileReq.UserID, profileReq.Email)
 	if err != nil {
 		logger.Error("failed to create kubeflow profile", "error", err, "profileName", profileReq.UserID)
 		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to create Kubeflow Profile")

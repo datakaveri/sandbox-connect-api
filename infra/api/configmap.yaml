@@ -14,4 +14,5 @@ data:
   DEFAULT_GPU_TYPE: "nvidia"
   DEFAULT_GPU_LIMIT: "1"
   KUBEFLOW_URL: "https://sandbox.tgdex.telangana.gov.in"
+  DEFAULT_NOTEBOOK_LIST_LIMIT: "10"
   
