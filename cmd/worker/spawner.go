@@ -69,7 +69,7 @@ func (app *application) worker(sem chan struct{}) {
 
 	defer cleanupResources(failedPtr)
 
-	if err := CreatePVC(app.k8sClient, notebook.Namespace, notebook.PVCname, notebook.StorageSize); err != nil {
+	if err := CreatePVC(app.k8sClient, notebook.Namespace, notebook.PVCname, notebook.StorageSize, app.env.STORAGE_CLASS_NAME); err != nil {
 		logger.Error("failed to create pv", "error", err)
 		queryErr := NotebookStatusUpdate(app.pgPool, ctx, notebook.ID, constants.StatusPVCApplyFailed)
 		if queryErr != nil {

@@ -7,19 +7,24 @@ import (
 )
 
 type ApiEnv struct {
-	Address        string `env:"ADDRESS,required"`
-	POSTGRES_URL   string `env:"POSTGRES_URL,required"`
-	KubeConfigPath string `env:"KUBE_CONFIG_PATH" envDefault:""`
-	KubeConfigMode string `env:"KUBE_CONFIG_MODE" envDefault:"cluster"`
-	CORS_ORIGINS   string `env:"CORS_ORIGINS" envDefault:""`
-	API_KEY        string `env:"API_KEY,required"`
-	NotebookConfig NotebookConfig
+	Address          string `env:"API_ADDRESS,required"`
+	KubeConfigPath   string `env:"API_KUBE_CONFIG_PATH" envDefault:""`
+	KubeConfigMode   string `env:"API_KUBE_CONFIG_MODE" envDefault:"cluster"`
+	POSTGRES_URL     string `env:"API_POSTGRES_URL,required"`
+	KeycloakURL      string `env:"API_KEYCLOAK_URL,required"`
+	KeycloakRealm    string `env:"API_KEYCLOAK_REALM,required"`
+	KeycloakClientID string `env:"API_KEYCLOAK_CLIENT_ID,required"`
+	CORS_ORIGINS     string `env:"API_CORS_ORIGINS" envDefault:""`
+	RateLimit        int    `env:"API_RATE_LIMIT" envDefault:"60"`
+	RateBurst        int    `env:"API_RATE_BURST" envDefault:"10"`
+	NotebookConfig   NotebookConfig
 }
 
 type application struct {
-	env       ApiEnv
-	k8sClient *k8s.K8sClient
-	pgPool    *db.PgPool
+	env         ApiEnv
+	k8sClient   *k8s.K8sClient
+	pgPool      *db.PgPool
+	rateLimiter *IPRateLimiter
 }
 type Resource struct {
 	Request float64 `json:"request" validate:"required,gt=0.1"`
@@ -35,21 +40,19 @@ type CheckStatusRequest struct {
 	Id int64 `json:"id" validate:"required"`
 }
 type NotebookConfig struct {
-	UserID                   string `env:"DEFAULT_USER_ID"`
-	Namespace                string `env:"DEFAULT_NAMESPACE,required"`
-	StorageSize              string `env:"DEFAULT_STORAGE_SIZE,required"`
-	CPURequest               string `env:"DEFAULT_CPU_REQUEST,required"`
-	CPULimit                 string `env:"DEFAULT_CPU_LIMIT,required"`
-	MemoryRequest            string `env:"DEFAULT_MEMORY_REQUEST,required"`
-	MemoryLimit              string `env:"DEFAULT_MEMORY_LIMIT,required"`
-	GPUType                  string `env:"DEFAULT_GPU_TYPE,required"`
-	GPULimit                 string `env:"DEFAULT_GPU_LIMIT,required"`
-	KubeFlowURL              string `env:"KUBEFLOW_URL,required"`
-	DefaultNotebookListLimit int    `env:"DEFAULT_NOTEBOOK_LIST_LIMIT" envDefault:"10"`
+	StorageSize              string `env:"API_DEFAULT_STORAGE_SIZE,required"`
+	CPURequest               string `env:"API_DEFAULT_CPU_REQUEST,required"`
+	CPULimit                 string `env:"API_DEFAULT_CPU_LIMIT,required"`
+	MemoryRequest            string `env:"API_DEFAULT_MEMORY_REQUEST,required"`
+	MemoryLimit              string `env:"API_DEFAULT_MEMORY_LIMIT,required"`
+	GPUType                  string `env:"API_DEFAULT_GPU_TYPE,required"`
+	GPULimit                 string `env:"API_DEFAULT_GPU_LIMIT,required"`
+	KubeFlowURL              string `env:"API_KUBEFLOW_URL,required"`
+	DefaultNotebookListLimit int    `env:"API_NOTEBOOK_LIST_LIMIT" envDefault:"10"`
 }
 
 type NotebookRequest struct {
-	Name string `json:"name" validate:"required"`
+	Name string `json:"name" validate:"gt=3,required"`
 	Type string `json:"type" validate:"required"`
 }
 
@@ -72,13 +75,13 @@ type NotebookStatus struct {
 }
 
 type StopNotebookRequest struct {
-	Name string `json:"name" validate:"required"`
+	Name string `json:"name" validate:"gt=3,required"`
 }
 type StartNotebookRequest struct {
-	Name string `json:"name" validate:"required"`
+	Name string `json:"name" validate:"gt=3,required"`
 }
 type DeleteNotebookRequest struct {
-	Name string `json:"name" validate:"required"`
+	Name string `json:"name" validate:"gt=3,required"`
 }
 
 type NotebookState string

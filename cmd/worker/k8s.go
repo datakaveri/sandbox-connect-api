@@ -14,7 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 )
 
-func CreatePVC(k8sClient *k8s.K8sClient, namespace, pvcName, storageSize string) error {
+func CreatePVC(k8sClient *k8s.K8sClient, namespace, pvcName, storageSize, storageClassName string) error {
 	pvc := &unstructured.Unstructured{
 		Object: map[string]any{
 			"apiVersion": "v1",
@@ -27,7 +27,7 @@ func CreatePVC(k8sClient *k8s.K8sClient, namespace, pvcName, storageSize string)
 				"accessModes": []any{
 					"ReadWriteOnce",
 				},
-				"storageClassName": "ebs-csi-storage-class",
+				"storageClassName": storageClassName,
 				"resources": map[string]any{
 					"requests": map[string]any{
 						"storage": storageSize,

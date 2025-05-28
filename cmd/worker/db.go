@@ -28,6 +28,9 @@ func FetchAndMarkNotebook(pg *db.PgPool, ctx context.Context) ([]Notebook, error
 		return nil, err
 	}
 	defer rows.Close()
+	if rows.Err() != nil {
+		return nil, rows.Err()
+	}
 
 	var notebooks []Notebook
 	for rows.Next() {

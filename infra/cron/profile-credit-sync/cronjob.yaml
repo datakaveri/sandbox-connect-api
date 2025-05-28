@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: profile-credit-sync
+  namespace: sandbox-backend
+spec:
+  schedule: "*/1 * * * *"  
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3 
+  failedJobsHistoryLimit: 3     
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: profile-credit-sync
+            type: cron
+        spec:
+          containers:
+          - name: profile-credit-sync
+            image: ${DOCKER_REGISTRY}/profile-credit-sync:${IMAGE_TAG}
+            env:
+            - name: PROFILE_CREDIT_SYNC_POSTGRES_URL
+              valueFrom:
+                secretKeyRef:
+                  name: database-creds
+                  key: POSTGRES_URL
+            envFrom:
+            - configMapRef:
+                name: profile-credit-sync-config
+            - secretRef:
+                name: database-cred
+            resources:
+              limits:
+                memory: "1Gi"
+                cpu: "500m"
+              requests:
+                memory: "128Mi"
+                cpu: "100m"
+          restartPolicy: OnFailure

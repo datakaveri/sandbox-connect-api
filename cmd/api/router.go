@@ -6,6 +6,8 @@ import (
 
 func (app *application) router() http.Handler {
 	v1 := http.NewServeMux()
+
+	// Add handlers
 	v1.HandleFunc("POST /notebook/create", app.createNotebook)
 	v1.HandleFunc("PATCH /notebook/stop", app.stopNotebook)
 	v1.HandleFunc("PATCH /notebook/start", app.startNotebook)
@@ -13,8 +15,12 @@ func (app *application) router() http.Handler {
 	v1.HandleFunc("GET /notebook/list", app.listNotebooks)
 	v1.HandleFunc("GET /notebook/check-exists/{notebook_name}", app.checkNotebookExists)
 	v1.HandleFunc("GET /notebook/status/{notebook_name}", app.checkNotebookStatus)
-
 	v1.HandleFunc("POST /profile/create", app.createProfile)
 
-	return v1
+	handler := app.authMiddleware(v1)
+	handler = app.rateLimitMiddleware(handler)
+	handler = app.enableCORS(handler)
+	handler = loggingMiddleware(handler)
+
+	return handler
 }

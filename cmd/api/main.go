@@ -1,13 +1,17 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"sandbox-backend-service/pkg/db"
 	"sandbox-backend-service/pkg/k8s"
 	"sandbox-backend-service/pkg/utils"
+	"syscall"
+	"time"
 
 	"github.com/caarlos0/env/v11"
 	"github.com/joho/godotenv"
@@ -35,18 +39,49 @@ func main() {
 	if err != nil {
 		utils.LogErrorAndExit("failed to get pool of connection", "error", err)
 	}
+	// Initialize rate limiter
+	rateLimiter := NewIPRateLimiter(config.RateLimit)
+
 	app := application{
-		pgPool:    pool,
-		k8sClient: k8sClient,
-		env:       config,
+		pgPool:      pool,
+		k8sClient:   k8sClient,
+		env:         config,
+		rateLimiter: rateLimiter,
 	}
 
-	slog.Info(fmt.Sprintf("server is serving from : http://%s", config.Address))
 	server := http.Server{
 		Addr:    config.Address,
-		Handler: loggingMiddleware(app.enableCORS(app.authMiddleware(app.router()))),
+		Handler: app.router(),
 	}
-	if err := server.ListenAndServe(); err != nil {
-		utils.LogErrorAndExit("Can't start server", "address", config.Address, "error", err)
+
+	serverErrors := make(chan error, 1)
+
+	go func() {
+		slog.Info(fmt.Sprintf("server is serving from : http://%s", config.Address))
+		serverErrors <- server.ListenAndServe()
+	}()
+
+	shutdown := make(chan os.Signal, 1)
+	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
+
+	select {
+	case err := <-serverErrors:
+		if err != nil && err != http.ErrServerClosed {
+			utils.LogErrorAndExit("server error", "error", err)
+		}
+	case sig := <-shutdown:
+		slog.Info("starting shutdown", "signal", sig)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		if err := server.Shutdown(ctx); err != nil {
+			server.Close()
+			utils.LogErrorAndExit("could not stop server gracefully", "error", err)
+		}
+
+		app.pgPool.Pool.Close()
+
+		slog.Info("shutdown complete")
 	}
 }

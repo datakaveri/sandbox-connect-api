@@ -14,16 +14,24 @@ import (
 
 func (app *application) checkNotebookExists(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
+	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
+	if !ok {
+		logger.Error("user info not found in context")
+		sendResponse(w, r, logger, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	namespace := userInfo.Sub
 	notebookName := r.PathValue("notebook_name")
 	if notebookName == "" {
 		logger.Error("notebook name is empty", "notebookName", notebookName)
 		sendResponse(w, r, logger, http.StatusBadRequest, "Notebook name is empty")
 		return
 	}
+
 	ctx := context.Background()
 	var exists bool
 	query := `SELECT EXISTS(SELECT 1 FROM notebooks WHERE name = $1 AND namespace = $2)`
-	err := app.pgPool.Pool.QueryRow(ctx, query, notebookName, app.env.NotebookConfig.Namespace).Scan(&exists)
+	err := app.pgPool.Pool.QueryRow(ctx, query, notebookName, namespace).Scan(&exists)
 	if err != nil {
 		logger.Error("failed to check notebook existence", "error", err)
 		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to check notebook existence")
@@ -34,7 +42,15 @@ func (app *application) checkNotebookExists(w http.ResponseWriter, r *http.Reque
 
 func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
+	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
+	if !ok {
+		logger.Error("user info not found in context")
+		sendResponse(w, r, logger, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	namespace := userInfo.Sub
 	notebookReq, err := utils.DecodeAndValidate[NotebookRequest](r.Body, logger)
+
 	if err != nil {
 		logger.Error("invalid body", "error", err)
 		sendResponse(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
@@ -48,9 +64,9 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	baseArgs := []any{
-		app.env.NotebookConfig.UserID,
+		namespace,
 		notebookReq.Name,
-		app.env.NotebookConfig.Namespace,
+		namespace,
 		app.env.NotebookConfig.StorageSize,
 		notebookReq.Name + "-pvc",
 		app.env.NotebookConfig.CPURequest,
@@ -93,13 +109,21 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 
 func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
+	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
+	if !ok {
+		logger.Error("user info not found in context")
+		sendResponse(w, r, logger, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	namespace := userInfo.Sub
 	stopReq, err := utils.DecodeAndValidate[StopNotebookRequest](r.Body, logger)
 	if err != nil {
 		logger.Error("invalid body", "error", err)
 		sendResponse(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
 		return
 	}
-	logger = logger.With("method", "stopNotebook", "namespace", app.env.NotebookConfig.Namespace, "name", stopReq.Name)
+
+	logger = logger.With("method", "stopNotebook", "namespace", namespace, "name", stopReq.Name)
 
 	ctx := context.Background()
 	var notebookID int64
@@ -109,7 +133,7 @@ func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
 		FROM notebooks
 		WHERE name = $1 AND namespace = $2
 	`
-	err = app.pgPool.Pool.QueryRow(ctx, query, stopReq.Name, app.env.NotebookConfig.Namespace).Scan(&notebookID, &latestEvent)
+	err = app.pgPool.Pool.QueryRow(ctx, query, stopReq.Name, namespace).Scan(&notebookID, &latestEvent)
 	if err != nil {
 		logger.Error("failed to find notebook", "error", err)
 		sendResponse(w, r, logger, http.StatusNotFound, "Notebook not found")
@@ -122,7 +146,7 @@ func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = addStoppedAnnotationToNotebook(app.k8sClient, app.env.NotebookConfig.Namespace, stopReq.Name)
+	err = addStoppedAnnotationToNotebook(app.k8sClient, namespace, stopReq.Name)
 	if err != nil {
 		logger.Error("failed to add stopped annotation to notebook", "error", err)
 		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to stop notebook")
@@ -134,13 +158,21 @@ func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
 
 func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
+	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
+	if !ok {
+		logger.Error("user info not found in context")
+		sendResponse(w, r, logger, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	namespace := userInfo.Sub
 	startReq, err := utils.DecodeAndValidate[StartNotebookRequest](r.Body, logger)
 	if err != nil {
 		logger.Error("invalid body", "error", err)
 		sendResponse(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
 		return
 	}
-	logger = logger.With("method", "startNotebook", "namespace", app.env.NotebookConfig.Namespace, "name", startReq.Name)
+
+	logger = logger.With("method", "startNotebook", "namespace", namespace, "name", startReq.Name)
 	ctx := context.Background()
 	var notebookID int64
 	var latestEvent string
@@ -149,7 +181,7 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 		FROM notebooks
 		WHERE name = $1 AND namespace = $2
 	`
-	err = app.pgPool.Pool.QueryRow(ctx, query, startReq.Name, app.env.NotebookConfig.Namespace).Scan(&notebookID, &latestEvent)
+	err = app.pgPool.Pool.QueryRow(ctx, query, startReq.Name, namespace).Scan(&notebookID, &latestEvent)
 	if err != nil {
 		logger.Error("failed to find notebook", "error", err)
 		sendResponse(w, r, logger, http.StatusNotFound, "Notebook not found")
@@ -162,25 +194,32 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = removeStoppedAnnotationFromNotebook(app.k8sClient, app.env.NotebookConfig.Namespace, startReq.Name)
+	err = removeStoppedAnnotationFromNotebook(app.k8sClient, namespace, startReq.Name)
 	if err != nil {
 		logger.Error("failed to remove stopped annotation from notebook", "error", err)
 		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to start notebook")
 		return
 	}
-
 	sendResponse(w, r, logger, http.StatusOK, "Notebook started successfully")
 }
 
 func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
+	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
+	if !ok {
+		logger.Error("user info not found in context")
+		sendResponse(w, r, logger, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	namespace := userInfo.Sub
 	deleteReq, err := utils.DecodeAndValidate[DeleteNotebookRequest](r.Body, logger)
 	if err != nil {
 		logger.Error("invalid body", "error", err)
 		sendResponse(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
 		return
 	}
-	logger = logger.With("method", "deleteNotebook", "namespace", app.env.NotebookConfig.Namespace, "name", deleteReq.Name)
+
+	logger = logger.With("method", "deleteNotebook", "namespace", namespace, "name", deleteReq.Name)
 	query := `
 		SELECT events[array_upper(events, 1)] as latest_event
 		FROM notebooks
@@ -188,7 +227,7 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 	`
 	var latestEvent string
 	ctx := context.Background()
-	err = app.pgPool.Pool.QueryRow(ctx, query, deleteReq.Name, app.env.NotebookConfig.Namespace).Scan(&latestEvent)
+	err = app.pgPool.Pool.QueryRow(ctx, query, deleteReq.Name, namespace).Scan(&latestEvent)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			logger.Error("notebook not found", "error", err)
@@ -213,7 +252,7 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	deleteQuery := `DELETE FROM notebooks WHERE name = $1 AND namespace = $2`
-	_, err = app.pgPool.Pool.Exec(ctx, deleteQuery, deleteReq.Name, app.env.NotebookConfig.Namespace)
+	_, err = app.pgPool.Pool.Exec(ctx, deleteQuery, deleteReq.Name, namespace)
 	if err != nil {
 		logger.Error("failed to delete notebook from database", "error", err)
 		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to delete notebook from database")
@@ -221,13 +260,13 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !notebookFailed {
-		err = deleteNotebookFromK8s(app.k8sClient, app.env.NotebookConfig.Namespace, deleteReq.Name)
+		err = deleteNotebookFromK8s(app.k8sClient, namespace, deleteReq.Name)
 		if err != nil {
 			logger.Error("failed to delete notebook from Kubernetes", "error", err)
 			sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to delete notebook from Kubernetes")
 			return
 		}
-		err = deletePVCFromK8s(app.k8sClient, app.env.NotebookConfig.Namespace, deleteReq.Name+"-pvc")
+		err = deletePVCFromK8s(app.k8sClient, namespace, deleteReq.Name+"-pvc")
 		if err != nil {
 			logger.Error("failed to delete PVC from Kubernetes", "error", err)
 			sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to delete PVC from Kubernetes")
@@ -242,6 +281,13 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 	logger = logger.With("method", "listNotebooks")
 	ctx := context.Background()
 
+	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
+	if !ok {
+		logger.Error("user info not found in context")
+		sendResponse(w, r, logger, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	namespace := userInfo.Sub
 	filterVals := r.URL.Query()["filter"]
 	var filterDates [2]string
 	var filterActive bool
@@ -271,7 +317,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	k8sNotebooks, err := getNotebooksJSON(app.k8sClient, app.env.NotebookConfig.Namespace)
+	k8sNotebooks, err := getNotebooksJSON(app.k8sClient, namespace)
 	if err != nil {
 		logger.Warn("failed to get notebooks from Kubernetes", "error", err)
 		sendResponse(w, r, logger, http.StatusInternalServerError, "Internal Server Error")
@@ -289,7 +335,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 			WHERE namespace = $1 AND created_at >= $2 AND created_at <= $3
 			ORDER BY id
 			LIMIT $4 OFFSET $5`
-		rows, err = app.pgPool.Pool.Query(ctx, query, app.env.NotebookConfig.Namespace, filterDates[0], filterDates[1], limit, offset)
+		rows, err = app.pgPool.Pool.Query(ctx, query, namespace, filterDates[0], filterDates[1], limit, offset)
 	} else {
 		query = `
 			SELECT id, name, namespace, storage_size, pvc_name,
@@ -299,7 +345,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 			WHERE namespace = $1
 			ORDER BY id
 			LIMIT $2 OFFSET $3`
-		rows, err = app.pgPool.Pool.Query(ctx, query, app.env.NotebookConfig.Namespace, limit, offset)
+		rows, err = app.pgPool.Pool.Query(ctx, query, namespace, limit, offset)
 	}
 	if err != nil {
 		logger.Error("failed to query notebooks", "error", err)
@@ -368,13 +414,22 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 
 func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
+	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
+	if !ok {
+		logger.Error("user info not found in context")
+		sendResponse(w, r, logger, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	namespace := userInfo.Sub
 	notebookName := r.PathValue("notebook_name")
 	if notebookName == "" {
 		logger.Error("notebook name is required", "error", "notebook name is required")
 		sendResponse(w, r, logger, http.StatusBadRequest, "Notebook name is required")
 		return
 	}
-	logger = logger.With("method", "checkNotebookStatus", "namespace", app.env.NotebookConfig.Namespace, "name", notebookName)
+
+	logger = logger.With("method", "checkNotebookStatus", "namespace", namespace, "name", notebookName)
 	ctx := context.Background()
 	var status NotebookStatus
 	query := `
@@ -384,7 +439,7 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 		FROM notebooks
 		WHERE namespace= $1 and name = $2`
 
-	err := app.pgPool.Pool.QueryRow(ctx, query, app.env.NotebookConfig.Namespace, notebookName).Scan(
+	err := app.pgPool.Pool.QueryRow(ctx, query, namespace, notebookName).Scan(
 		&status.ID,
 		&status.Name,
 		&status.Namespace,
@@ -435,22 +490,24 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 func (app *application) createProfile(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
 
-	profileReq, err := utils.DecodeAndValidate[CreateProfileRequest](r.Body, logger)
-	if err != nil {
-		logger.Error("invalid body for profile creation", "error", err)
-		sendResponse(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
+	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
+	if !ok {
+		logger.Error("user info not found in context")
+		sendResponse(w, r, logger, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
+	email := userInfo.Email
+	userId := userInfo.Sub
 
-	logger = logger.With("userId", profileReq.UserID, "email", profileReq.Email)
+	logger = logger.With("userId", userId, "email", email)
 
-	err = CreateKubeflowProfile(app.k8sClient, profileReq.UserID, profileReq.Email)
+	err := CreateKubeflowProfile(app.k8sClient, userId, email)
 	if err != nil {
-		logger.Error("failed to create kubeflow profile", "error", err, "profileName", profileReq.UserID)
+		logger.Error("failed to create kubeflow profile", "error", err, "profileName", userId)
 		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to create Kubeflow Profile")
 		return
 	}
 
-	logger.Info("kubeflow profile created successfully", "profileName", profileReq.UserID)
+	logger.Info("kubeflow profile created successfully", "profileName", userId)
 	sendResponse(w, r, logger, http.StatusCreated, "Kubeflow Profile created successfully")
 }

@@ -184,7 +184,7 @@ Checks the current status of a notebook.
 
 ```bash
 curl -X GET http://localhost:3000/notebook/status/my-notebook \
-  -H "Authorization: your_api_key"
+  -H "Authorization: keycloak_token"
 ```
 
 **Response (200 OK):**
@@ -216,7 +216,7 @@ Stops a running notebook.
 ```bash
 curl -X PATCH http://localhost:3000/notebook/stop \
   -H "Content-Type: application/json" \
-  -H "Authorization: your_api_key" \
+  -H "Authorization: keycloak_token" \
   -d '{
     "name": "my-notebook"
   }'
@@ -239,7 +239,7 @@ Starts a stopped notebook.
 ```bash
 curl -X PATCH http://localhost:3000/notebook/start \
   -H "Content-Type: application/json" \
-  -H "Authorization: your_api_key" \
+  -H "Authorization: keycloak_token" \
   -d '{
     "name": "my-notebook"
   }'
@@ -262,7 +262,7 @@ Deletes a notebook.
 ```bash
 curl -X DELETE http://localhost:3000/notebook/delete \
   -H "Content-Type: application/json" \
-  -H "Authorization: your_api_key" \
+  -H "Authorization: keycloak_token" \
   -d '{
     "name": "my-notebook"
   }'
@@ -284,7 +284,7 @@ Lists all notebooks.
 
 ```bash
 curl -X GET http://localhost:3000/notebook/list \
-  -H "Authorization: your_api_key"
+  -H "Authorization: keycloak_token"
 ```
 
 **Response (200 OK):**
@@ -336,11 +336,7 @@ Creates a new Kubeflow user profile, which in turn creates a new namespace in Ku
 ```bash
 curl -X POST http://localhost:3000/profile/create \
   -H "Content-Type: application/json" \
-  -H "Authorization: your_api_key" \
-  -d '{
-    "userId": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
-    "email": "user@example.com"
-  }'
+  -H "Authorization: keycloak_token" 
 ```
 
 **Response (201 Created):**

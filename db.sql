@@ -25,3 +25,15 @@ CREATE TABLE notebooks (
     CONSTRAINT unique_name_namespace UNIQUE (name, namespace),
     CONSTRAINT unique_pvc_namespace UNIQUE (pvc_name, namespace)
 );
+
+CREATE TABLE profile_costs(
+    profile_id UUID PRIMARY KEY,
+    gpu_total_cost DECIMAL(12,6) NOT NULL DEFAULT 0,
+    cpu_total_cost DECIMAL(12,6) NOT NULL DEFAULT 0,
+    memory_total_cost DECIMAL(12,6) NOT NULL DEFAULT 0,
+    total_cost DECIMAL(12,6) NOT NULL DEFAULT 0,
+    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_profile_costs_updated_at ON profile_costs(updated_at);

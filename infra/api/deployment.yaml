@@ -25,24 +25,13 @@ spec:
         - containerPort: 3000
         envFrom:
         - configMapRef:
-            name: notebook-config
+            name: api-config
         env:
-        - name: ADDRESS
-          value: "0.0.0.0:3000"
-        - name: POSTGRES_URL
+        - name: API_POSTGRES_URL
           valueFrom:
             secretKeyRef:
               name: database-creds
               key: POSTGRES_URL
-        - name: KUBE_CONFIG_MODE
-          value: "cluster"
-        - name: CORS_ORIGINS
-          value: "*"
-        - name: API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: api-auth
-              key: API_KEY
         resources:
           limits:
             cpu: "1"

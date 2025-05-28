@@ -22,40 +22,42 @@ spec:
       - name: worker
         image: ghcr.io/datakaveri/tgdex-sandbox-connect-worker:latest
         env:
-        - name: POSTGRES_URL
+        - name: WORKER_POSTGRES_URL
           valueFrom:
             secretKeyRef:
               name: database-creds 
               key: POSTGRES_URL
-        - name: KUBE_CONFIG_MODE
+        - name: WORKER_KUBE_CONFIG_MODE
           value: "cluster"
-        - name: MAX_CONCURRENT_WORKER
+        - name: WORKER_MAX_CONCURRENT_WORKER
           value: "5"  
-        - name: S3_ENDPOINT
+        - name: WORKER_S3_ENDPOINT
           valueFrom:
             secretKeyRef:
               name: s3-creds 
               key: S3_ENDPOINT
-        - name: S3_REGION
+        - name: WORKER_S3_REGION
           valueFrom:
             secretKeyRef:
               name: s3-creds 
               key: S3_REGION
-        - name: S3_ACCESS_KEY
+        - name: WORKER_S3_ACCESS_KEY
           valueFrom:
             secretKeyRef:
               name: s3-creds 
               key: S3_ACCESS_KEY
-        - name: S3_SECRET_KEY
+        - name: WORKER_S3_SECRET_KEY
           valueFrom:
             secretKeyRef:
               name: s3-creds 
               key: S3_SECRET_KEY
-        - name: S3_TEMPLATE_BUCKET_NAME
+        - name: WORKER_S3_TEMPLATE_BUCKET_NAME
           valueFrom:
             secretKeyRef:
               name: s3-creds 
               key: S3_TEMPLATE_BUCKET_NAME
+        - name: WORKER_STORAGE_CLASS_NAME
+          value: "standard"
         resources:
           limits:
             cpu: "500m"

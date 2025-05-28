@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: profile-credit-sync-config
+  namespace: sandbox-backend
+data:
+  PROFILE_CREDIT_SYNC_OPENCOST_URL: "http://opencost.opencost:9003"
+  PROFILE_CREDIT_SYNC_BATCH_SIZE: "50"
+  PROFILE_CREDIT_SYNC_MAX_RETRIES: "3"

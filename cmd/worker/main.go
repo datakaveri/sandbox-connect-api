@@ -1,14 +1,15 @@
 package main
 
 import (
-	"github.com/caarlos0/env/v11"
-	"github.com/joho/godotenv"
 	"log/slog"
 	"os"
 	"sandbox-backend-service/pkg/db"
 	"sandbox-backend-service/pkg/k8s"
 	"sandbox-backend-service/pkg/s3"
 	"sandbox-backend-service/pkg/utils"
+
+	"github.com/caarlos0/env/v11"
+	"github.com/joho/godotenv"
 )
 
 func main() {
@@ -33,6 +34,7 @@ func main() {
 	if err != nil {
 		utils.LogErrorAndExit("failed to get pool of connection", "error", err)
 	}
+	defer pool.Pool.Close()
 	s3Client, err := s3.NewS3Client(config.S3_ACCESS_KEY, config.S3_SECRET_KEY, config.S3_REGION)
 	if err != nil {
 		utils.LogErrorAndExit("failed to get create s3 client", "error", err)
