@@ -6,24 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
 )
-
-func parseAllowedOrigins(originsStr string) []string {
-	if originsStr == "" {
-		return []string{}
-	}
-	origins := strings.Split(originsStr, ",")
-	for i := range origins {
-		origins[i] = strings.TrimSpace(origins[i])
-	}
-	return origins
-}
 
 func (app *application) enableCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -52,7 +41,6 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		startTime := time.Now()
 		ctx = context.WithValue(ctx, "startTime", startTime)
 		r = r.WithContext(ctx)
-
 		logger := getLogger(r)
 		logger.Info("Request Start")
 		next.ServeHTTP(w, r)
@@ -60,92 +48,38 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-type JWTPayload struct {
-	Azp string `json:"azp" validate:"required"`
-}
-
-type UserInfo struct {
-	Sub               string `json:"sub" validate:"required,uuid"`
-	EmailVerified     bool   `json:"email_verified"`
-	Name              string `json:"name"`
-	PreferredUsername string `json:"preferred_username"`
-	GivenName         string `json:"given_name"`
-	FamilyName        string `json:"family_name"`
-	Email             string `json:"email" validate:"required,email"`
-}
-
-type userContextKey string
-
-const UserContextKey userContextKey = "user"
-
 func (app *application) rateLimitMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := r.RemoteAddr
-		if forwardedFor := r.Header.Get("X-Forwarded-For"); forwardedFor != "" {
-			ip = strings.Split(forwardedFor, ",")[0]
-		}
+		logger := getLogger(r)
 
-		if !app.rateLimiter.GetLimiter(ip) {
-			http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+		if ip == "" {
+			logger.Info("No IP address found, using default value for rate limiting")
+			sendError(w, r, logger, http.StatusTooManyRequests, "No IP address found")
+			return
+		}
+		host, _, err := net.SplitHostPort(ip)
+		if err != nil {
+			logger.Error("Failed to split IP address", "error", err)
+			sendError(w, r, logger, http.StatusTooManyRequests, "Invalid IP address")
+			return
+		}
+		if !app.rateLimiter.GetLimiter(host) {
+			sendError(w, r, logger, http.StatusTooManyRequests, "Too Many Requests")
 			return
 		}
 
 		next.ServeHTTP(w, r)
 	})
 }
-
-type IPRateLimiter struct {
-	ips           map[string]*IpRateLimiterRequests
-	mu            sync.RWMutex
-	ratePerMinute int
+func (app *application) contextTimeout(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), time.Duration(app.env.TimeoutInSecs)*time.Second)
+		defer cancel()
+		r = r.WithContext(ctx)
+		next.ServeHTTP(w, r)
+	})
 }
-
-type IpRateLimiterRequests struct {
-	count    int
-	firstReq time.Time
-}
-
-func NewIPRateLimiter(r int) *IPRateLimiter {
-	return &IPRateLimiter{
-		ips:           make(map[string]*IpRateLimiterRequests),
-		ratePerMinute: r,
-		mu:            sync.RWMutex{},
-	}
-}
-
-func (i *IPRateLimiter) isAllowed(ip string) bool {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-
-	now := time.Now()
-	req, exists := i.ips[ip]
-
-	if !exists {
-		i.ips[ip] = &IpRateLimiterRequests{
-			count:    1,
-			firstReq: now,
-		}
-		return true
-	}
-
-	if now.Sub(req.firstReq) >= time.Minute {
-		req.count = 1
-		req.firstReq = now
-		return true
-	}
-
-	if req.count < i.ratePerMinute {
-		req.count++
-		return true
-	}
-
-	return false
-}
-
-func (i *IPRateLimiter) GetLimiter(ip string) bool {
-	return i.isAllowed(ip)
-}
-
 func (app *application) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logger := slog.With(
@@ -157,16 +91,14 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
 			logger.Warn("Unauthorized request: Missing authorization header")
-			msg := map[string]string{"error": "Unauthorized: Missing authorization header"}
-			sendResponseJson(w, r, logger, http.StatusUnauthorized, msg)
+			sendError(w, r, logger, http.StatusUnauthorized, "Unauthorized: Missing authorization header")
 			return
 		}
 
 		parts := strings.Split(authHeader, " ")
 		if len(parts) != 2 || parts[0] != "Bearer" {
 			logger.Warn("Unauthorized request: Invalid authorization header format")
-			msg := map[string]string{"error": "Unauthorized: Invalid authorization header format"}
-			sendResponseJson(w, r, logger, http.StatusUnauthorized, msg)
+			sendError(w, r, logger, http.StatusUnauthorized, "Unauthorized: Invalid authorization header format")
 			return
 		}
 		token := parts[1]
@@ -174,60 +106,62 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 		parts = strings.Split(token, ".")
 		if len(parts) != 3 {
 			logger.Warn("Invalid JWT token format")
-			sendResponseJson(w, r, logger, http.StatusUnauthorized, map[string]string{"error": "Invalid token format"})
+			sendError(w, r, logger, http.StatusUnauthorized, "Invalid token format")
 			return
 		}
 
 		payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
 		if err != nil {
 			logger.Error("Failed to decode JWT payload", "error", err)
-			sendResponseJson(w, r, logger, http.StatusUnauthorized, map[string]string{"error": "Invalid token format"})
+			sendError(w, r, logger, http.StatusUnauthorized, "Invalid token format")
 			return
 		}
 
 		var payload JWTPayload
 		if err := json.Unmarshal(payloadBytes, &payload); err != nil {
 			logger.Error("Failed to parse JWT payload", "error", err)
-			sendResponseJson(w, r, logger, http.StatusUnauthorized, map[string]string{"error": "Invalid token format"})
+			sendError(w, r, logger, http.StatusUnauthorized, "Invalid token format")
 			return
 		}
 
 		if payload.Azp == "" || payload.Azp != app.env.KeycloakClientID {
 			logger.Warn("Invalid client ID", "client_id", payload.Azp)
-			sendResponseJson(w, r, logger, http.StatusUnauthorized, map[string]string{"error": "Invalid client"})
+			sendError(w, r, logger, http.StatusUnauthorized, "Invalid client")
 			return
 		}
 
 		userInfoURL := fmt.Sprintf("%s/realms/%s/protocol/openid-connect/userinfo", app.env.KeycloakURL, app.env.KeycloakRealm)
-		req, err := http.NewRequest("GET", userInfoURL, nil)
+		req, err := http.NewRequestWithContext(r.Context(), "GET", userInfoURL, nil)
 		if err != nil {
 			logger.Error("Failed to create userinfo request", "error", err)
-			msg := map[string]string{"error": "Internal server error"}
-			sendResponseJson(w, r, logger, http.StatusInternalServerError, msg)
+			sendError(w, r, logger, http.StatusInternalServerError, "Internal server error")
 			return
 		}
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 
 		client := &http.Client{}
 		resp, err := client.Do(req)
+
 		if err != nil {
 			logger.Error("Failed to validate token with Keycloak", "error", err)
-			sendResponseJson(w, r, logger, http.StatusInternalServerError, map[string]string{"error": "Internal server error"})
+			sendError(w, r, logger, http.StatusInternalServerError, "Internal server error")
 			return
 		}
 		defer resp.Body.Close()
 
+		// Print response headers
+		logger.Info("Userinfo response headers", "headers", resp.Header)
+
 		if resp.StatusCode != http.StatusOK {
 			logger.Warn("Token validation failed", "status", resp.StatusCode)
-			msg := map[string]string{"error": "Unauthorized: Invalid token"}
-			sendResponseJson(w, r, logger, http.StatusUnauthorized, msg)
+			sendError(w, r, logger, http.StatusUnauthorized, "Unauthorized: Invalid token")
 			return
 		}
 
 		var userInfo UserInfo
 		if err := json.NewDecoder(resp.Body).Decode(&userInfo); err != nil {
 			logger.Error("Failed to decode userinfo response", "error", err)
-			sendResponseJson(w, r, logger, http.StatusInternalServerError, map[string]string{"error": "Internal server error"})
+			sendError(w, r, logger, http.StatusInternalServerError, "Internal server error")
 			return
 		}
 

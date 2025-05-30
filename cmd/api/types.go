@@ -16,7 +16,12 @@ type ApiEnv struct {
 	KeycloakClientID string `env:"API_KEYCLOAK_CLIENT_ID,required"`
 	CORS_ORIGINS     string `env:"API_CORS_ORIGINS" envDefault:""`
 	RateLimit        int    `env:"API_RATE_LIMIT" envDefault:"60"`
-	RateBurst        int    `env:"API_RATE_BURST" envDefault:"10"`
+	RateWindowSecs   int    `env:"API_RATE_WINDOW_SECS" envDefault:"30"`
+	TimeoutInSecs    int    `env:"API_TIMEOUT_SECS" envDefault:"5"`
+	IdleTimeoutSecs  int    `env:"API_IDLE_TIMEOUT_SECS" envDefault:"120"`
+	MaxBodySizeInMB  int    `env:"API_MAX_BODY_SIZE_IN_MB" envDefault:"5"`
+	WriteTimeoutSecs int    `env:"API_WRITE_TIMEOUT_SECS" envDefault:"60"`
+	ReadTimeoutSecs  int    `env:"API_READ_TIMEOUT_SECS" envDefault:"30"`
 	NotebookConfig   NotebookConfig
 }
 
@@ -98,3 +103,21 @@ type CreateProfileRequest struct {
 	UserID string `json:"userId" validate:"required,uuid"`
 	Email  string `json:"email" validate:"required,email"`
 }
+
+type JWTPayload struct {
+	Azp string `json:"azp" validate:"required"`
+}
+
+type UserInfo struct {
+	Sub               string `json:"sub" validate:"required,uuid"`
+	EmailVerified     bool   `json:"email_verified"`
+	Name              string `json:"name"`
+	PreferredUsername string `json:"preferred_username"`
+	GivenName         string `json:"given_name"`
+	FamilyName        string `json:"family_name"`
+	Email             string `json:"email" validate:"required,email"`
+}
+
+type userContextKey string
+
+const UserContextKey userContextKey = "user"

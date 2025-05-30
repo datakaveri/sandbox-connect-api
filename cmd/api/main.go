@@ -29,18 +29,17 @@ func main() {
 
 	var config ApiEnv
 	if err := env.Parse(&config); err != nil {
-		utils.LogErrorAndExit("failed to parse environment variables", "error", err)
+		utils.LogErrorAndExit(logger, "failed to parse environment variables", "error", err)
 	}
 	k8sClient, err := k8s.NewK8sClient(config.KubeConfigMode, config.KubeConfigPath)
 	if err != nil {
-		utils.LogErrorAndExit("failed to create kubernetes client", "error", err)
+		utils.LogErrorAndExit(logger, "failed to create kubernetes client", "error", err)
 	}
 	pool, err := db.NewPool(config.POSTGRES_URL)
 	if err != nil {
-		utils.LogErrorAndExit("failed to get pool of connection", "error", err)
+		utils.LogErrorAndExit(logger, "failed to get pool of connection", "error", err)
 	}
-	// Initialize rate limiter
-	rateLimiter := NewIPRateLimiter(config.RateLimit)
+	rateLimiter := NewIPRateLimiter(config.RateLimit, config.RateWindowSecs)
 
 	app := application{
 		pgPool:      pool,
@@ -50,8 +49,11 @@ func main() {
 	}
 
 	server := http.Server{
-		Addr:    config.Address,
-		Handler: app.router(),
+		Addr:         config.Address,
+		Handler:      app.router(),
+		ReadTimeout:  time.Duration(config.ReadTimeoutSecs) * time.Second,
+		WriteTimeout: time.Duration(config.WriteTimeoutSecs) * time.Second,
+		IdleTimeout:  time.Duration(config.IdleTimeoutSecs) * time.Second,
 	}
 
 	serverErrors := make(chan error, 1)
@@ -67,17 +69,17 @@ func main() {
 	select {
 	case err := <-serverErrors:
 		if err != nil && err != http.ErrServerClosed {
-			utils.LogErrorAndExit("server error", "error", err)
+			utils.LogErrorAndExit(logger, "server error", "error", err)
 		}
 	case sig := <-shutdown:
 		slog.Info("starting shutdown", "signal", sig)
 
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
 		if err := server.Shutdown(ctx); err != nil {
 			server.Close()
-			utils.LogErrorAndExit("could not stop server gracefully", "error", err)
+			utils.LogErrorAndExit(logger, "could not stop server gracefully", "error", err)
 		}
 
 		app.pgPool.Pool.Close()

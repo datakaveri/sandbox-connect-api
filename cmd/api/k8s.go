@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"sandbox-backend-service/pkg/k8s"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -10,14 +9,14 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-func addStoppedAnnotationToNotebook(k8sClient *k8s.K8sClient, namespace, notebookName string) error {
+func (app *application) addStoppedAnnotationToNotebook(ctx context.Context, namespace, notebookName string) error {
 	notebookGVR := schema.GroupVersionResource{
 		Group:    "kubeflow.org",
 		Version:  "v1beta1",
 		Resource: "notebooks",
 	}
 
-	notebook, err := k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Get(context.Background(), notebookName, metav1.GetOptions{})
+	notebook, err := app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Get(ctx, notebookName, metav1.GetOptions{})
 	if err != nil {
 		return err
 	}
@@ -38,7 +37,7 @@ func addStoppedAnnotationToNotebook(k8sClient *k8s.K8sClient, namespace, noteboo
 		return err
 	}
 
-	_, err = k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Update(context.Background(), notebook, metav1.UpdateOptions{})
+	_, err = app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Update(ctx, notebook, metav1.UpdateOptions{})
 	if err != nil {
 		return err
 	}
@@ -46,14 +45,13 @@ func addStoppedAnnotationToNotebook(k8sClient *k8s.K8sClient, namespace, noteboo
 	return nil
 }
 
-func removeStoppedAnnotationFromNotebook(k8sClient *k8s.K8sClient, namespace, notebookName string) error {
+func (app *application) removeStoppedAnnotationFromNotebook(ctx context.Context, namespace, notebookName string) error {
 	notebookGVR := schema.GroupVersionResource{
 		Group:    "kubeflow.org",
 		Version:  "v1beta1",
 		Resource: "notebooks",
 	}
-
-	notebook, err := k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Get(context.Background(), notebookName, metav1.GetOptions{})
+	notebook, err := app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Get(ctx, notebookName, metav1.GetOptions{})
 	if err != nil {
 		return err
 	}
@@ -78,7 +76,7 @@ func removeStoppedAnnotationFromNotebook(k8sClient *k8s.K8sClient, namespace, no
 		return err
 	}
 
-	_, err = k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Update(context.Background(), notebook, metav1.UpdateOptions{})
+	_, err = app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Update(ctx, notebook, metav1.UpdateOptions{})
 	if err != nil {
 		return err
 	}
@@ -86,16 +84,11 @@ func removeStoppedAnnotationFromNotebook(k8sClient *k8s.K8sClient, namespace, no
 	return nil
 }
 
-func deleteNotebookFromK8s(k8sClient *k8s.K8sClient, namespace, notebookName string) error {
+func (app *application) deleteNotebookFromK8s(ctx context.Context, namespace, notebookName string) error {
 	notebookGVR := schema.GroupVersionResource{
 		Group:    "kubeflow.org",
 		Version:  "v1beta1",
 		Resource: "notebooks",
-	}
-
-	_, err := k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Get(context.Background(), notebookName, metav1.GetOptions{})
-	if err != nil {
-		return err
 	}
 
 	deletePolicy := metav1.DeletePropagationBackground
@@ -103,7 +96,7 @@ func deleteNotebookFromK8s(k8sClient *k8s.K8sClient, namespace, notebookName str
 		PropagationPolicy: &deletePolicy,
 	}
 
-	err = k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Delete(context.Background(), notebookName, deleteOptions)
+	err := app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Delete(ctx, notebookName, deleteOptions)
 	if err != nil {
 		return err
 	}
@@ -111,14 +104,14 @@ func deleteNotebookFromK8s(k8sClient *k8s.K8sClient, namespace, notebookName str
 	return nil
 }
 
-func getNotebooksJSON(k8sClient *k8s.K8sClient, namespace string) (map[string]any, error) {
+func (app *application) getNotebooksJSON(ctx context.Context, namespace string) (map[string]any, error) {
 	notebookGVR := schema.GroupVersionResource{
 		Group:    "kubeflow.org",
 		Version:  "v1beta1",
 		Resource: "notebooks",
 	}
 
-	list, err := k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).List(context.Background(), metav1.ListOptions{})
+	list, err := app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -132,13 +125,14 @@ func getNotebooksJSON(k8sClient *k8s.K8sClient, namespace string) (map[string]an
 	return notebooks, nil
 }
 
-func deletePVCFromK8s(k8sClient *k8s.K8sClient, namespace, pvcName string) error {
+func (app *application) deletePVCFromK8s(ctx context.Context, namespace, pvcName string) error {
 	pvcGVR := schema.GroupVersionResource{
 		Group:    "",
 		Version:  "v1",
 		Resource: "persistentvolumeclaims",
 	}
-	_, err := k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Get(context.Background(), pvcName, metav1.GetOptions{})
+
+	_, err := app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 	if err != nil {
 		return err
 	}
@@ -148,7 +142,7 @@ func deletePVCFromK8s(k8sClient *k8s.K8sClient, namespace, pvcName string) error
 		PropagationPolicy: &deletePolicy,
 	}
 
-	err = k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Delete(context.Background(), pvcName, deleteOptions)
+	err = app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Delete(ctx, pvcName, deleteOptions)
 	if err != nil {
 		return err
 	}
@@ -156,18 +150,17 @@ func deletePVCFromK8s(k8sClient *k8s.K8sClient, namespace, pvcName string) error
 	return nil
 }
 
-func getNotebookJSON(k8sClient *k8s.K8sClient, namespace, notebookName string) (*unstructured.Unstructured, error) {
+func (app *application) getNotebookJSON(ctx context.Context, namespace, notebookName string) (*unstructured.Unstructured, error) {
 	notebookGVR := schema.GroupVersionResource{
 		Group:    "kubeflow.org",
 		Version:  "v1beta1",
 		Resource: "notebooks",
 	}
-
-	spec, errr := k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Get(context.Background(), notebookName, metav1.GetOptions{})
-	return spec, errr
+	spec, err := app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Get(ctx, notebookName, metav1.GetOptions{})
+	return spec, err
 }
 
-func CreateKubeflowProfile(k8sClient *k8s.K8sClient, userId, email string) error {
+func (app *application) createKubeflowProfile(ctx context.Context, userId, email string) error {
 	profile := &unstructured.Unstructured{
 		Object: map[string]any{
 			"apiVersion": "kubeflow.org/v1",
@@ -192,6 +185,6 @@ func CreateKubeflowProfile(k8sClient *k8s.K8sClient, userId, email string) error
 		Resource: "profiles",
 	}
 
-	_, err := k8sClient.Dynamic.Resource(profileGVR).Create(context.Background(), profile, metav1.CreateOptions{})
+	_, err := app.k8sClient.Dynamic.Resource(profileGVR).Create(ctx, profile, metav1.CreateOptions{})
 	return err
 }

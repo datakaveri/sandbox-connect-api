@@ -19,7 +19,7 @@ const (
 )
 
 const (
-	PollInterval     = 500 * time.Millisecond
+	PollInterval     = 1 * time.Second
 	UploadPodTimeout = 4 * time.Minute
 	PVCWatchTimeout  = 2 * time.Minute
 )

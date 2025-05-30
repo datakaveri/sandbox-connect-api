@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"sandbox-backend-service/pkg/constants"
-	"sandbox-backend-service/pkg/k8s"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -14,7 +12,10 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 )
 
-func CreatePVC(k8sClient *k8s.K8sClient, namespace, pvcName, storageSize, storageClassName string) error {
+func (w *worker) CreatePVC() error {
+	namespace := w.notebook.Namespace
+	pvcName := w.notebook.PVCname
+	storageSize := w.notebook.StorageSize
 	pvc := &unstructured.Unstructured{
 		Object: map[string]any{
 			"apiVersion": "v1",
@@ -27,7 +28,7 @@ func CreatePVC(k8sClient *k8s.K8sClient, namespace, pvcName, storageSize, storag
 				"accessModes": []any{
 					"ReadWriteOnce",
 				},
-				"storageClassName": storageClassName,
+				"storageClassName": w.app.env.STORAGE_CLASS_NAME,
 				"resources": map[string]any{
 					"requests": map[string]any{
 						"storage": storageSize,
@@ -41,13 +42,14 @@ func CreatePVC(k8sClient *k8s.K8sClient, namespace, pvcName, storageSize, storag
 		Version:  "v1",
 		Resource: "persistentvolumeclaims",
 	}
-	_, err := k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Create(context.Background(), pvc, metav1.CreateOptions{})
+	_, err := w.app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Create(context.Background(), pvc, metav1.CreateOptions{})
 	return err
-
 }
-func PVCWatcher(k8sClient *k8s.K8sClient, namespace, pvcName string) error {
-	logger := slog.With("pvcName", pvcName,
-		"pvcNamespace", namespace)
+
+func (w *worker) PVCWatcher() error {
+	namespace := w.notebook.Namespace
+	pvcName := w.notebook.PVCname
+	logger := w.logger
 	pvcGVR := schema.GroupVersionResource{
 		Group:    "",
 		Version:  "v1",
@@ -55,7 +57,7 @@ func PVCWatcher(k8sClient *k8s.K8sClient, namespace, pvcName string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), constants.PVCWatchTimeout)
 	defer cancel()
-	watcher, err := k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Watch(ctx, metav1.ListOptions{
+	watcher, err := w.app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Watch(ctx, metav1.ListOptions{
 		FieldSelector: fmt.Sprintf("metadata.name=%s", pvcName),
 	})
 	if err != nil {
@@ -93,11 +95,11 @@ func PVCWatcher(k8sClient *k8s.K8sClient, namespace, pvcName string) error {
 		return errors.New("watch ended unexpectedly")
 	}
 }
-func CreateUploadFileToPVPod(k8sClient *k8s.K8sClient, namespace, pvcName, fileUploadPodName, fileDownloadURL string) error {
-	logger := slog.With(
-		"podName", fileUploadPodName,
-		"podNamespace", namespace,
-	)
+
+func (w *worker) CreateUploadFileToPVPod(fileUploadPodName, fileDownloadURL string) error {
+	namespace := w.notebook.Namespace
+	pvcName := w.notebook.PVCname
+	logger := w.logger
 
 	podGVR := schema.GroupVersionResource{
 		Group:    "",
@@ -155,15 +157,16 @@ func CreateUploadFileToPVPod(k8sClient *k8s.K8sClient, namespace, pvcName, fileU
 		},
 	}
 	logger.Info("Creating Pod with main container logic")
-	_, err := k8sClient.Dynamic.Resource(podGVR).Namespace(namespace).Create(context.Background(), podDefinition, metav1.CreateOptions{})
+	_, err := w.app.k8sClient.Dynamic.Resource(podGVR).Namespace(namespace).Create(context.Background(), podDefinition, metav1.CreateOptions{})
 	if err != nil {
 		return err
 	}
 	return nil
 }
-func CheckStatusOfUploadFilePod(k8sClient *k8s.K8sClient, namespace, notebookName, fileUploadPodName string) error {
-	logger := slog.With("notebookName", notebookName,
-		"namespace", namespace)
+
+func (w *worker) CheckStatusOfUploadFilePod(fileUploadPodName string) error {
+	namespace := w.notebook.Namespace
+	logger := w.logger
 
 	podGVR := schema.GroupVersionResource{
 		Group:    "",
@@ -172,7 +175,7 @@ func CheckStatusOfUploadFilePod(k8sClient *k8s.K8sClient, namespace, notebookNam
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), constants.UploadPodTimeout)
 	defer cancel()
-	watcher, err := k8sClient.Dynamic.Resource(podGVR).Namespace(namespace).Watch(ctx, metav1.ListOptions{
+	watcher, err := w.app.k8sClient.Dynamic.Resource(podGVR).Namespace(namespace).Watch(ctx, metav1.ListOptions{
 		FieldSelector: fmt.Sprintf("metadata.name=%s", fileUploadPodName),
 	})
 	if err != nil {
@@ -214,7 +217,9 @@ func CheckStatusOfUploadFilePod(k8sClient *k8s.K8sClient, namespace, notebookNam
 		return errors.New("watch ended unexpectedly")
 	}
 }
-func CreateNotebook(k8sClient *k8s.K8sClient, nb Notebook) error {
+
+func (w *worker) CreateNotebook() error {
+	nb := w.notebook
 	var limit map[string]any
 	if nb.GPUType != nil && nb.GPUCount != nil && *nb.GPUCount != 0 {
 		limit = map[string]any{
@@ -282,16 +287,14 @@ func CreateNotebook(k8sClient *k8s.K8sClient, nb Notebook) error {
 		Version:  "v1beta1",
 		Resource: "notebooks",
 	}
-	_, err := k8sClient.Dynamic.Resource(notebookGVR).Namespace(nb.Namespace).Create(context.Background(), notebookObj, metav1.CreateOptions{})
+	_, err := w.app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(nb.Namespace).Create(context.Background(), notebookObj, metav1.CreateOptions{})
 	return err
 }
-func DeleteNotebook(k8sClient *k8s.K8sClient, namespace, notebookName string) error {
-	logger := slog.With(
-		"notebookName", notebookName,
-		"namespace", namespace,
-		"action", "delete",
-	)
 
+func (w *worker) DeleteNotebook() error {
+	namespace := w.notebook.Namespace
+	notebookName := w.notebook.Name
+	logger := w.logger
 	notebookGVR := schema.GroupVersionResource{
 		Group:    "kubeflow.org",
 		Version:  "v1beta1",
@@ -300,7 +303,7 @@ func DeleteNotebook(k8sClient *k8s.K8sClient, namespace, notebookName string) er
 
 	logger.Info("Deleting Notebook resource")
 
-	_, err := k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Get(context.Background(), notebookName, metav1.GetOptions{})
+	_, err := w.app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Get(context.Background(), notebookName, metav1.GetOptions{})
 	if err != nil {
 		logger.Warn("Notebook not found, may have been already deleted", "error", err)
 		return nil
@@ -311,7 +314,7 @@ func DeleteNotebook(k8sClient *k8s.K8sClient, namespace, notebookName string) er
 		PropagationPolicy: &deletePolicy,
 	}
 
-	err = k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Delete(context.Background(), notebookName, deleteOptions)
+	err = w.app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Delete(context.Background(), notebookName, deleteOptions)
 	if err != nil {
 		logger.Error("Failed to delete Notebook resource", "error", err)
 		return err
@@ -320,12 +323,10 @@ func DeleteNotebook(k8sClient *k8s.K8sClient, namespace, notebookName string) er
 	logger.Info("Successfully deleted Notebook resource")
 	return nil
 }
-func DeletePod(k8sClient *k8s.K8sClient, namespace, podName string) error {
-	logger := slog.With(
-		"podName", podName,
-		"namespace", namespace,
-		"action", "delete",
-	)
+
+func (w *worker) DeletePod(podName string) error {
+	namespace := w.notebook.Namespace
+	logger := w.logger
 
 	podGVR := schema.GroupVersionResource{
 		Group:    "",
@@ -333,7 +334,7 @@ func DeletePod(k8sClient *k8s.K8sClient, namespace, podName string) error {
 		Resource: "pods",
 	}
 
-	_, err := k8sClient.Dynamic.Resource(podGVR).Namespace(namespace).Get(context.Background(), podName, metav1.GetOptions{})
+	_, err := w.app.k8sClient.Dynamic.Resource(podGVR).Namespace(namespace).Get(context.Background(), podName, metav1.GetOptions{})
 	if err != nil {
 		logger.Warn("Pod not found, may have been already deleted", "error", err)
 		return nil
@@ -344,7 +345,7 @@ func DeletePod(k8sClient *k8s.K8sClient, namespace, podName string) error {
 		PropagationPolicy: &deletePolicy,
 	}
 
-	err = k8sClient.Dynamic.Resource(podGVR).Namespace(namespace).Delete(context.Background(), podName, deleteOptions)
+	err = w.app.k8sClient.Dynamic.Resource(podGVR).Namespace(namespace).Delete(context.Background(), podName, deleteOptions)
 	if err != nil {
 		logger.Error("Failed to delete Pod", "error", err)
 		return err
@@ -354,12 +355,10 @@ func DeletePod(k8sClient *k8s.K8sClient, namespace, podName string) error {
 	return nil
 }
 
-func DeletePVC(k8sClient *k8s.K8sClient, namespace, pvcName string) error {
-	logger := slog.With(
-		"pvcName", pvcName,
-		"namespace", namespace,
-		"action", "delete",
-	)
+func (w *worker) DeletePVC() error {
+	namespace := w.notebook.Namespace
+	pvcName := w.notebook.PVCname
+	logger := w.logger
 
 	pvcGVR := schema.GroupVersionResource{
 		Group:    "",
@@ -369,7 +368,7 @@ func DeletePVC(k8sClient *k8s.K8sClient, namespace, pvcName string) error {
 
 	logger.Info("Deleting PersistentVolumeClaim")
 
-	_, err := k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Get(context.Background(), pvcName, metav1.GetOptions{})
+	_, err := w.app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Get(context.Background(), pvcName, metav1.GetOptions{})
 	if err != nil {
 		logger.Warn("PVC not found, may have been already deleted", "error", err)
 		return nil
@@ -380,7 +379,7 @@ func DeletePVC(k8sClient *k8s.K8sClient, namespace, pvcName string) error {
 		PropagationPolicy: &deletePolicy,
 	}
 
-	err = k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Delete(context.Background(), pvcName, deleteOptions)
+	err = w.app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Delete(context.Background(), pvcName, deleteOptions)
 	if err != nil {
 		logger.Error("Failed to delete PVC", "error", err)
 		return err

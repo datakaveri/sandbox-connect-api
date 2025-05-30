@@ -1,5 +1,11 @@
 package main
 
+import (
+	"log/slog"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
 type CronEnv struct {
 	OpenCostURL  string `env:"PROFILE_CREDIT_SYNC_OPENCOST_URL,required"`
 	POSTGRES_URL string `env:"PROFILE_CREDIT_SYNC_POSTGRES_URL,required"`
@@ -21,4 +27,9 @@ type CostAllocation struct {
 	GPUCost   float64 `json:"gpuCost"`
 	RAMCost   float64 `json:"ramCost"`
 	TotalCost float64 `json:"totalCost"`
+}
+type profileSync struct {
+	logger *slog.Logger
+	config CronEnv
+	pgPool *pgxpool.Pool
 }

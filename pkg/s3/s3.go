@@ -2,10 +2,11 @@ package s3
 
 import (
 	"context"
+	"time"
+
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"time"
 )
 
 type S3Client struct {
@@ -27,7 +28,7 @@ func NewS3Client(accessKey, secretKey, s3Region string) (*S3Client, error) {
 
 func (client *S3Client) GetPresignedUrl(bucketName, key string) (*string, error) {
 	presignClient := s3.NewPresignClient(client.Client)
-	req, err := presignClient.PresignGetObject(context.TODO(), &s3.GetObjectInput{
+	req, err := presignClient.PresignGetObject(context.Background(), &s3.GetObjectInput{
 		Bucket: &bucketName,
 		Key:    &key,
 	}, s3.WithPresignExpires(time.Hour*24))

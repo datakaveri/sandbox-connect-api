@@ -79,13 +79,13 @@ func FetchAndMarkNotebook(pg *db.PgPool, ctx context.Context) ([]Notebook, error
 	return notebooks, nil
 }
 
-func NotebookStatusUpdate(pg *db.PgPool, ctx context.Context, id int64, status constants.Events) error {
+func (w *worker) NotebookStatusUpdate(id int64, status constants.Events) error {
 	updateQuery := `
 	UPDATE notebooks
 	SET picked_at = NOW(),
 	    events = array_append(events, $2)
 	WHERE id = $1
         `
-	_, err := pg.Pool.Exec(ctx, updateQuery, id, status)
+	_, err := w.app.pgPool.Pool.Exec(context.Background(), updateQuery, id, status)
 	return err
 }

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"context"
+	"encoding/json"
 	"net/http"
 	"sandbox-backend-service/pkg/constants"
 	"sandbox-backend-service/pkg/utils"
@@ -24,17 +24,16 @@ func (app *application) checkNotebookExists(w http.ResponseWriter, r *http.Reque
 	notebookName := r.PathValue("notebook_name")
 	if notebookName == "" {
 		logger.Error("notebook name is empty", "notebookName", notebookName)
-		sendResponse(w, r, logger, http.StatusBadRequest, "Notebook name is empty")
+		sendError(w, r, logger, http.StatusBadRequest, "Notebook name is empty")
 		return
 	}
 
-	ctx := context.Background()
 	var exists bool
 	query := `SELECT EXISTS(SELECT 1 FROM notebooks WHERE name = $1 AND namespace = $2)`
-	err := app.pgPool.Pool.QueryRow(ctx, query, notebookName, namespace).Scan(&exists)
+	err := app.pgPool.Pool.QueryRow(r.Context(), query, notebookName, namespace).Scan(&exists)
 	if err != nil {
 		logger.Error("failed to check notebook existence", "error", err)
-		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to check notebook existence")
+		sendError(w, r, logger, http.StatusInternalServerError, "Failed to check notebook existence")
 		return
 	}
 	sendResponseJson(w, r, logger, http.StatusOK, map[string]bool{"exists": exists})
@@ -53,13 +52,13 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		logger.Error("invalid body", "error", err)
-		sendResponse(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
+		sendError(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
 		return
 	}
 
 	if notebookReq.Type != "cpu" && notebookReq.Type != "gpu" {
 		logger.Error("invalid notebook type", "type", notebookReq.Type)
-		sendResponse(w, r, logger, http.StatusUnprocessableEntity, "Invalid Notebook Type")
+		sendError(w, r, logger, http.StatusUnprocessableEntity, "Invalid Notebook Type")
 		return
 	}
 
@@ -95,16 +94,15 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 			$1, $2, $3, $4, $5, $6, $7, $8, $9
 		) RETURNING id`
 	}
-	ctx := context.Background()
 	var notebookId int64
-	err = app.pgPool.Pool.QueryRow(ctx, query, baseArgs...).Scan(&notebookId)
+	err = app.pgPool.Pool.QueryRow(r.Context(), query, baseArgs...).Scan(&notebookId)
 	if err != nil {
 		logger.Error("failed to create notebook in database", "error", err)
-		sendResponse(w, r, logger, http.StatusInternalServerError, "internal server error")
+		sendError(w, r, logger, http.StatusInternalServerError, "Failed to create notebook")
 		return
 	}
 	logger.Info("notebook created successfully", "notebookId", notebookId)
-	sendResponse(w, r, logger, http.StatusCreated, "notebook creation is in process")
+	sendResponse(w, r, logger, http.StatusCreated, "Notebook creation is in process")
 }
 
 func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
@@ -119,13 +117,13 @@ func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
 	stopReq, err := utils.DecodeAndValidate[StopNotebookRequest](r.Body, logger)
 	if err != nil {
 		logger.Error("invalid body", "error", err)
-		sendResponse(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
+		sendError(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
 		return
 	}
 
 	logger = logger.With("method", "stopNotebook", "namespace", namespace, "name", stopReq.Name)
 
-	ctx := context.Background()
+	ctx := r.Context()
 	var notebookID int64
 	var latestEvent string
 	query := `
@@ -133,23 +131,23 @@ func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
 		FROM notebooks
 		WHERE name = $1 AND namespace = $2
 	`
-	err = app.pgPool.Pool.QueryRow(ctx, query, stopReq.Name, namespace).Scan(&notebookID, &latestEvent)
+	err = app.pgPool.Pool.QueryRow(r.Context(), query, stopReq.Name, namespace).Scan(&notebookID, &latestEvent)
 	if err != nil {
 		logger.Error("failed to find notebook", "error", err)
-		sendResponse(w, r, logger, http.StatusNotFound, "Notebook not found")
+		sendError(w, r, logger, http.StatusNotFound, "Notebook not found")
 		return
 	}
 
 	if latestEvent != string(constants.StatusNotebookApplied) {
 		logger.Error("cannot stop notebook that is not in applied state", "currentState", latestEvent)
-		sendResponse(w, r, logger, http.StatusBadRequest, "Cannot stop notebook that is not in applied state")
+		sendError(w, r, logger, http.StatusBadRequest, "Cannot stop notebook that is not in applied state")
 		return
 	}
 
-	err = addStoppedAnnotationToNotebook(app.k8sClient, namespace, stopReq.Name)
+	err = app.addStoppedAnnotationToNotebook(ctx, namespace, stopReq.Name)
 	if err != nil {
 		logger.Error("failed to add stopped annotation to notebook", "error", err)
-		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to stop notebook")
+		sendError(w, r, logger, http.StatusInternalServerError, "Failed to stop notebook")
 		return
 	}
 
@@ -168,12 +166,12 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 	startReq, err := utils.DecodeAndValidate[StartNotebookRequest](r.Body, logger)
 	if err != nil {
 		logger.Error("invalid body", "error", err)
-		sendResponse(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
+		sendError(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
 		return
 	}
 
 	logger = logger.With("method", "startNotebook", "namespace", namespace, "name", startReq.Name)
-	ctx := context.Background()
+	ctx := r.Context()
 	var notebookID int64
 	var latestEvent string
 	query := `
@@ -184,20 +182,20 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 	err = app.pgPool.Pool.QueryRow(ctx, query, startReq.Name, namespace).Scan(&notebookID, &latestEvent)
 	if err != nil {
 		logger.Error("failed to find notebook", "error", err)
-		sendResponse(w, r, logger, http.StatusNotFound, "Notebook not found")
+		sendError(w, r, logger, http.StatusNotFound, "Notebook not found")
 		return
 	}
 
 	if latestEvent != string(constants.StatusNotebookApplied) {
 		logger.Error("cannot start notebook that is not in applied state", "currentState", latestEvent)
-		sendResponse(w, r, logger, http.StatusBadRequest, "Cannot start notebook that is not in applied state")
+		sendError(w, r, logger, http.StatusBadRequest, "Cannot start notebook that is not in applied state")
 		return
 	}
 
-	err = removeStoppedAnnotationFromNotebook(app.k8sClient, namespace, startReq.Name)
+	err = app.removeStoppedAnnotationFromNotebook(ctx, namespace, startReq.Name)
 	if err != nil {
 		logger.Error("failed to remove stopped annotation from notebook", "error", err)
-		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to start notebook")
+		sendError(w, r, logger, http.StatusInternalServerError, "Failed to start notebook")
 		return
 	}
 	sendResponse(w, r, logger, http.StatusOK, "Notebook started successfully")
@@ -215,7 +213,7 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 	deleteReq, err := utils.DecodeAndValidate[DeleteNotebookRequest](r.Body, logger)
 	if err != nil {
 		logger.Error("invalid body", "error", err)
-		sendResponse(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
+		sendError(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
 		return
 	}
 
@@ -226,16 +224,16 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 		WHERE name = $1 AND namespace = $2
 	`
 	var latestEvent string
-	ctx := context.Background()
+	ctx := r.Context()
 	err = app.pgPool.Pool.QueryRow(ctx, query, deleteReq.Name, namespace).Scan(&latestEvent)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			logger.Error("notebook not found", "error", err)
-			sendResponse(w, r, logger, http.StatusNotFound, "Notebook not found")
+			sendError(w, r, logger, http.StatusNotFound, "Notebook not found")
 			return
 		}
 		logger.Error("failed to select notebook", "error", err)
-		sendResponse(w, r, logger, http.StatusInternalServerError, "internal server error")
+		sendError(w, r, logger, http.StatusInternalServerError, "Failed to delete notebook")
 		return
 	}
 
@@ -247,7 +245,7 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 
 	if latestEvent != string(constants.StatusNotebookApplied) && !notebookFailed {
 		logger.Error("cannot delete notebook that is not in applied state", "currentState", latestEvent)
-		sendResponse(w, r, logger, http.StatusBadRequest, "Cannot delete notebook that is not in applied state")
+		sendError(w, r, logger, http.StatusBadRequest, "Cannot delete notebook that is not in applied state")
 		return
 	}
 
@@ -255,21 +253,21 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 	_, err = app.pgPool.Pool.Exec(ctx, deleteQuery, deleteReq.Name, namespace)
 	if err != nil {
 		logger.Error("failed to delete notebook from database", "error", err)
-		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to delete notebook from database")
+		sendError(w, r, logger, http.StatusInternalServerError, "Failed to delete notebook from database")
 		return
 	}
 
 	if !notebookFailed {
-		err = deleteNotebookFromK8s(app.k8sClient, namespace, deleteReq.Name)
+		err = app.deleteNotebookFromK8s(ctx, namespace, deleteReq.Name)
 		if err != nil {
 			logger.Error("failed to delete notebook from Kubernetes", "error", err)
-			sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to delete notebook from Kubernetes")
+			sendError(w, r, logger, http.StatusInternalServerError, "Failed to delete notebook from Kubernetes")
 			return
 		}
-		err = deletePVCFromK8s(app.k8sClient, namespace, deleteReq.Name+"-pvc")
+		err = app.deletePVCFromK8s(ctx, namespace, deleteReq.Name+"-pvc")
 		if err != nil {
 			logger.Error("failed to delete PVC from Kubernetes", "error", err)
-			sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to delete PVC from Kubernetes")
+			sendError(w, r, logger, http.StatusInternalServerError, "Failed to delete PVC from Kubernetes")
 			return
 		}
 	}
@@ -279,7 +277,7 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
 	logger = logger.With("method", "listNotebooks")
-	ctx := context.Background()
+	ctx := r.Context()
 
 	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
 	if !ok {
@@ -288,16 +286,26 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	namespace := userInfo.Sub
-	filterVals := r.URL.Query()["filter"]
+	filterVal := r.URL.Query().Get("filter")
 	var filterDates [2]string
 	var filterActive bool
-	if len(filterVals) == 1 {
-		sendResponse(w, r, logger, http.StatusBadRequest, "filter must be an array of two date strings or omitted entirely")
-		return
-	} else if len(filterVals) == 2 {
-		for i, val := range filterVals {
+
+	if filterVal != "" {
+		var dates []string
+		if err := json.Unmarshal([]byte(filterVal), &dates); err != nil {
+			logger.Error("failed to parse filter as JSON array", "error", err, "filter", filterVal)
+			sendError(w, r, logger, http.StatusBadRequest, "filter must be a valid JSON array of two date strings")
+			return
+		}
+
+		if len(dates) != 2 {
+			sendError(w, r, logger, http.StatusBadRequest, "filter must contain exactly two date strings")
+			return
+		}
+
+		for i, val := range dates {
 			if _, err := time.Parse("2006-01-02", val); err != nil {
-				sendResponse(w, r, logger, http.StatusBadRequest, "filter values must be valid date strings (YYYY-MM-DD)")
+				sendError(w, r, logger, http.StatusBadRequest, "filter values must be valid date strings (YYYY-MM-DD)")
 				return
 			}
 			filterDates[i] = val
@@ -317,10 +325,10 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	k8sNotebooks, err := getNotebooksJSON(app.k8sClient, namespace)
+	k8sNotebooks, err := app.getNotebooksJSON(r.Context(), namespace)
 	if err != nil {
 		logger.Warn("failed to get notebooks from Kubernetes", "error", err)
-		sendResponse(w, r, logger, http.StatusInternalServerError, "Internal Server Error")
+		sendError(w, r, logger, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 
@@ -349,12 +357,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		logger.Error("failed to query notebooks", "error", err)
-		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to query notebooks")
-		return
-	}
-	if err != nil {
-		logger.Error("failed to query notebooks", "error", err)
-		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to query notebooks")
+		sendError(w, r, logger, http.StatusInternalServerError, "Failed to query notebooks")
 		return
 	}
 	defer rows.Close()
@@ -386,7 +389,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		nb.Status = determineNotebookState(latestEvent, k8sObject, logger)
+		nb.Status = determineNotebookState(latestEvent, k8sObject)
 		if nb.Status == NotebookStateRunning {
 			nb.URL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, nb.Namespace, nb.Name)
 		}
@@ -394,7 +397,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := rows.Err(); err != nil {
 		logger.Error("error iterating notebook rows", "error", err)
-		sendResponse(w, r, logger, http.StatusInternalServerError, "internal server error")
+		sendError(w, r, logger, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
@@ -425,12 +428,12 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 	notebookName := r.PathValue("notebook_name")
 	if notebookName == "" {
 		logger.Error("notebook name is required", "error", "notebook name is required")
-		sendResponse(w, r, logger, http.StatusBadRequest, "Notebook name is required")
+		sendError(w, r, logger, http.StatusBadRequest, "Notebook name is required")
 		return
 	}
 
 	logger = logger.With("method", "checkNotebookStatus", "namespace", namespace, "name", notebookName)
-	ctx := context.Background()
+	ctx := r.Context()
 	var status NotebookStatus
 	query := `
 		SELECT id, name, namespace, storage_size, pvc_name, 
@@ -467,7 +470,7 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 	var k8sSpec *unstructured.Unstructured
 	if latestEvent == constants.StatusNotebookApplied {
 		var err error
-		k8sSpec, err = getNotebookJSON(app.k8sClient, status.Namespace, status.Name)
+		k8sSpec, err = app.getNotebookJSON(ctx, status.Namespace, status.Name)
 		if err != nil {
 			logger.Error("failed to get notebook from Kubernetes", "error", err)
 			k8sSpec = nil
@@ -478,7 +481,7 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 	if k8sSpec != nil {
 		k8sObject = k8sSpec.Object
 	}
-	status.Status = determineNotebookState(latestEvent, k8sObject, logger)
+	status.Status = determineNotebookState(latestEvent, k8sObject)
 
 	if status.Status == NotebookStateRunning {
 		status.URL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, status.Namespace, status.Name)
@@ -501,10 +504,10 @@ func (app *application) createProfile(w http.ResponseWriter, r *http.Request) {
 
 	logger = logger.With("userId", userId, "email", email)
 
-	err := CreateKubeflowProfile(app.k8sClient, userId, email)
+	err := app.createKubeflowProfile(r.Context(), userId, email)
 	if err != nil {
 		logger.Error("failed to create kubeflow profile", "error", err, "profileName", userId)
-		sendResponse(w, r, logger, http.StatusInternalServerError, "Failed to create Kubeflow Profile")
+		sendError(w, r, logger, http.StatusInternalServerError, "Failed to create Kubeflow Profile")
 		return
 	}
 

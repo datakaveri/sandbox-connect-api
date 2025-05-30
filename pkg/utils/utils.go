@@ -9,8 +9,8 @@ import (
 	"github.com/go-playground/validator/v10"
 )
 
-func LogErrorAndExit(msg string, args ...any) {
-	slog.Error(msg, args...)
+func LogErrorAndExit(logger *slog.Logger, msg string, args ...any) {
+	logger.Error(msg, args...)
 	os.Exit(1)
 }
 func DecodeAndValidate[T any](reqBody io.Reader, logger *slog.Logger) (T, error) {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log/slog"
 	"sandbox-backend-service/pkg/db"
 	"sandbox-backend-service/pkg/k8s"
 	"sandbox-backend-service/pkg/s3"
@@ -11,6 +12,7 @@ type application struct {
 	k8sClient *k8s.K8sClient
 	pgPool    *db.PgPool
 	s3Client  *s3.S3Client
+	logger    *slog.Logger
 }
 
 type Env struct {
@@ -38,4 +40,9 @@ type Notebook struct {
 	GPUType       *string `json:"gpu_type"`
 	GPUCount      *int    `json:"gpu_count"`
 	TemplateName  *string `json:"template_name"`
+}
+type worker struct {
+	app      *application
+	notebook Notebook
+	logger   *slog.Logger
 }

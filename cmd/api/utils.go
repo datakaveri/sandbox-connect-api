@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"sandbox-backend-service/pkg/constants"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -23,6 +24,18 @@ func sendResponse(w http.ResponseWriter, r *http.Request, logger *slog.Logger, s
 	message := map[string]string{"message": userMessage}
 	duration := time.Since(startTime)
 	logger.Info("Request End",
+		"duration_ms", duration.Milliseconds(),
+		"status", status)
+	jsonResponse(w, status, message)
+}
+func sendError(w http.ResponseWriter, r *http.Request, logger *slog.Logger, status int, userMessage string) {
+	startTime, ok := r.Context().Value("startTime").(time.Time)
+	if !ok {
+		startTime = time.Now()
+	}
+	message := map[string]string{"error": userMessage}
+	duration := time.Since(startTime)
+	logger.Error("Request End",
 		"duration_ms", duration.Milliseconds(),
 		"status", status)
 	jsonResponse(w, status, message)
@@ -50,7 +63,7 @@ func getLogger(r *http.Request) *slog.Logger {
 	return logger
 }
 
-func determineNotebookState(latestEvent constants.Events, k8sSpec map[string]any, logger *slog.Logger) NotebookState {
+func determineNotebookState(latestEvent constants.Events, k8sSpec map[string]any) NotebookState {
 	if k8sSpec == nil {
 		if latestEvent == constants.StatusPVCApplyFailed ||
 			latestEvent == constants.StatusPVCUploadFailed ||
@@ -110,4 +123,67 @@ func generateNotebookURL(baseURL, namespace, notebookName string) string {
 	notebookPath := fmt.Sprintf("notebook/%s/%s/lab", namespace, notebookName)
 
 	return baseURL + "/" + notebookPath
+}
+
+type IPRateLimiter struct {
+	ips        map[string]*IpRateLimiterRequests
+	mu         sync.RWMutex
+	rate       int
+	windowSecs int
+}
+
+type IpRateLimiterRequests struct {
+	count    int
+	firstReq time.Time
+}
+
+func NewIPRateLimiter(rate, windowSecs int) *IPRateLimiter {
+	return &IPRateLimiter{
+		ips:        make(map[string]*IpRateLimiterRequests),
+		rate:       rate,
+		windowSecs: windowSecs,
+		mu:         sync.RWMutex{},
+	}
+}
+
+func (i *IPRateLimiter) isAllowed(ip string) bool {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	now := time.Now()
+	req, exists := i.ips[ip]
+
+	if !exists {
+		i.ips[ip] = &IpRateLimiterRequests{
+			count:    1,
+			firstReq: now,
+		}
+		return true
+	}
+
+	if now.Sub(req.firstReq) >= time.Duration(i.windowSecs)*time.Second {
+		req.count = 1
+		req.firstReq = now
+		return true
+	}
+
+	if req.count < i.rate {
+		req.count++
+		return true
+	}
+
+	return false
+}
+
+func (i *IPRateLimiter) GetLimiter(ip string) bool {
+	return i.isAllowed(ip)
+}
+func parseAllowedOrigins(originsStr string) []string {
+	if originsStr == "" {
+		return []string{}
+	}
+	origins := strings.Split(originsStr, ",")
+	for i := range origins {
+		origins[i] = strings.TrimSpace(origins[i])
+	}
+	return origins
 }
