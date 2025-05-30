@@ -108,27 +108,23 @@ curl -X POST http://localhost:3000/notebook/create \
 
 #### List Notebooks
 
-Lists all notebooks. You can filter by creation date range using the `filter` query parameter.
+Lists all notebooks for the authenticated user. You can filter by creation date range, limit the number of results, and paginate through results.
 
-**Request (no filter):**
+**Query Parameters:**
+
+| Parameter | Type | Description | Example |
+|-----------|------|-------------|----------|
+| `filter`  | Array | Optional. Date range filter in format `[d1,d2]` where d1 and d2 are dates in YYYY-MM-DD format | `filter=[2024-01-01,2024-01-31]` |
+| `limit`   | Integer | Optional. Maximum number of notebooks to return | `limit=10` |
+| `offset`  | Integer | Optional. Number of notebooks to skip for pagination | `offset=20` |
+
+**Request Example:**
 
 ```bash
-curl -X GET "http://localhost:3000/notebook/list" \
+# Example with all parameters
+curl -X GET "http://localhost:3000/notebook/list?filter=[2024-01-01,2024-01-31]&limit=10&offset=20" \
   -H "Authorization: your_api_key"
 ```
-
-**Request (with date filter):**
-
-Pass two `filter` query parameters, each as a separate key-value pair:
-
-```bash
-curl -X GET "http://localhost:3000/notebook/list?filter=2024-01-01&filter=2024-01-31" \
-  -H "Authorization: your_api_key"
-```
-
-**Note:**
-- You must provide **two** `filter` parameters, both in `YYYY-MM-DD` format (start and end date).
-- If only one filter is provided, you will get an error: `filter must be an array of two date strings or omitted entirely`.
 
 **Response (200 OK):**
 
@@ -276,56 +272,6 @@ curl -X DELETE http://localhost:3000/notebook/delete \
 }
 ```
 
-#### List Notebooks
-
-Lists all notebooks.
-
-**Request:**
-
-```bash
-curl -X GET http://localhost:3000/notebook/list \
-  -H "Authorization: keycloak_token"
-```
-
-**Response (200 OK):**
-
-```json
-{
-  "successful": [
-    {
-      "id": 123,
-      "name": "running-notebook",
-      "namespace": "test-user",
-      "storageSize": "10Gi",
-      "pvcName": "running-notebook-pvc",
-      "cpuRequest": 1,
-      "cpuLimit": 2,
-      "memoryRequest": "2Gi",
-      "memoryLimit": "4Gi",
-      "gpuType": "nvidia",
-      "gpuCount": 1,
-      "events": ["scheduled", "picked", "pvc-applied", "notebook-applied"]
-    }
-  ],
-  "stopped": [
-    {
-      "id": 124,
-      "name": "stopped-notebook",
-      "namespace": "test-user",
-      "storageSize": "10Gi",
-      "pvcName": "stopped-notebook-pvc",
-      "cpuRequest": 1,
-      "cpuLimit": 2,
-      "memoryRequest": "2Gi",
-      "memoryLimit": "4Gi",
-      "events": ["scheduled", "picked", "pvc-applied", "notebook-applied"]
-    }
-  ],
-  "pending": [],
-  "failed": [],
-  "orphaned": []
-}
-```
 
 #### Create Profile
 

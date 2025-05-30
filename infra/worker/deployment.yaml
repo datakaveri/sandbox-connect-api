@@ -57,7 +57,7 @@ spec:
               name: s3-creds 
               key: S3_TEMPLATE_BUCKET_NAME
         - name: WORKER_STORAGE_CLASS_NAME
-          value: "standard"
+          value: "ebs-csi-storage-class"
         resources:
           limits:
             cpu: "500m"
