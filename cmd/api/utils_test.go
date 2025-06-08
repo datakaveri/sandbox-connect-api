@@ -39,3 +39,46 @@ func TestDetermineNotebookState(t *testing.T) {
 		}
 	})
 }
+
+func TestValidateNotebookName(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{"Simple lowercase alphanumeric", "mynotebook1", true},
+		{"With hyphen", "my-notebook", true},
+		{"With dots", "my.notebook", true},
+		{"Complex with dots and hyphens", "my-notebook.v1.2", true},
+		{"Single character", "a", true},
+		{"Single number", "1", true},
+		{"Starts with number", "1notebook", true},
+		{"Multiple segments", "notebook.test.v1", true},
+		{"Hyphen between alphanumerics", "note-book", true},
+
+		{"Empty string", "", false},
+		{"Starts with hyphen", "-notebook", false},
+		{"Ends with hyphen", "notebook-", false},
+		{"Starts with dot", ".notebook", false},
+		{"Ends with dot", "notebook.", false},
+		{"Contains uppercase", "Notebook", false},
+		{"Contains underscore", "note_book", false},
+		{"Contains special characters", "notebook@test", false},
+		{"Segment starts with hyphen", "notebook.-test", false},
+		{"Segment ends with hyphen", "example.com", true},
+		{"Double dots", "notebook..test", false},
+		{"Double hyphens", "note--book", true},
+		{"Contains spaces", "note book", false},
+		{"uppercase", "APPLE", false},
+		{"lot of .", "a.b.e.d.f.g", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ValidateNotebookName(tt.input)
+			if result != tt.expected {
+				t.Errorf("ValidateNotebookName(%q) = %v, expected %v", tt.input, result, tt.expected)
+			}
+		})
+	}
+}

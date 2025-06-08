@@ -1,16 +1,27 @@
 package main
 
 import (
+	"context"
 	"log/slog"
+	"sandbox-backend-service/pkg/k8s"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type CronEnv struct {
-	OpenCostURL  string `env:"PROFILE_CREDIT_SYNC_OPENCOST_URL,required"`
-	POSTGRES_URL string `env:"PROFILE_CREDIT_SYNC_POSTGRES_URL,required"`
-	BatchSize    int    `env:"PROFILE_CREDIT_SYNC_BATCH_SIZE" envDefault:"50"`
-	MaxRetries   int    `env:"PROFILE_CREDIT_SYNC_MAX_RETRIES" envDefault:"3"`
+	OpenCostURL             string `env:"PROFILE_CREDIT_SYNC_OPENCOST_URL,required"`
+	POSTGRES_URL            string `env:"PROFILE_CREDIT_SYNC_POSTGRES_URL,required"`
+	BatchSize               int    `env:"PROFILE_CREDIT_SYNC_BATCH_SIZE" envDefault:"50"`
+	MaxProfileCanSyncAtOnce int    `env:"PROFILE_CREDIT_SYNC_MAX_PROFILE_CAN_SYNC_AT_ONCE" envDefault:"50"`
+	AAA_URL                 string `env:"PROFILE_CREDIT_SYNC_AAA_URL,required"`
+	KEYCLOAK_URL            string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_URL,required"`
+	KEYCLOAK_REALM          string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_REALM,required"`
+	KEYCLOAK_CLIENT_ID      string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_CLIENT_ID,required"`
+	KEYCLOAK_USERNAME       string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_USERNAME,required"`
+	KEYCLOAK_PASSWORD       string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_PASSWORD,required"`
+	K8S_CONFIG_MODE         string `env:"PROFILE_CREDIT_SYNC_K8S_CONFIG_MODE" envDefault:"cluster"`
+	K8S_CONFIG_PATH         string `env:"PROFILE_CREDIT_SYNC_K8S_CONFIG_PATH"`
 }
 
 type CostAllocationResponse struct {
@@ -28,8 +39,61 @@ type CostAllocation struct {
 	RAMCost   float64 `json:"ramCost"`
 	TotalCost float64 `json:"totalCost"`
 }
+
+type AAAResponse struct {
+	Type   string       `json:"type"`
+	Title  string       `json:"title"`
+	Detail string       `json:"detail,omitempty"`
+	Result CreditResult `json:"result,omitempty"`
+}
+
+type CreditResult struct {
+	ID                string  `json:"id"`
+	UserID            string  `json:"userId"`
+	Amount            float64 `json:"amount"`
+	TransactedBy      string  `json:"transactedBy"`
+	TransactionStatus string  `json:"transactionStatus"`
+	TransactionType   string  `json:"transactionType"`
+	CreatedAt         string  `json:"createdAt"`
+	RequestedAt       string  `json:"requestedAt"`
+	UpdatedBalance    float64 `json:"updatedBalance"`
+	TableName         string  `json:"tableName"`
+}
+
+type KeycloakTokenResponse struct {
+	AccessToken      string `json:"access_token"`
+	ExpiresIn        int    `json:"expires_in"`
+	RefreshExpiresIn int    `json:"refresh_expires_in"`
+	RefreshToken     string `json:"refresh_token"`
+	TokenType        string `json:"token_type"`
+	SessionState     string `json:"session_state"`
+	Scope            string `json:"scope"`
+}
+
+type UserFlag struct {
+	UserID            string
+	CanCreateNotebook bool
+}
+
+type Profile struct {
+	ProfileID              string    `json:"id"`
+	UserID                 string    `json:"user_id"`
+	TotalCredit            float64   `json:"total_credit"`
+	LastSyncBalance        float64   `json:"last_sync_balance"`
+	CanCreateNotebook      bool      `json:"can_create_notebook"`
+	AaaAndOpenCostSyncedAt time.Time `json:"aaa_and_opencost_synced_at"`
+	PendingDeduction       float64   `json:"pending_deduction"`
+}
+
+type KubeflowProfile struct {
+	UserID string
+	Email  string
+}
+
 type profileSync struct {
-	logger *slog.Logger
-	config CronEnv
-	pgPool *pgxpool.Pool
+	logger        *slog.Logger
+	config        CronEnv
+	pgPool        *pgxpool.Pool
+	dynamicClient *k8s.K8sClient
+	rootCtx       context.Context
 }

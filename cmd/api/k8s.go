@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -96,12 +97,13 @@ func (app *application) deleteNotebookFromK8s(ctx context.Context, namespace, no
 		PropagationPolicy: &deletePolicy,
 	}
 
-	err := app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Delete(ctx, notebookName, deleteOptions)
-	if err != nil {
+	return WithK8sRetry(ctx, func() error {
+		err := app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Delete(ctx, notebookName, deleteOptions)
+		if err != nil && k8serrors.IsNotFound(err) {
+			return nil
+		}
 		return err
-	}
-
-	return nil
+	})
 }
 
 func (app *application) getNotebooksJSON(ctx context.Context, namespace string) (map[string]any, error) {
@@ -132,22 +134,18 @@ func (app *application) deletePVCFromK8s(ctx context.Context, namespace, pvcName
 		Resource: "persistentvolumeclaims",
 	}
 
-	_, err := app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Get(ctx, pvcName, metav1.GetOptions{})
-	if err != nil {
-		return err
-	}
-
 	deletePolicy := metav1.DeletePropagationBackground
 	deleteOptions := metav1.DeleteOptions{
 		PropagationPolicy: &deletePolicy,
 	}
 
-	err = app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Delete(ctx, pvcName, deleteOptions)
-	if err != nil {
+	return WithK8sRetry(ctx, func() error {
+		err := app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Delete(ctx, pvcName, deleteOptions)
+		if err != nil && k8serrors.IsNotFound(err) {
+			return nil
+		}
 		return err
-	}
-
-	return nil
+	})
 }
 
 func (app *application) getNotebookJSON(ctx context.Context, namespace, notebookName string) (*unstructured.Unstructured, error) {
@@ -156,7 +154,14 @@ func (app *application) getNotebookJSON(ctx context.Context, namespace, notebook
 		Version:  "v1beta1",
 		Resource: "notebooks",
 	}
-	spec, err := app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Get(ctx, notebookName, metav1.GetOptions{})
+
+	var spec *unstructured.Unstructured
+	err := WithK8sRetry(ctx, func() error {
+		var err error
+		spec, err = app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Get(ctx, notebookName, metav1.GetOptions{})
+		return err
+	})
+
 	return spec, err
 }
 
@@ -185,6 +190,13 @@ func (app *application) createKubeflowProfile(ctx context.Context, userId, email
 		Resource: "profiles",
 	}
 
-	_, err := app.k8sClient.Dynamic.Resource(profileGVR).Create(ctx, profile, metav1.CreateOptions{})
-	return err
+	cancelCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	return WithK8sRetry(cancelCtx, func() error {
+		_, err := app.k8sClient.Dynamic.Resource(profileGVR).Create(ctx, profile, metav1.CreateOptions{})
+		if k8serrors.IsAlreadyExists(err) {
+			cancel()
+		}
+		return err
+	})
 }

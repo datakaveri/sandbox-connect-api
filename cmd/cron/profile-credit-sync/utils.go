@@ -6,14 +6,6 @@ import (
 	"time"
 )
 
-func getTemplateKey(template string) string {
-	if template == "ai" {
-		return "template/ai.zip"
-	} else {
-		return "template/ml.zip"
-	}
-}
-
 func WithK8sRetry(ctx context.Context, operation func() error) error {
 	return utils.WithExponentialBackoff(ctx, k8sRetryConfig, operation)
 }
@@ -21,7 +13,9 @@ func WithK8sRetry(ctx context.Context, operation func() error) error {
 func WithDBRetry(ctx context.Context, operation func() error) error {
 	return utils.WithExponentialBackoff(ctx, dbRetryConfig, operation)
 }
-
+func WithExternalApiRetry(ctx context.Context, operation func() error) error {
+	return utils.WithExponentialBackoff(ctx, externalApiRetryConfig, operation)
+}
 func WithTimeoutContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, timeout)
 }

@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"sandbox-backend-service/pkg/constants"
+	"sandbox-backend-service/pkg/utils"
 	"strings"
 	"sync"
 	"time"
@@ -16,41 +19,35 @@ func jsonResponse(w http.ResponseWriter, statusCode int, data any) {
 	w.WriteHeader(statusCode)
 	json.NewEncoder(w).Encode(data)
 }
-func sendResponse(w http.ResponseWriter, r *http.Request, logger *slog.Logger, status int, userMessage string) {
-	startTime, ok := r.Context().Value("startTime").(time.Time)
-	if !ok {
-		startTime = time.Now()
-	}
-	message := map[string]string{"message": userMessage}
-	duration := time.Since(startTime)
-	logger.Info("Request End",
-		"duration_ms", duration.Milliseconds(),
+func sendResponse(w http.ResponseWriter, logger *slog.Logger, status int, userMessage string) {
+	formattedMessage := formatMessage(userMessage)
+	message := map[string]string{"message": formattedMessage}
+	logger.Info("Request Status",
 		"status", status)
 	jsonResponse(w, status, message)
 }
-func sendError(w http.ResponseWriter, r *http.Request, logger *slog.Logger, status int, userMessage string) {
-	startTime, ok := r.Context().Value("startTime").(time.Time)
-	if !ok {
-		startTime = time.Now()
-	}
-	message := map[string]string{"error": userMessage}
-	duration := time.Since(startTime)
-	logger.Error("Request End",
-		"duration_ms", duration.Milliseconds(),
-		"status", status)
+func sendError(w http.ResponseWriter, logger *slog.Logger, status int, userMessage string) {
+	formattedMessage := formatMessage(userMessage)
+	message := map[string]string{"error": formattedMessage}
+	logger.Error("Request Status",
+		"status", status,
+		"userMessage", formattedMessage)
 	jsonResponse(w, status, message)
 }
-func sendResponseJson(w http.ResponseWriter, r *http.Request, logger *slog.Logger, status int, userMessage any) {
-	startTime, ok := r.Context().Value("startTime").(time.Time)
-	if !ok {
-		startTime = time.Now()
-	}
-	duration := time.Since(startTime)
-	logger.Info("Request End",
-		"duration_ms", duration.Milliseconds(),
+func sendResponseJson(w http.ResponseWriter, logger *slog.Logger, status int, userMessage any) {
+	logger.Info("Request Status",
 		"status", status)
 	jsonResponse(w, status, userMessage)
 }
+
+func formatMessage(message string) string {
+	if message == "" {
+		return ""
+	}
+	lowerMessage := strings.ToLower(message)
+	return strings.ToUpper(string(lowerMessage[0])) + lowerMessage[1:]
+}
+
 func getLogger(r *http.Request) *slog.Logger {
 	requestID := r.Context().Value("requestID").(string)
 	logger := slog.With(
@@ -186,4 +183,17 @@ func parseAllowedOrigins(originsStr string) []string {
 		origins[i] = strings.TrimSpace(origins[i])
 	}
 	return origins
+}
+
+func WithK8sRetry(ctx context.Context, operation func() error) error {
+	return utils.WithLinearRetry(ctx, k8sRetryConfig, operation)
+}
+
+func ValidateNotebookName(name string) bool {
+	pattern := `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	match, _ := regexp.MatchString(pattern, name)
+	return match
+}
+func (app *application) createRouterPattern(method string, pattern string) string {
+	return method + " " + pattern
 }

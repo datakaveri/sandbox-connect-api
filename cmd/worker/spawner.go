@@ -21,7 +21,7 @@ func (app *application) worker(ctx context.Context) {
 			logger.Info("shutting down gracefully...")
 			return
 		default:
-			notebookArr, err := FetchAndMarkNotebook(app.pgPool, ctx)
+			notebookArr, err := FetchAndMarkNotebook(app.pgPool, logger, ctx)
 			if err != nil {
 				logger.Error("failed fetching notebook", "error", err)
 			} else if len(notebookArr) > 0 {
@@ -29,7 +29,7 @@ func (app *application) worker(ctx context.Context) {
 				running = false
 			}
 		}
-		time.Sleep(constants.PollInterval)
+		time.Sleep(PollInterval)
 	}
 	logger = logger.With("notebookName", notebook.Name,
 		"namespace", notebook.Namespace, "templateName", notebook.TemplateName, "notebookId", notebook.ID)

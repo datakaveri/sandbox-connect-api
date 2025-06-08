@@ -17,7 +17,7 @@ CREATE TABLE notebooks (
     gpu_count INTEGER,
 
     template_name VARCHAR(255),
-    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     picked_at TIMESTAMP WITHOUT TIME ZONE,
 
     events VARCHAR(255)[] NOT NULL DEFAULT ARRAY['scheduled'],
@@ -26,14 +26,35 @@ CREATE TABLE notebooks (
     CONSTRAINT unique_pvc_namespace UNIQUE (pvc_name, namespace)
 );
 
-CREATE TABLE profile_costs(
-    profile_id UUID PRIMARY KEY,
-    gpu_total_cost DECIMAL(12,6) NOT NULL DEFAULT 0,
-    cpu_total_cost DECIMAL(12,6) NOT NULL DEFAULT 0,
-    memory_total_cost DECIMAL(12,6) NOT NULL DEFAULT 0,
-    total_cost DECIMAL(12,6) NOT NULL DEFAULT 0,
-    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+ALTER TABLE notebooks ADD COLUMN updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+
+CREATE TABLE profile(
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID NOT NULL,
+    total_credit DECIMAL(12,6) NOT NULL DEFAULT 0,
+    can_create_notebook BOOLEAN NOT NULL DEFAULT true,
+    aaa_and_opencost_synced_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    pending_deduction DECIMAL(12,6) NOT NULL DEFAULT 0,
+    last_sync_balance DECIMAL(12,6) NOT NULL DEFAULT 0,
+    created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT unique_user_id UNIQUE (user_id)
 );
 
-CREATE INDEX idx_profile_costs_updated_at ON profile_costs(updated_at);
+CREATE OR REPLACE FUNCTION update_modified_column()   
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;   
+END;
+$$ language 'plpgsql';
+
+
+CREATE TRIGGER update_notebooks_modtime 
+  BEFORE UPDATE ON notebooks 
+  FOR EACH ROW EXECUTE PROCEDURE update_modified_column();
+
+CREATE TRIGGER update_profile_costs_modtime 
+  BEFORE UPDATE ON profile 
+  FOR EACH ROW EXECUTE PROCEDURE update_modified_column();

@@ -10,6 +10,7 @@ import (
 	"sandbox-backend-service/pkg/s3"
 	"sandbox-backend-service/pkg/utils"
 	"sync"
+	"syscall"
 
 	"github.com/caarlos0/env/v11"
 	"github.com/joho/godotenv"
@@ -34,7 +35,7 @@ func main() {
 	sigChan := make(chan os.Signal, 2)
 
 	signal.Notify(sigChan, os.Interrupt)
-	signal.Notify(sigChan, os.Kill)
+	signal.Notify(sigChan, syscall.SIGTERM)
 	k8sClient, err := k8s.NewK8sClient(config.KubeConfigMode, config.KubeConfigPath)
 	if err != nil {
 		utils.LogErrorAndExit(logger, "failed to create kubernetes client", "error", err)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sandbox-backend-service/pkg/constants"
 	"sandbox-backend-service/pkg/utils"
@@ -12,19 +13,42 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
+// checkNotebookExists godoc
+// @Summary      Check if notebook exists
+// @Description  Checks if a notebook with the given name exists
+// @Tags         notebook
+// @Produce      json
+// @Param        notebook_name  path  string  true  "Notebook Name"
+// @Success      200  {object}  SwaggerExistsResponse
+// @Failure      400  {object}  Error400
+// @Failure      429  {object}  Error429
+// @Failure      401  {object}  Error401
+// @Failure      500  {object}  Error500
+// @Security     BearerAuth
+// @Router       /v1/notebook/check-exists/{notebook_name} [get]
 func (app *application) checkNotebookExists(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
 	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
 	if !ok {
 		logger.Error("user info not found in context")
-		sendResponse(w, r, logger, http.StatusUnauthorized, "Unauthorized")
+		sendResponse(w, logger, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	namespace := userInfo.Sub
 	notebookName := r.PathValue("notebook_name")
 	if notebookName == "" {
 		logger.Error("notebook name is empty", "notebookName", notebookName)
-		sendError(w, r, logger, http.StatusBadRequest, "Notebook name is empty")
+		sendError(w, logger, http.StatusBadRequest, "Notebook name is empty")
+		return
+	}
+	if len(notebookName) > 50 || len(notebookName) < 4 {
+		logger.Error("notebook name is too long", "notebookName", notebookName, "length", len(notebookName))
+		sendError(w, logger, http.StatusBadRequest, "Notebook name cannot exceed 50 characters")
+		return
+	}
+	if !ValidateNotebookName(notebookName) {
+		logger.Error("invalid notebook name", "notebookName", notebookName)
+		sendError(w, logger, http.StatusBadRequest, "Invalid Notebook Name")
 		return
 	}
 
@@ -33,32 +57,56 @@ func (app *application) checkNotebookExists(w http.ResponseWriter, r *http.Reque
 	err := app.pgPool.Pool.QueryRow(r.Context(), query, notebookName, namespace).Scan(&exists)
 	if err != nil {
 		logger.Error("failed to check notebook existence", "error", err)
-		sendError(w, r, logger, http.StatusInternalServerError, "Failed to check notebook existence")
+		sendError(w, logger, http.StatusInternalServerError, "Failed to check notebook existence")
 		return
 	}
-	sendResponseJson(w, r, logger, http.StatusOK, map[string]bool{"exists": exists})
+	sendResponseJson(w, logger, http.StatusOK, map[string]bool{"exists": exists})
 }
 
+// createNotebook godoc
+// @Summary      Create notebook
+// @Description  Creates a new notebook for the user
+// @Tags         notebook
+// @Accept       json
+// @Produce      json
+// @Param        notebook  body  NotebookRequest  true  "Notebook Create Request"
+// @Success      201  {object}  SwaggerMessageResponse
+// @Failure      422  {object}  Error422
+// @Failure      403  {object}  Error403
+// @Failure      429  {object}  Error429
+// @Failure      401  {object}  Error401
+// @Failure      500  {object}  Error500
+// @Security     BearerAuth
+// @Router       /v1/notebook/create [post]
 func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
 	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
 	if !ok {
 		logger.Error("user info not found in context")
-		sendResponse(w, r, logger, http.StatusUnauthorized, "Unauthorized")
+		sendResponse(w, logger, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	namespace := userInfo.Sub
-	notebookReq, err := utils.DecodeAndValidate[NotebookRequest](r.Body, logger)
 
+	notebookReq, err := utils.DecodeAndValidate[NotebookRequest](r.Body, logger)
 	if err != nil {
-		logger.Error("invalid body", "error", err)
-		sendError(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
+		logger.Error("can't parse the body", "Error", err.Error())
+		sendError(w, logger, http.StatusUnprocessableEntity, "Invalid Body")
 		return
 	}
-
+	if !ValidateNotebookName(notebookReq.Name) {
+		logger.Error("invalid notebook name", "name", notebookReq.Name)
+		sendError(w, logger, http.StatusUnprocessableEntity, "Invalid Notebook Name")
+		return
+	}
 	if notebookReq.Type != "cpu" && notebookReq.Type != "gpu" {
 		logger.Error("invalid notebook type", "type", notebookReq.Type)
-		sendError(w, r, logger, http.StatusUnprocessableEntity, "Invalid Notebook Type")
+		sendError(w, logger, http.StatusUnprocessableEntity, "Invalid Notebook Type")
+		return
+	}
+	if notebookReq.Type == "gpu" && !contains(userInfo.Roles, "compute") {
+		logger.Error("user doesn't have permission to create gpu notebook", "user_id", userInfo.Sub)
+		sendError(w, logger, http.StatusForbidden, "You don't have permission to create gpu notebook")
 		return
 	}
 
@@ -98,26 +146,42 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 	err = app.pgPool.Pool.QueryRow(r.Context(), query, baseArgs...).Scan(&notebookId)
 	if err != nil {
 		logger.Error("failed to create notebook in database", "error", err)
-		sendError(w, r, logger, http.StatusInternalServerError, "Failed to create notebook")
+		sendError(w, logger, http.StatusInternalServerError, "Failed to create notebook")
 		return
 	}
 	logger.Info("notebook created successfully", "notebookId", notebookId)
-	sendResponse(w, r, logger, http.StatusCreated, "Notebook creation is in process")
+	sendResponse(w, logger, http.StatusCreated, "Notebook creation is in process")
 }
 
+// stopNotebook godoc
+// @Summary      Stop notebook
+// @Description  Stops a running notebook
+// @Tags         notebook
+// @Accept       json
+// @Produce      json
+// @Param        notebook_name  body  StopNotebookRequest  true  "Notebook Stop Request"
+// @Success      200  {object}  SwaggerMessageResponse
+// @Failure      429  {object}  Error429
+// @Failure      401  {object}  Error401
+// @Failure      500  {object}  Error500
+// @Failure      422  {object}  Error422
+// @Failure      404  {object}  Error404
+// @Failure      400  {object}  Error400
+// @Security     BearerAuth
+// @Router       /v1/notebook/stop [patch]
 func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
 	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
 	if !ok {
 		logger.Error("user info not found in context")
-		sendResponse(w, r, logger, http.StatusUnauthorized, "Unauthorized")
+		sendResponse(w, logger, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	namespace := userInfo.Sub
 	stopReq, err := utils.DecodeAndValidate[StopNotebookRequest](r.Body, logger)
 	if err != nil {
 		logger.Error("invalid body", "error", err)
-		sendError(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
+		sendError(w, logger, http.StatusUnprocessableEntity, "Invalid Body")
 		return
 	}
 
@@ -131,42 +195,57 @@ func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
 		FROM notebooks
 		WHERE name = $1 AND namespace = $2
 	`
-	err = app.pgPool.Pool.QueryRow(r.Context(), query, stopReq.Name, namespace).Scan(&notebookID, &latestEvent)
+	err = app.pgPool.Pool.QueryRow(ctx, query, stopReq.Name, namespace).Scan(&notebookID, &latestEvent)
 	if err != nil {
 		logger.Error("failed to find notebook", "error", err)
-		sendError(w, r, logger, http.StatusNotFound, "Notebook not found")
+		sendError(w, logger, http.StatusNotFound, "Notebook not found")
 		return
 	}
 
 	if latestEvent != string(constants.StatusNotebookApplied) {
 		logger.Error("cannot stop notebook that is not in applied state", "currentState", latestEvent)
-		sendError(w, r, logger, http.StatusBadRequest, "Cannot stop notebook that is not in applied state")
+		sendError(w, logger, http.StatusBadRequest, "Cannot stop notebook that is not in applied state")
 		return
 	}
 
 	err = app.addStoppedAnnotationToNotebook(ctx, namespace, stopReq.Name)
 	if err != nil {
 		logger.Error("failed to add stopped annotation to notebook", "error", err)
-		sendError(w, r, logger, http.StatusInternalServerError, "Failed to stop notebook")
+		sendError(w, logger, http.StatusInternalServerError, "Failed to stop notebook")
 		return
 	}
 
-	sendResponse(w, r, logger, http.StatusOK, "Notebook stopped successfully")
+	sendResponse(w, logger, http.StatusOK, "Notebook stopped successfully")
 }
 
+// startNotebook godoc
+// @Summary      Start notebook
+// @Description  Starts an existing notebook
+// @Tags         notebook
+// @Accept       json
+// @Produce      json
+// @Param        notebook_name  body  StartNotebookRequest  true  "Notebook Start Request"
+// @Success      200  {object}  SwaggerMessageResponse
+// @Failure      404  {object}  Error404
+// @Failure      429  {object}  Error429
+// @Failure      401  {object}  Error401
+// @Failure      500  {object}  Error500
+// @Failure      422  {object}  Error422
+// @Security     BearerAuth
+// @Router       /v1/notebook/start [patch]
 func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
 	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
 	if !ok {
 		logger.Error("user info not found in context")
-		sendResponse(w, r, logger, http.StatusUnauthorized, "Unauthorized")
+		sendResponse(w, logger, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	namespace := userInfo.Sub
 	startReq, err := utils.DecodeAndValidate[StartNotebookRequest](r.Body, logger)
 	if err != nil {
 		logger.Error("invalid body", "error", err)
-		sendError(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
+		sendError(w, logger, http.StatusUnprocessableEntity, "Invalid Body")
 		return
 	}
 
@@ -182,38 +261,53 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 	err = app.pgPool.Pool.QueryRow(ctx, query, startReq.Name, namespace).Scan(&notebookID, &latestEvent)
 	if err != nil {
 		logger.Error("failed to find notebook", "error", err)
-		sendError(w, r, logger, http.StatusNotFound, "Notebook not found")
+		sendError(w, logger, http.StatusNotFound, "Notebook not found")
 		return
 	}
 
 	if latestEvent != string(constants.StatusNotebookApplied) {
 		logger.Error("cannot start notebook that is not in applied state", "currentState", latestEvent)
-		sendError(w, r, logger, http.StatusBadRequest, "Cannot start notebook that is not in applied state")
+		sendError(w, logger, http.StatusBadRequest, "Cannot start notebook that is not in applied state")
 		return
 	}
 
 	err = app.removeStoppedAnnotationFromNotebook(ctx, namespace, startReq.Name)
 	if err != nil {
 		logger.Error("failed to remove stopped annotation from notebook", "error", err)
-		sendError(w, r, logger, http.StatusInternalServerError, "Failed to start notebook")
+		sendError(w, logger, http.StatusInternalServerError, "Failed to start notebook")
 		return
 	}
-	sendResponse(w, r, logger, http.StatusOK, "Notebook started successfully")
+	sendResponse(w, logger, http.StatusOK, "Notebook started successfully")
 }
 
+// deleteNotebook godoc
+// @Summary      Delete notebook
+// @Description  Deletes a notebook by name
+// @Tags         notebook
+// @Accept       json
+// @Produce      json
+// @Param        notebook_name  body  DeleteNotebookRequest  true  "Notebook Delete Request"
+// @Success      200  {object}  SwaggerMessageResponse
+// @Failure      429  {object}  Error429
+// @Failure      401  {object}  Error401
+// @Failure      404  {object}  Error404
+// @Failure      422  {object}  Error422
+// @Failure      500  {object}  Error500
+// @Security     BearerAuth
+// @Router       /v1/notebook/delete [delete]
 func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
 	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
 	if !ok {
 		logger.Error("user info not found in context")
-		sendResponse(w, r, logger, http.StatusUnauthorized, "Unauthorized")
+		sendResponse(w, logger, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	namespace := userInfo.Sub
 	deleteReq, err := utils.DecodeAndValidate[DeleteNotebookRequest](r.Body, logger)
 	if err != nil {
 		logger.Error("invalid body", "error", err)
-		sendError(w, r, logger, http.StatusUnprocessableEntity, "Invalid Body")
+		sendError(w, logger, http.StatusUnprocessableEntity, "Invalid Body")
 		return
 	}
 
@@ -229,11 +323,11 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			logger.Error("notebook not found", "error", err)
-			sendError(w, r, logger, http.StatusNotFound, "Notebook not found")
+			sendError(w, logger, http.StatusNotFound, "Notebook not found")
 			return
 		}
 		logger.Error("failed to select notebook", "error", err)
-		sendError(w, r, logger, http.StatusInternalServerError, "Failed to delete notebook")
+		sendError(w, logger, http.StatusInternalServerError, "Failed to delete notebook")
 		return
 	}
 
@@ -245,7 +339,7 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 
 	if latestEvent != string(constants.StatusNotebookApplied) && !notebookFailed {
 		logger.Error("cannot delete notebook that is not in applied state", "currentState", latestEvent)
-		sendError(w, r, logger, http.StatusBadRequest, "Cannot delete notebook that is not in applied state")
+		sendError(w, logger, http.StatusBadRequest, "Cannot delete notebook that is not in applied state")
 		return
 	}
 
@@ -253,7 +347,7 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 	_, err = app.pgPool.Pool.Exec(ctx, deleteQuery, deleteReq.Name, namespace)
 	if err != nil {
 		logger.Error("failed to delete notebook from database", "error", err)
-		sendError(w, r, logger, http.StatusInternalServerError, "Failed to delete notebook from database")
+		sendError(w, logger, http.StatusInternalServerError, "Failed to delete notebook from database")
 		return
 	}
 
@@ -261,19 +355,35 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 		err = app.deleteNotebookFromK8s(ctx, namespace, deleteReq.Name)
 		if err != nil {
 			logger.Error("failed to delete notebook from Kubernetes", "error", err)
-			sendError(w, r, logger, http.StatusInternalServerError, "Failed to delete notebook from Kubernetes")
+			sendError(w, logger, http.StatusInternalServerError, "Failed to delete notebook from Kubernetes")
 			return
 		}
 		err = app.deletePVCFromK8s(ctx, namespace, deleteReq.Name+"-pvc")
 		if err != nil {
 			logger.Error("failed to delete PVC from Kubernetes", "error", err)
-			sendError(w, r, logger, http.StatusInternalServerError, "Failed to delete PVC from Kubernetes")
+			sendError(w, logger, http.StatusInternalServerError, "Failed to delete PVC from Kubernetes")
 			return
 		}
 	}
-	sendResponse(w, r, logger, http.StatusOK, "Notebook deleted successfully")
+	sendResponse(w, logger, http.StatusOK, "Notebook deleted successfully")
 }
 
+// listNotebooks godoc
+// @Summary      List notebooks
+// @Description  Lists all notebooks for the user
+// @Tags         notebook
+// @Produce      json
+// @Param        limit  query    int     false  "Maximum number of notebooks to return (max 50)"
+// @Param        offset query    int     false  "Offset for pagination"
+// @Param        order  query    string  false  "Sort order (asc or desc)"
+// @Param        filter query    string  false  "Date filter as JSON array of two date strings [start, end]"
+// @Success      200  {object}  NotebookListResponse
+// @Failure      429  {object}  Error429
+// @Failure      401  {object}  Error401
+// @Failure      400  {object}  Error400
+// @Failure      500  {object}  Error500
+// @Security     BearerAuth
+// @Router       /v1/notebook/list [get]
 func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
 	logger = logger.With("method", "listNotebooks")
@@ -282,30 +392,42 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
 	if !ok {
 		logger.Error("user info not found in context")
-		sendResponse(w, r, logger, http.StatusUnauthorized, "Unauthorized")
+		sendResponse(w, logger, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	namespace := userInfo.Sub
 	filterVal := r.URL.Query().Get("filter")
+	orderVal := r.URL.Query().Get("order")
 	var filterDates [2]string
 	var filterActive bool
+	var orderDesc bool
+
+	if orderVal != "" {
+		if orderVal == "desc" {
+			orderDesc = true
+		} else if orderVal != "asc" {
+			logger.Error("invalid order parameter", "order", orderVal)
+			sendError(w, logger, http.StatusBadRequest, "order parameter must be 'asc' or 'desc'")
+			return
+		}
+	}
 
 	if filterVal != "" {
 		var dates []string
 		if err := json.Unmarshal([]byte(filterVal), &dates); err != nil {
 			logger.Error("failed to parse filter as JSON array", "error", err, "filter", filterVal)
-			sendError(w, r, logger, http.StatusBadRequest, "filter must be a valid JSON array of two date strings")
+			sendError(w, logger, http.StatusBadRequest, "filter must be a valid JSON array of two date strings")
 			return
 		}
 
 		if len(dates) != 2 {
-			sendError(w, r, logger, http.StatusBadRequest, "filter must contain exactly two date strings")
+			sendError(w, logger, http.StatusBadRequest, "filter must contain exactly two date strings")
 			return
 		}
 
 		for i, val := range dates {
 			if _, err := time.Parse("2006-01-02", val); err != nil {
-				sendError(w, r, logger, http.StatusBadRequest, "filter values must be valid date strings (YYYY-MM-DD)")
+				sendError(w, logger, http.StatusBadRequest, "filter values must be valid date strings (YYYY-MM-DD)")
 				return
 			}
 			filterDates[i] = val
@@ -315,7 +437,11 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 	limit := app.env.NotebookConfig.DefaultNotebookListLimit
 	if limStr := r.URL.Query().Get("limit"); limStr != "" {
 		if l, err := strconv.Atoi(limStr); err == nil && l > 0 {
-			limit = l
+			if l > 50 {
+				limit = 50
+			} else {
+				limit = l
+			}
 		}
 	}
 	offset := 0
@@ -328,36 +454,44 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 	k8sNotebooks, err := app.getNotebooksJSON(r.Context(), namespace)
 	if err != nil {
 		logger.Warn("failed to get notebooks from Kubernetes", "error", err)
-		sendError(w, r, logger, http.StatusInternalServerError, "Internal Server Error")
+		sendError(w, logger, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 
 	var query string
 	var rows pgx.Rows
+	var orderClause string
+
+	if orderDesc {
+		orderClause = "ORDER BY created_at DESC"
+	} else {
+		orderClause = "ORDER BY created_at ASC"
+	}
+
 	if filterActive {
-		query = `
+		query = fmt.Sprintf(`
 			SELECT id, name, namespace, storage_size, pvc_name,
 				cpu_request, cpu_limit, memory_request, memory_limit,
-				gpu_type, gpu_count, template_name, events
+				gpu_type, gpu_count, template_name, events, created_at
 			FROM notebooks
 			WHERE namespace = $1 AND created_at >= $2 AND created_at <= $3
-			ORDER BY id
-			LIMIT $4 OFFSET $5`
+			%s
+			LIMIT $4 OFFSET $5`, orderClause)
 		rows, err = app.pgPool.Pool.Query(ctx, query, namespace, filterDates[0], filterDates[1], limit, offset)
 	} else {
-		query = `
+		query = fmt.Sprintf(`
 			SELECT id, name, namespace, storage_size, pvc_name,
 				cpu_request, cpu_limit, memory_request, memory_limit,
-				gpu_type, gpu_count, template_name, events
+				gpu_type, gpu_count, template_name, events, created_at
 			FROM notebooks
 			WHERE namespace = $1
-			ORDER BY id
-			LIMIT $2 OFFSET $3`
+			%s
+			LIMIT $2 OFFSET $3`, orderClause)
 		rows, err = app.pgPool.Pool.Query(ctx, query, namespace, limit, offset)
 	}
 	if err != nil {
 		logger.Error("failed to query notebooks", "error", err)
-		sendError(w, r, logger, http.StatusInternalServerError, "Failed to query notebooks")
+		sendError(w, logger, http.StatusInternalServerError, "Failed to query notebooks")
 		return
 	}
 	defer rows.Close()
@@ -368,7 +502,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		err := rows.Scan(
 			&nb.ID, &nb.Name, &nb.Namespace, &nb.StorageSize, &nb.PVCName,
 			&nb.CPURequest, &nb.CPULimit, &nb.MemoryRequest, &nb.MemoryLimit,
-			&nb.GPUType, &nb.GPUCount, &nb.TemplateName, &nb.Events,
+			&nb.GPUType, &nb.GPUCount, &nb.TemplateName, &nb.Events, &nb.CreatedAt,
 		)
 		if err != nil {
 			logger.Error("failed to scan notebook row", "error", err)
@@ -397,7 +531,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := rows.Err(); err != nil {
 		logger.Error("error iterating notebook rows", "error", err)
-		sendError(w, r, logger, http.StatusInternalServerError, "internal server error")
+		sendError(w, logger, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
@@ -405,22 +539,32 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 	if len(notebooks) == limit {
 		nextOffset = offset + limit
 	}
-	resp := struct {
-		Notebooks  []NotebookStatus `json:"notebooks"`
-		NextOffset int              `json:"next_offset"`
-	}{
+	var resp NotebookListResponse = NotebookListResponse{
 		Notebooks:  notebooks,
 		NextOffset: nextOffset,
 	}
-	sendResponseJson(w, r, logger, http.StatusOK, resp)
+	sendResponseJson(w, logger, http.StatusOK, resp)
 }
 
+// checkNotebookStatus godoc
+// @Summary      Get notebook status
+// @Description  Gets the status of a notebook
+// @Tags         notebook
+// @Produce      json
+// @Param        notebook_name  path  string  true  "Notebook Name"
+// @Success      200  {object}  NotebookStatus
+// @Failure      429  {object}  Error429
+// @Failure      401  {object}  Error401
+// @Failure      404  {object}  Error404
+// @Failure      500  {object}  Error500
+// @Security     BearerAuth
+// @Router       /v1/notebook/status/{notebook_name} [get]
 func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
 	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
 	if !ok {
 		logger.Error("user info not found in context")
-		sendResponse(w, r, logger, http.StatusUnauthorized, "Unauthorized")
+		sendResponse(w, logger, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
@@ -428,7 +572,7 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 	notebookName := r.PathValue("notebook_name")
 	if notebookName == "" {
 		logger.Error("notebook name is required", "error", "notebook name is required")
-		sendError(w, r, logger, http.StatusBadRequest, "Notebook name is required")
+		sendError(w, logger, http.StatusBadRequest, "Notebook name is required")
 		return
 	}
 
@@ -438,7 +582,7 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 	query := `
 		SELECT id, name, namespace, storage_size, pvc_name, 
 			cpu_request, cpu_limit, memory_request, memory_limit,
-			gpu_type, gpu_count, template_name, events
+			gpu_type, gpu_count, template_name, events, created_at
 		FROM notebooks
 		WHERE namespace= $1 and name = $2`
 
@@ -456,9 +600,10 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 		&status.GPUCount,
 		&status.TemplateName,
 		&status.Events,
+		&status.CreatedAt,
 	)
 	if err != nil {
-		sendResponse(w, r, logger, http.StatusInternalServerError, "internal server error")
+		sendResponse(w, logger, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
@@ -487,30 +632,60 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 		status.URL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, status.Namespace, status.Name)
 	}
 
-	sendResponseJson(w, r, logger, http.StatusOK, status)
+	sendResponseJson(w, logger, http.StatusOK, status)
 }
 
+// createProfile godoc
+// @Summary      Create Kubeflow profile
+// @Description  Creates a Kubeflow Profile CRD for the user
+// @Tags         profile
+// @Accept       json
+// @Produce      json
+// @Success      201  {object}  SwaggerMessageResponse
+// @Failure      429  {object}  Error429
+// @Failure      401  {object}  Error401
+// @Failure      422  {object}  Error422
+// @Failure      500  {object}  Error500
+// @Security     BearerAuth
+// @Router       /v1/profile/create [post]
 func (app *application) createProfile(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
 
 	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
 	if !ok {
 		logger.Error("user info not found in context")
-		sendResponse(w, r, logger, http.StatusUnauthorized, "Unauthorized")
+		sendResponse(w, logger, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	email := userInfo.Email
 	userId := userInfo.Sub
 
-	logger = logger.With("userId", userId, "email", email)
+	logger = logger.With("userId", userId, "email", email, "operation", "createProfile")
+	logger.Info("creating kubeflow profile")
 
 	err := app.createKubeflowProfile(r.Context(), userId, email)
 	if err != nil {
-		logger.Error("failed to create kubeflow profile", "error", err, "profileName", userId)
-		sendError(w, r, logger, http.StatusInternalServerError, "Failed to create Kubeflow Profile")
+		logger.Error("failed to create kubeflow profile after retries", "error", err, "profileName", userId)
+		sendError(w, logger, http.StatusInternalServerError, "Failed to create Kubeflow Profile")
 		return
 	}
 
 	logger.Info("kubeflow profile created successfully", "profileName", userId)
-	sendResponse(w, r, logger, http.StatusCreated, "Kubeflow Profile created successfully")
+
+	query := `
+			INSERT INTO profile (user_id)
+			VALUES ($1)
+			ON CONFLICT (user_id) DO NOTHING
+			RETURNING id
+		`
+	var profileId int64
+	err = app.pgPool.Pool.QueryRow(r.Context(), query, userId).Scan(&profileId)
+	if err != nil && err != pgx.ErrNoRows {
+		logger.Error("failed to create profile in database", "error", err)
+		sendError(w, logger, http.StatusInternalServerError, "Failed to create profile in database")
+		return
+	}
+
+	logger.Info("profile created successfully", "profileName", userId)
+	sendResponse(w, logger, http.StatusCreated, "Profile created successfully")
 }

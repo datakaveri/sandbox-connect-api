@@ -1,3 +1,21 @@
+// @title           Sandbox Connect API
+// @version         1.0
+// @description     API for managing notebooks and profiles
+// @BasePath        /v1
+// @schemes         http https
+// @produce         json
+// @consumes        json
+
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Bearer token authentication. Example: "Bearer {token}"
+
+// Security is defined at the operation level
+
+// @x-extension-info-ratelimit "100 requests per minute"
+// @x-extension-info-cors "Configurable CORS origins"
+
 package main
 
 import (
@@ -12,6 +30,8 @@ import (
 	"sandbox-backend-service/pkg/utils"
 	"syscall"
 	"time"
+
+	_ "sandbox-backend-service/docs" // swaggo docs
 
 	"github.com/caarlos0/env/v11"
 	"github.com/joho/godotenv"

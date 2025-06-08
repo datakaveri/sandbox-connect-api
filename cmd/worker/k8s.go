@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sandbox-backend-service/pkg/constants"
 
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -16,6 +16,11 @@ func (w *worker) CreatePVC() error {
 	namespace := w.notebook.Namespace
 	pvcName := w.notebook.PVCname
 	storageSize := w.notebook.StorageSize
+	logger := w.logger.With("operation", "CreatePVC")
+
+	ctx, cancel := WithTimeoutContext(context.Background(), K8sCreationTimeout)
+	defer cancel()
+
 	pvc := &unstructured.Unstructured{
 		Object: map[string]any{
 			"apiVersion": "v1",
@@ -42,29 +47,61 @@ func (w *worker) CreatePVC() error {
 		Version:  "v1",
 		Resource: "persistentvolumeclaims",
 	}
-	_, err := w.app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Create(context.Background(), pvc, metav1.CreateOptions{})
-	return err
+
+	err := WithK8sRetry(ctx, func() error {
+		_, err := w.app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+		if k8serrors.IsAlreadyExists(err) {
+			logger.Warn("PVC already exists, will not retry creation", "error", err)
+			cancel()
+		} else if err != nil {
+			logger.Warn("failed to create PVC, will retry", "error", err)
+		}
+		return err
+	})
+
+	if err != nil {
+		logger.Error("failed to create PVC after retries", "error", err)
+		return err
+	}
+
+	return nil
 }
 
 func (w *worker) PVCWatcher() error {
 	namespace := w.notebook.Namespace
 	pvcName := w.notebook.PVCname
-	logger := w.logger
+	logger := w.logger.With("operation", "PVCWatcher")
 	pvcGVR := schema.GroupVersionResource{
 		Group:    "",
 		Version:  "v1",
 		Resource: "persistentvolumeclaims",
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), constants.PVCWatchTimeout)
+
+	ctx, cancel := WithTimeoutContext(context.Background(), K8sPVCWatcherTimeout)
 	defer cancel()
-	watcher, err := w.app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Watch(ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("metadata.name=%s", pvcName),
+
+	var watcher watch.Interface
+	err := WithK8sRetry(ctx, func() error {
+		var watchErr error
+		watcher, watchErr = w.app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Watch(ctx, metav1.ListOptions{
+			FieldSelector: fmt.Sprintf("metadata.name=%s", pvcName),
+		})
+		if k8serrors.IsNotFound(watchErr) {
+			logger.Warn("PVC not found, will not retry watcher", "error", watchErr)
+			cancel()
+		} else if watchErr != nil {
+			logger.Warn("failed to start PVC watcher, will retry", "error", watchErr)
+		}
+		return watchErr
 	})
+
 	if err != nil {
+		logger.Error("failed to start PVC watcher after retries", "error", err)
 		return err
 	}
 	defer watcher.Stop()
 
+	logger.Info("watching PVC status", "pvcName", pvcName)
 	for event := range watcher.ResultChan() {
 		unstructuredPVC, ok := event.Object.(*unstructured.Unstructured)
 		if !ok {
@@ -87,8 +124,10 @@ func (w *worker) PVCWatcher() error {
 			return errors.New("PVC was deleted before becoming bound")
 		}
 	}
+
 	if ctx.Err() == context.DeadlineExceeded {
-		return fmt.Errorf("watch timed out waiting for PVC to become bound")
+		logger.Error("watch timed out waiting for PVC to become bound", "timeout", K8sPVCWatcherTimeout)
+		return fmt.Errorf("watch timed out after %v waiting for PVC to become bound", K8sPVCWatcherTimeout)
 	} else if ctx.Err() == context.Canceled {
 		return fmt.Errorf("watch was canceled")
 	} else {
@@ -99,7 +138,10 @@ func (w *worker) PVCWatcher() error {
 func (w *worker) CreateUploadFileToPVPod(fileUploadPodName, fileDownloadURL string) error {
 	namespace := w.notebook.Namespace
 	pvcName := w.notebook.PVCname
-	logger := w.logger
+	logger := w.logger.With("operation", "CreateUploadFileToPVPod", "namespace", namespace, "pod", fileUploadPodName)
+
+	ctx, cancel := WithTimeoutContext(context.Background(), K8sCreationTimeout)
+	defer cancel()
 
 	podGVR := schema.GroupVersionResource{
 		Group:    "",
@@ -156,80 +198,129 @@ func (w *worker) CreateUploadFileToPVPod(fileUploadPodName, fileDownloadURL stri
 			},
 		},
 	}
-	logger.Info("Creating Pod with main container logic")
-	_, err := w.app.k8sClient.Dynamic.Resource(podGVR).Namespace(namespace).Create(context.Background(), podDefinition, metav1.CreateOptions{})
+
+	logger.Info("creating upload file pod")
+
+	err := WithK8sRetry(ctx, func() error {
+		_, err := w.app.k8sClient.Dynamic.Resource(podGVR).Namespace(namespace).Create(ctx, podDefinition, metav1.CreateOptions{})
+		if err != nil {
+			if k8serrors.IsAlreadyExists(err) {
+				logger.Warn("pod already exists, will not retry creation", "error", err)
+				cancel()
+			} else {
+				logger.Warn("failed to create upload pod, will retry", "error", err)
+			}
+			return err
+		}
+		return nil
+	})
+
 	if err != nil {
+		logger.Error("failed to create upload pod after retries", "error", err)
 		return err
 	}
+
+	logger.Info("successfully created upload file pod")
 	return nil
 }
 
 func (w *worker) CheckStatusOfUploadFilePod(fileUploadPodName string) error {
 	namespace := w.notebook.Namespace
-	logger := w.logger
+	logger := w.logger.With("operation", "CheckStatusOfUploadFilePod", "namespace", namespace, "pod", fileUploadPodName)
 
 	podGVR := schema.GroupVersionResource{
 		Group:    "",
 		Version:  "v1",
 		Resource: "pods",
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), constants.UploadPodTimeout)
+
+	ctx, cancel := WithTimeoutContext(context.Background(), UploadPodWatcherTimeout)
 	defer cancel()
-	watcher, err := w.app.k8sClient.Dynamic.Resource(podGVR).Namespace(namespace).Watch(ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("metadata.name=%s", fileUploadPodName),
+
+	logger.Info("checking upload file pod status")
+
+	var watcher watch.Interface
+	err := WithK8sRetry(ctx, func() error {
+		var watchErr error
+		watcher, watchErr = w.app.k8sClient.Dynamic.Resource(podGVR).Namespace(namespace).Watch(ctx, metav1.ListOptions{
+			FieldSelector: fmt.Sprintf("metadata.name=%s", fileUploadPodName),
+		})
+		if k8serrors.IsNotFound(watchErr) {
+			logger.Warn("pod not found, will not retry watcher", "error", watchErr)
+			cancel()
+		} else if watchErr != nil {
+			logger.Warn("failed to start pod watcher, will retry", "error", watchErr)
+			return watchErr
+		}
+		return nil
 	})
+
 	if err != nil {
+		logger.Error("failed to start pod watcher after retries", "error", err)
 		return err
 	}
 	defer watcher.Stop()
 
 	for event := range watcher.ResultChan() {
-		unstructuredPVC, ok := event.Object.(*unstructured.Unstructured)
+		unstructuredPod, ok := event.Object.(*unstructured.Unstructured)
 		if !ok {
-			logger.Warn("unexpected type, ignoring")
+			logger.Warn("unexpected type in watch event, ignoring")
 			continue
 		}
 
-		status, found, err := unstructured.NestedString(unstructuredPVC.Object, "status", "phase")
-
+		status, found, err := unstructured.NestedString(unstructuredPod.Object, "status", "phase")
 		if err != nil || !found {
-			logger.Warn("could not get status phase for PVC")
+			logger.Warn("could not get status phase for pod")
 			continue
 		}
-		logger.Info("current status", "status", status)
+
+		logger.Info("current pod status", "status", status)
+
 		if status == "Succeeded" {
-			logger.Info("pod successfully finished.")
+			logger.Info("pod successfully finished")
 			return nil
 		}
+
 		if status == "Failed" {
-			return errors.New("pod got failed")
+			logger.Error("pod failed")
+			return errors.New("pod execution failed")
 		}
 
 		if event.Type == watch.Deleted {
-			return errors.New("pod got deleted unexpectantly")
+			logger.Error("pod was unexpectedly deleted")
+			return errors.New("pod was unexpectedly deleted")
 		}
 	}
+
 	if ctx.Err() == context.DeadlineExceeded {
-		return fmt.Errorf("watch timed out waiting for Pod to succeed")
+		logger.Error("watch timed out waiting for pod to succeed", "timeout", UploadPodWatcherTimeout)
+		return fmt.Errorf("watch timed out after %v waiting for pod to succeed", UploadPodWatcherTimeout)
 	} else if ctx.Err() == context.Canceled {
+		logger.Error("watch was canceled")
 		return fmt.Errorf("watch was canceled")
 	} else {
+		logger.Error("watch ended unexpectedly")
 		return errors.New("watch ended unexpectedly")
 	}
 }
 
 func (w *worker) CreateNotebook() error {
 	nb := w.notebook
+	logger := w.logger.With("operation", "CreateNotebook")
+
+	ctx, cancel := WithTimeoutContext(context.Background(), NotebookCreationTimeout)
+	defer cancel()
+
 	var limit map[string]any
 	if nb.GPUType != nil && nb.GPUCount != nil && *nb.GPUCount != 0 {
 		limit = map[string]any{
-			"cpu":       nb.CPULimit,
+			"cpu":       fmt.Sprintf("%.6f", nb.CPULimit),
 			"memory":    nb.MemoryLimit,
 			*nb.GPUType: nb.GPUCount,
 		}
 	} else {
 		limit = map[string]any{
-			"cpu":    nb.CPULimit,
+			"cpu":    fmt.Sprintf("%.6f", nb.CPULimit),
 			"memory": nb.MemoryLimit,
 		}
 	}
@@ -255,7 +346,7 @@ func (w *worker) CreateNotebook() error {
 								"env":   []any{},
 								"resources": map[string]any{
 									"requests": map[string]any{
-										"cpu":    nb.CPURequest,
+										"cpu":    fmt.Sprintf("%.6f", nb.CPURequest),
 										"memory": nb.MemoryRequest,
 									},
 									"limits": limit,
@@ -287,46 +378,74 @@ func (w *worker) CreateNotebook() error {
 		Version:  "v1beta1",
 		Resource: "notebooks",
 	}
-	_, err := w.app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(nb.Namespace).Create(context.Background(), notebookObj, metav1.CreateOptions{})
-	return err
+
+	err := WithK8sRetry(ctx, func() error {
+		_, err := w.app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(nb.Namespace).Create(ctx, notebookObj, metav1.CreateOptions{})
+		if k8serrors.IsAlreadyExists(err) {
+			logger.Warn("notebook already exists, will not retry creation", "error", err)
+		} else if err != nil {
+			logger.Warn("failed to create notebook, will retry", "error", err)
+		}
+		return err
+	})
+
+	if err != nil {
+		logger.Error("failed to create notebook after retries", "error", err)
+		return err
+	}
+
+	logger.Info("notebook created successfully", "name", nb.Name, "namespace", nb.Namespace)
+	return nil
 }
 
 func (w *worker) DeleteNotebook() error {
 	namespace := w.notebook.Namespace
 	notebookName := w.notebook.Name
-	logger := w.logger
+	logger := w.logger.With("operation", "DeleteNotebook", "namespace", namespace, "name", notebookName)
+
+	ctx, cancel := WithTimeoutContext(context.Background(), NotebookDeletionTimeout)
+	defer cancel()
+
 	notebookGVR := schema.GroupVersionResource{
 		Group:    "kubeflow.org",
 		Version:  "v1beta1",
 		Resource: "notebooks",
 	}
 
-	logger.Info("Deleting Notebook resource")
-
-	_, err := w.app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Get(context.Background(), notebookName, metav1.GetOptions{})
-	if err != nil {
-		logger.Warn("Notebook not found, may have been already deleted", "error", err)
-		return nil
-	}
+	logger.Info("deleting notebook resource")
 
 	deletePolicy := metav1.DeletePropagationBackground
 	deleteOptions := metav1.DeleteOptions{
 		PropagationPolicy: &deletePolicy,
 	}
 
-	err = w.app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Delete(context.Background(), notebookName, deleteOptions)
+	err := WithK8sRetry(ctx, func() error {
+		err := w.app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Delete(ctx, notebookName, deleteOptions)
+		if err != nil {
+			if k8serrors.IsNotFound(err) {
+				return nil
+			}
+			logger.Warn("failed to delete notebook resource, will retry", "error", err)
+			return err
+		}
+		return nil
+	})
+
 	if err != nil {
-		logger.Error("Failed to delete Notebook resource", "error", err)
+		logger.Error("failed to delete notebook resource after retries", "error", err)
 		return err
 	}
 
-	logger.Info("Successfully deleted Notebook resource")
+	logger.Info("successfully deleted notebook resource")
 	return nil
 }
 
 func (w *worker) DeletePod(podName string) error {
 	namespace := w.notebook.Namespace
-	logger := w.logger
+	logger := w.logger.With("operation", "DeletePod", "namespace", namespace, "name", podName)
+
+	ctx, cancel := WithTimeoutContext(context.Background(), K8sDeletionTimeout)
+	defer cancel()
 
 	podGVR := schema.GroupVersionResource{
 		Group:    "",
@@ -334,31 +453,40 @@ func (w *worker) DeletePod(podName string) error {
 		Resource: "pods",
 	}
 
-	_, err := w.app.k8sClient.Dynamic.Resource(podGVR).Namespace(namespace).Get(context.Background(), podName, metav1.GetOptions{})
-	if err != nil {
-		logger.Warn("Pod not found, may have been already deleted", "error", err)
-		return nil
-	}
-
+	logger.Info("deleting pod")
 	deletePolicy := metav1.DeletePropagationBackground
 	deleteOptions := metav1.DeleteOptions{
 		PropagationPolicy: &deletePolicy,
 	}
 
-	err = w.app.k8sClient.Dynamic.Resource(podGVR).Namespace(namespace).Delete(context.Background(), podName, deleteOptions)
+	err := WithK8sRetry(ctx, func() error {
+		err := w.app.k8sClient.Dynamic.Resource(podGVR).Namespace(namespace).Delete(ctx, podName, deleteOptions)
+		if err != nil {
+			if k8serrors.IsNotFound(err) {
+				return nil
+			}
+			logger.Warn("failed to delete pod, will retry", "error", err)
+			return err
+		}
+		return nil
+	})
+
 	if err != nil {
-		logger.Error("Failed to delete Pod", "error", err)
+		logger.Error("failed to delete pod after retries", "error", err)
 		return err
 	}
 
-	logger.Info("Successfully deleted Pod")
+	logger.Info("successfully deleted pod")
 	return nil
 }
 
 func (w *worker) DeletePVC() error {
 	namespace := w.notebook.Namespace
 	pvcName := w.notebook.PVCname
-	logger := w.logger
+	logger := w.logger.With("operation", "DeletePVC", "namespace", namespace, "name", pvcName)
+
+	ctx, cancel := WithTimeoutContext(context.Background(), K8sDeletionTimeout)
+	defer cancel()
 
 	pvcGVR := schema.GroupVersionResource{
 		Group:    "",
@@ -366,25 +494,30 @@ func (w *worker) DeletePVC() error {
 		Resource: "persistentvolumeclaims",
 	}
 
-	logger.Info("Deleting PersistentVolumeClaim")
-
-	_, err := w.app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Get(context.Background(), pvcName, metav1.GetOptions{})
-	if err != nil {
-		logger.Warn("PVC not found, may have been already deleted", "error", err)
-		return nil
-	}
+	logger.Info("deleting persistentvolumeclaim")
 
 	deletePolicy := metav1.DeletePropagationBackground
 	deleteOptions := metav1.DeleteOptions{
 		PropagationPolicy: &deletePolicy,
 	}
 
-	err = w.app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Delete(context.Background(), pvcName, deleteOptions)
+	err := WithK8sRetry(ctx, func() error {
+		err := w.app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Delete(ctx, pvcName, deleteOptions)
+		if err != nil {
+			if k8serrors.IsNotFound(err) {
+				return nil
+			}
+			logger.Warn("failed to delete PVC, will retry", "error", err)
+			return err
+		}
+		return nil
+	})
+
 	if err != nil {
-		logger.Error("Failed to delete PVC", "error", err)
+		logger.Error("failed to delete PVC after retries", "error", err)
 		return err
 	}
 
-	logger.Info("Successfully deleted PVC")
+	logger.Info("successfully deleted PVC")
 	return nil
 }

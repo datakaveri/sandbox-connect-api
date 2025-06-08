@@ -1,7 +1,5 @@
 package constants
 
-import "time"
-
 type Events string
 
 const (
@@ -16,10 +14,4 @@ const (
 	StatusPVCUploadFailed      Events = "pvc-upload-failed"
 	StatusNotebookApplied      Events = "notebook-applied"
 	StatusNotebookApplyFailed  Events = "notebook-apply-failed"
-)
-
-const (
-	PollInterval     = 1 * time.Second
-	UploadPodTimeout = 4 * time.Minute
-	PVCWatchTimeout  = 2 * time.Minute
 )

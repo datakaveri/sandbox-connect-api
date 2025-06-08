@@ -2,90 +2,143 @@ package main
 
 import (
 	"context"
+	"log/slog"
 	"sandbox-backend-service/pkg/constants"
 	"sandbox-backend-service/pkg/db"
 
 	"github.com/jackc/pgx/v5"
 )
 
-func FetchAndMarkNotebook(pg *db.PgPool, ctx context.Context) ([]Notebook, error) {
-	tx, err := pg.Pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	defer tx.Rollback(ctx)
-	query := `
-		SELECT id, name, namespace, storage_size, pvc_name, cpu_request, cpu_limit, 
-		       memory_request, memory_limit, gpu_type, gpu_count, template_name
-		FROM notebooks
-		WHERE picked_at IS NULL
-		FOR UPDATE SKIP LOCKED
-		LIMIT 1
-	`
-	rows, err := tx.Query(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	if rows.Err() != nil {
-		return nil, rows.Err()
-	}
+func FetchAndMarkNotebook(pg *db.PgPool, logger *slog.Logger, originalCtx context.Context) ([]Notebook, error) {
+	logger = logger.With("operation", "FetchAndMarkNotebook")
+	ctx, cancel := WithTimeoutContext(originalCtx, DBTransactionTimeout)
+	defer cancel()
 
 	var notebooks []Notebook
-	for rows.Next() {
-		var newNotebook Notebook
-		if err := rows.Scan(
-			&newNotebook.ID,
-			&newNotebook.Name,
-			&newNotebook.Namespace,
-			&newNotebook.StorageSize,
-			&newNotebook.PVCname,
-			&newNotebook.CPURequest,
-			&newNotebook.CPULimit,
-			&newNotebook.MemoryRequest,
-			&newNotebook.MemoryLimit,
-			&newNotebook.GPUType,
-			&newNotebook.GPUCount,
-			&newNotebook.TemplateName,
-		); err != nil {
-			return nil, err
+	err := WithDBRetry(ctx, func() error {
+		tx, err := pg.Pool.BeginTx(ctx, pgx.TxOptions{})
+		if err != nil {
+			logger.Warn("failed to begin transaction, will retry", "error", err)
+			return err
 		}
-		notebooks = append(notebooks, newNotebook)
-	}
+		defer tx.Rollback(ctx)
 
-	if len(notebooks) == 0 {
+		notebooks = nil
+
+		query := `
+			SELECT id, name, namespace, storage_size, pvc_name, cpu_request, cpu_limit, 
+			       memory_request, memory_limit, gpu_type, gpu_count, template_name
+			FROM notebooks
+			WHERE picked_at IS NULL
+			FOR UPDATE SKIP LOCKED
+			LIMIT 1
+		`
+
+		queryCtx, queryCancel := WithTimeoutContext(ctx, DBReadTimeout)
+		defer queryCancel()
+
+		rows, err := tx.Query(queryCtx, query)
+		if err != nil {
+			logger.Warn("failed to query notebooks, will retry", "error", err)
+			return err
+		}
+		defer rows.Close()
+
+		if rows.Err() != nil {
+			logger.Warn("rows error, will retry", "error", rows.Err())
+			return rows.Err()
+		}
+
+		for rows.Next() {
+			var newNotebook Notebook
+			if err := rows.Scan(
+				&newNotebook.ID,
+				&newNotebook.Name,
+				&newNotebook.Namespace,
+				&newNotebook.StorageSize,
+				&newNotebook.PVCname,
+				&newNotebook.CPURequest,
+				&newNotebook.CPULimit,
+				&newNotebook.MemoryRequest,
+				&newNotebook.MemoryLimit,
+				&newNotebook.GPUType,
+				&newNotebook.GPUCount,
+				&newNotebook.TemplateName,
+			); err != nil {
+				logger.Warn("failed to scan notebook row, will retry", "error", err)
+				return err
+			}
+			notebooks = append(notebooks, newNotebook)
+		}
+
+		if len(notebooks) == 0 {
+			if err = tx.Commit(ctx); err != nil {
+				logger.Warn("failed to commit empty transaction, will retry", "error", err)
+				return err
+			}
+			return nil
+		}
+
+		updateCtx, updateCancel := WithTimeoutContext(ctx, DBWriteTimeout)
+		defer updateCancel()
+
+		updateQuery := `
+		UPDATE notebooks
+		SET picked_at = NOW(),
+			events = array_append(events, $2)
+		WHERE id = $1
+		`
+		_, err = tx.Exec(updateCtx, updateQuery, notebooks[0].ID, constants.StatusPicked)
+		if err != nil {
+			logger.Warn("failed to update notebook status, will retry", "error", err)
+			return err
+		}
+
 		if err = tx.Commit(ctx); err != nil {
-			return nil, err
+			logger.Warn("failed to commit transaction, will retry", "error", err)
+			return err
 		}
-		return notebooks, nil
-	}
 
-	updateQuery := `
-	UPDATE notebooks
-	SET picked_at = NOW(),
-            events = array_append(events, $2)
-	WHERE id = $1
-        `
-	_, err = tx.Exec(ctx, updateQuery, notebooks[0].ID, constants.StatusPicked)
+		return nil
+	})
+
 	if err != nil {
+		logger.Error("failed to fetch and mark notebook after retries", "error", err)
 		return nil, err
 	}
 
-	if err = tx.Commit(ctx); err != nil {
-		return nil, err
+	if len(notebooks) > 0 {
+		logger.Info("notebook marked for processing", "notebookId", notebooks[0].ID, "name", notebooks[0].Name)
 	}
-
 	return notebooks, nil
 }
 
 func (w *worker) NotebookStatusUpdate(id int64, status constants.Events) error {
+	logger := w.logger.With("operation", "NotebookStatusUpdate", "notebookId", id, "status", status)
+	logger.Info("updating notebook status")
+
+	ctx, cancel := WithTimeoutContext(context.Background(), DBWriteTimeout)
+	defer cancel()
+
 	updateQuery := `
 	UPDATE notebooks
-	SET picked_at = NOW(),
-	    events = array_append(events, $2)
+	SET events = array_append(events, $2)
 	WHERE id = $1
-        `
-	_, err := w.app.pgPool.Pool.Exec(context.Background(), updateQuery, id, status)
+    `
+
+	err := WithDBRetry(ctx, func() error {
+		_, err := w.app.pgPool.Pool.Exec(ctx, updateQuery, id, status)
+		if err != nil {
+			logger.Warn("failed to update notebook status, will retry", "error", err)
+		}
+		return err
+	})
+
+	if err != nil {
+		logger.Error("failed to update notebook status after retries", "error", err)
+	} else {
+		logger.Info("notebook status updated successfully")
+	}
+
 	return err
 }

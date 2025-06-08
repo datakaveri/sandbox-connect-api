@@ -2,9 +2,7 @@ package db
 
 import (
 	"context"
-	"log/slog"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -19,9 +17,6 @@ func NewPool(url string) (*PgPool, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	config.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
-
 	p, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		return nil, err
@@ -31,8 +26,14 @@ func NewPool(url string) (*PgPool, error) {
 		return nil, err
 	}
 
-	slog.Info("connected to database", "query_exec_mode", "simple_protocol")
 	return &PgPool{
 		Pool: p,
 	}, nil
+}
+
+// Close closes the underlying connection pool
+func (p *PgPool) Close() {
+	if p.Pool != nil {
+		p.Pool.Close()
+	}
 }
