@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -76,6 +77,7 @@ func (app *application) checkNotebookExists(w http.ResponseWriter, r *http.Reque
 // @Failure      429  {object}  Error429
 // @Failure      401  {object}  Error401
 // @Failure      500  {object}  Error500
+// @Failure      409  {object}  Error409
 // @Security     BearerAuth
 // @Router       /v1/notebook/create [post]
 func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
@@ -145,6 +147,12 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 	var notebookId int64
 	err = app.pgPool.Pool.QueryRow(r.Context(), query, baseArgs...).Scan(&notebookId)
 	if err != nil {
+		pgErr, isPgError := err.(*pgconn.PgError)
+		if isPgError && pgErr.Code == "23505" {
+			logger.Warn("notebook already exists", "name", notebookReq.Name)
+			sendError(w, logger, http.StatusConflict, "Notebook with this name already exists")
+			return
+		}
 		logger.Error("failed to create notebook in database", "error", err)
 		sendError(w, logger, http.StatusInternalServerError, "Failed to create notebook")
 		return
@@ -454,7 +462,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 	k8sNotebooks, err := app.getNotebooksJSON(r.Context(), namespace)
 	if err != nil {
 		logger.Warn("failed to get notebooks from Kubernetes", "error", err)
-		sendError(w, logger, http.StatusInternalServerError, "Internal Server Error")
+		sendError(w, logger, http.StatusInternalServerError, "Failed to fetch notebooks")
 		return
 	}
 
@@ -531,7 +539,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := rows.Err(); err != nil {
 		logger.Error("error iterating notebook rows", "error", err)
-		sendError(w, logger, http.StatusInternalServerError, "internal server error")
+		sendError(w, logger, http.StatusInternalServerError, "Failed to fetch notebooks")
 		return
 	}
 
@@ -603,7 +611,11 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 		&status.CreatedAt,
 	)
 	if err != nil {
-		sendResponse(w, logger, http.StatusInternalServerError, "internal server error")
+		if err == pgx.ErrNoRows {
+			sendResponse(w, logger, http.StatusNotFound, "Notebook not found")
+			return
+		}
+		sendResponse(w, logger, http.StatusInternalServerError, "Failed to fetch notebook")
 		return
 	}
 
@@ -663,9 +675,9 @@ func (app *application) createProfile(w http.ResponseWriter, r *http.Request) {
 	logger = logger.With("userId", userId, "email", email, "operation", "createProfile")
 	logger.Info("creating kubeflow profile")
 
-	err := app.createKubeflowProfile(r.Context(), userId, email)
+	err := app.createKubeflowProfile(r.Context(), logger, userId, email)
 	if err != nil {
-		logger.Error("failed to create kubeflow profile after retries", "error", err, "profileName", userId)
+		logger.Error("failed to create kubeflow profile", "error", err, "profileName", userId)
 		sendError(w, logger, http.StatusInternalServerError, "Failed to create Kubeflow Profile")
 		return
 	}
@@ -673,7 +685,7 @@ func (app *application) createProfile(w http.ResponseWriter, r *http.Request) {
 	logger.Info("kubeflow profile created successfully", "profileName", userId)
 
 	query := `
-			INSERT INTO profile (user_id)
+			INSERT INTO profiles (user_id)
 			VALUES ($1)
 			ON CONFLICT (user_id) DO NOTHING
 			RETURNING id

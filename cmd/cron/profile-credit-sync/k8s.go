@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -103,4 +104,51 @@ func (ps *profileSync) stopAllNotebooksInNamespace(ctx context.Context, namespac
 		"failed", failedNotebookName)
 
 	return nil
+}
+func (ps *profileSync) getAllProfilesFromK8s() ([]KubeflowProfile, error) {
+	profileGVR := schema.GroupVersionResource{
+		Group:    "kubeflow.org",
+		Version:  "v1",
+		Resource: "profiles",
+	}
+	profileList := &unstructured.UnstructuredList{}
+	err := WithK8sRetry(ps.rootCtx, func() error {
+		var err error
+		profileList, err = ps.dynamicClient.Dynamic.Resource(profileGVR).List(ps.rootCtx, metav1.ListOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to list profiles: %v", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	profiles := make([]KubeflowProfile, 0, len(profileList.Items))
+
+	for _, item := range profileList.Items {
+		userId := item.GetName()
+
+		if _, err := uuid.Parse(userId); err != nil {
+			ps.logger.Warn("skipping invalid profile ID - must be UUID",
+				"profile_id", userId,
+				"error", err)
+			continue
+		}
+
+		ownerEmail, found, err := unstructured.NestedString(item.Object, "spec", "owner", "name")
+		if err != nil || !found {
+			ps.logger.Warn("could not extract owner email from profile",
+				"user_id", userId,
+				"error", err)
+			continue
+		}
+
+		profiles = append(profiles, KubeflowProfile{
+			UserID: userId,
+			Email:  ownerEmail,
+		})
+	}
+
+	ps.logger.Info("found profiles in Kubernetes", "count", len(profiles))
+	return profiles, nil
 }

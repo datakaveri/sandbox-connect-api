@@ -1,16 +1,18 @@
 package main
 
 import (
+	"html/template"
 	"net/http"
-
-	httpSwagger "github.com/swaggo/http-swagger"
+	"os"
+	"path/filepath"
+	"strings"
 )
 
 func (app *application) router() http.Handler {
 	rootMux := http.NewServeMux()
 
-	// Serve Swagger docs
-	rootMux.Handle("/v1/docs/", httpSwagger.Handler())
+	// Serve API documentation with ReDoc
+	rootMux.HandleFunc("/v1/docs/", app.serveReDoc)
 
 	// Register health endpoint directly (not behind auth)
 	rootMux.HandleFunc("GET /v1/health", app.healthCheck)
@@ -50,19 +52,108 @@ func (app *application) router() http.Handler {
 	return http.MaxBytesHandler(handler, int64(app.env.MaxBodySizeInMB)<<20)
 }
 
-// healthCheck godoc
-// @Summary      Health check endpoint
-// @Description  Returns the health status of the API
-// @Tags         system
-// @Produce      json
-// @Success      200  {object}  SwaggerHealthResponse
-// @Failure      429  {object}  Error429
-// @Router       /v1/health [get]
-// @Security
+// Template for ReDoc UI
+const redocTemplate = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - v{{.Version}}</title>
+    <link rel="icon" href="https://cdn.redoc.ly/redoc/logo-mini.svg">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+        .api-info {
+            background-color: #f8f9fa;
+            padding: 10px 20px;
+            border-bottom: 1px solid #e9ecef;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .api-info h1 {
+            font-size: 1.5rem;
+            margin: 0;
+            color: #343a40;
+        }
+        .api-version {
+            background-color: #6c757d;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="api-info">
+        <h1>{{.Title}}</h1>
+        <span class="api-version">v{{.Version}}</span>
+    </div>
+    <redoc spec-url="swagger.json" hide-hostname="true" expand-responses="200,201"></redoc>
+    <script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
+</body>
+</html>`
+
+func (app *application) serveReDoc(w http.ResponseWriter, r *http.Request) {
+	logger := getLogger(r)
+	path := strings.TrimPrefix(r.URL.Path, "/v1/docs/")
+
+	if path == "" {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+		tmpl, err := template.New("redoc").Parse(redocTemplate)
+		if err != nil {
+			logger.Error("failed to parse redoc template", "error", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		data := map[string]string{
+			"Title":   "Sandbox Connect API Documentation",
+			"Version": app.env.Version,
+		}
+
+		if err := tmpl.Execute(w, data); err != nil {
+			logger.Error("failed to execute redoc template", "error", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	if path == "swagger.json" || path == "swagger.yaml" {
+		filePath := filepath.Join("/app/docs", path)
+
+		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+			filePath = filepath.Join("docs", path)
+			if _, err := os.Stat(filePath); os.IsNotExist(err) {
+				logger.Warn("swagger file not found", "path", filePath)
+				sendError(w, logger, http.StatusNotFound, "Not Found")
+				return
+			}
+		}
+
+		if strings.HasSuffix(path, ".json") {
+			w.Header().Set("Content-Type", "application/json")
+		} else if strings.HasSuffix(path, ".yaml") {
+			w.Header().Set("Content-Type", "application/yaml")
+		}
+
+		logger.Info("serving swagger file", "path", filePath)
+		http.ServeFile(w, r, filePath)
+		return
+	}
+
+	sendError(w, logger, http.StatusNotFound, "Not Found")
+}
+
 func (app *application) healthCheck(w http.ResponseWriter, r *http.Request) {
-	response := map[string]string{
+	logger := getLogger(r)
+	sendResponseJson(w, logger, http.StatusOK, map[string]interface{}{
 		"status":  "ok",
 		"version": app.env.Version,
-	}
-	sendResponseJson(w, getLogger(r), http.StatusOK, response)
+	})
 }

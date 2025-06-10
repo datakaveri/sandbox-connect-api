@@ -103,7 +103,7 @@ type DeleteNotebookRequest struct {
 type NotebookState string
 
 const (
-	NotebookStatePending  NotebookState = "pending"
+	NotebookStateCreating NotebookState = "creating"
 	NotebookStateRunning  NotebookState = "running"
 	NotebookStateStopped  NotebookState = "stopped"
 	NotebookStateFailed   NotebookState = "failed"
@@ -195,49 +195,56 @@ type SwaggerExistsResponse struct {
 // @Description Response for bad request errors
 type Error400 struct {
 	// Error message
-	Error string `json:"error" example:"string"`
+	Detail string `json:"detail" example:"string"`
+	Type   string `json:"type" example:"error"`
 }
 
 // Error401 represents a 401 Unauthorized error response
 // @Description Response for authentication errors
 type Error401 struct {
 	// Error message
-	Error string `json:"error" example:"string"`
+	Detail string `json:"detail" example:"string"`
+	Type   string `json:"type" example:"error"`
 }
 
 // Error403 represents a 403 Forbidden error response
 // @Description Response for permission errors
 type Error403 struct {
 	// Error message
-	Error string `json:"error" example:"string"`
+	Detail string `json:"detail" example:"string"`
+	Type   string `json:"type" example:"error"`
 }
 
 // Error404 represents a 404 Not Found error response
 // @Description Response for resource not found errors
 type Error404 struct {
 	// Error message
-	Error string `json:"error" example:"string"`
+	Detail string `json:"detail" example:"string"`
+	Type   string `json:"type" example:"error"`
 }
 
 // Error422 represents a 422 Unprocessable Entity error response
 // @Description Response for invalid request body errors
 type Error422 struct {
 	// Error message
-	Error string `json:"error" example:"string"`
+	Detail string `json:"detail" example:"string"`
+	Type   string `json:"type" example:"error"`
 }
 
 // Error429 represents a 429 Too Many Requests error response
 // @Description Response for rate limiting errors
 type Error429 struct {
 	// Error message
-	Error string `json:"error" example:"string"`
+	Detail string `json:"detail" example:"string"`
+	Type   string `json:"type" example:"error"`
 }
 
 // Error500 represents a 500 Internal Server Error response
 // @Description Response for internal server errors
 type Error500 struct {
 	// Error message
-	Error string `json:"error" example:"string"`
+	Detail string `json:"detail" example:"string"`
+	Type   string `json:"type" example:"error"`
 }
 
 // SwaggerMessageResponse represents the standard success response structure
@@ -252,4 +259,12 @@ type SwaggerHealthResponse struct {
 	// Success message
 	Status  string `json:"status" example:"string"`
 	Version string `json:"version" example:"string"`
+}
+
+// Error409 represents a 409 Conflict error response
+// @Description Response for resource conflict errors
+type Error409 struct {
+	// Error message
+	Detail string `json:"detail" example:"string"`
+	Type   string `json:"type" example:"error"`
 }

@@ -31,7 +31,6 @@ func NewPool(url string) (*PgPool, error) {
 	}, nil
 }
 
-// Close closes the underlying connection pool
 func (p *PgPool) Close() {
 	if p.Pool != nil {
 		p.Pool.Close()

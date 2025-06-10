@@ -151,6 +151,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/main.Error403"
                         }
                     },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error409"
+                        }
+                    },
                     "422": {
                         "description": "Unprocessable Entity",
                         "schema": {
@@ -616,10 +622,14 @@ const docTemplate = `{
             "description": "Response for bad request errors",
             "type": "object",
             "properties": {
-                "error": {
+                "detail": {
                     "description": "Error message",
                     "type": "string",
                     "example": "string"
+                },
+                "type": {
+                    "type": "string",
+                    "example": "error"
                 }
             }
         },
@@ -627,10 +637,14 @@ const docTemplate = `{
             "description": "Response for authentication errors",
             "type": "object",
             "properties": {
-                "error": {
+                "detail": {
                     "description": "Error message",
                     "type": "string",
                     "example": "string"
+                },
+                "type": {
+                    "type": "string",
+                    "example": "error"
                 }
             }
         },
@@ -638,10 +652,14 @@ const docTemplate = `{
             "description": "Response for permission errors",
             "type": "object",
             "properties": {
-                "error": {
+                "detail": {
                     "description": "Error message",
                     "type": "string",
                     "example": "string"
+                },
+                "type": {
+                    "type": "string",
+                    "example": "error"
                 }
             }
         },
@@ -649,10 +667,29 @@ const docTemplate = `{
             "description": "Response for resource not found errors",
             "type": "object",
             "properties": {
-                "error": {
+                "detail": {
                     "description": "Error message",
                     "type": "string",
                     "example": "string"
+                },
+                "type": {
+                    "type": "string",
+                    "example": "error"
+                }
+            }
+        },
+        "main.Error409": {
+            "description": "Response for resource conflict errors",
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "description": "Error message",
+                    "type": "string",
+                    "example": "string"
+                },
+                "type": {
+                    "type": "string",
+                    "example": "error"
                 }
             }
         },
@@ -660,10 +697,14 @@ const docTemplate = `{
             "description": "Response for invalid request body errors",
             "type": "object",
             "properties": {
-                "error": {
+                "detail": {
                     "description": "Error message",
                     "type": "string",
                     "example": "string"
+                },
+                "type": {
+                    "type": "string",
+                    "example": "error"
                 }
             }
         },
@@ -671,10 +712,14 @@ const docTemplate = `{
             "description": "Response for rate limiting errors",
             "type": "object",
             "properties": {
-                "error": {
+                "detail": {
                     "description": "Error message",
                     "type": "string",
                     "example": "string"
+                },
+                "type": {
+                    "type": "string",
+                    "example": "error"
                 }
             }
         },
@@ -682,10 +727,14 @@ const docTemplate = `{
             "description": "Response for internal server errors",
             "type": "object",
             "properties": {
-                "error": {
+                "detail": {
                     "description": "Error message",
                     "type": "string",
                     "example": "string"
+                },
+                "type": {
+                    "type": "string",
+                    "example": "error"
                 }
             }
         },
@@ -723,14 +772,14 @@ const docTemplate = `{
         "main.NotebookState": {
             "type": "string",
             "enum": [
-                "pending",
+                "creating",
                 "running",
                 "stopped",
                 "failed",
                 "orphaned"
             ],
             "x-enum-varnames": [
-                "NotebookStatePending",
+                "NotebookStateCreating",
                 "NotebookStateRunning",
                 "NotebookStateStopped",
                 "NotebookStateFailed",

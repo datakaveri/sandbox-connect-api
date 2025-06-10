@@ -23,8 +23,8 @@ func TestDetermineNotebookState(t *testing.T) {
 
 	t.Run("nil k8sSpec, event empty", func(t *testing.T) {
 		result := determineNotebookState("", nil)
-		if result != NotebookStatePending {
-			t.Errorf("expected pending, got %v", result)
+		if result != NotebookStateCreating {
+			t.Errorf("expected creating, got %v", result)
 		}
 	})
 

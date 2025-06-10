@@ -29,7 +29,7 @@ CREATE TABLE notebooks (
 ALTER TABLE notebooks ADD COLUMN updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
 
-CREATE TABLE profile(
+CREATE TABLE profiles (
     id BIGSERIAL PRIMARY KEY,
     user_id UUID NOT NULL,
     total_credit DECIMAL(12,6) NOT NULL DEFAULT 0,
@@ -42,6 +42,20 @@ CREATE TABLE profile(
     CONSTRAINT unique_user_id UNIQUE (user_id)
 );
 
+CREATE TABLE IF NOT EXISTS failed_aaa_requests (
+    id BIGSERIAL PRIMARY KEY,
+    user_id VARCHAR(255) NOT NULL,
+    cost DECIMAL(10, 2) NOT NULL,
+    requested_at TIMESTAMP NOT NULL,
+    error_message TEXT,
+    status_code INT,
+    request_payload JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    totalRetry INT DEFAULT 0,
+    last_retry_at TIMESTAMP,
+    resolved BOOLEAN DEFAULT FALSE,
+    resolved_at TIMESTAMP
+);
 CREATE OR REPLACE FUNCTION update_modified_column()   
 RETURNS TRIGGER AS $$
 BEGIN
@@ -56,5 +70,5 @@ CREATE TRIGGER update_notebooks_modtime
   FOR EACH ROW EXECUTE PROCEDURE update_modified_column();
 
 CREATE TRIGGER update_profile_costs_modtime 
-  BEFORE UPDATE ON profile 
+  BEFORE UPDATE ON profiles 
   FOR EACH ROW EXECUTE PROCEDURE update_modified_column();

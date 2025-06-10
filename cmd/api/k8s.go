@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -165,7 +166,7 @@ func (app *application) getNotebookJSON(ctx context.Context, namespace, notebook
 	return spec, err
 }
 
-func (app *application) createKubeflowProfile(ctx context.Context, userId, email string) error {
+func (app *application) createKubeflowProfile(ctx context.Context, logger *slog.Logger, userId, email string) error {
 	profile := &unstructured.Unstructured{
 		Object: map[string]any{
 			"apiVersion": "kubeflow.org/v1",
@@ -195,6 +196,7 @@ func (app *application) createKubeflowProfile(ctx context.Context, userId, email
 	return WithK8sRetry(cancelCtx, func() error {
 		_, err := app.k8sClient.Dynamic.Resource(profileGVR).Create(ctx, profile, metav1.CreateOptions{})
 		if k8serrors.IsAlreadyExists(err) {
+			logger.Info("profile already exists", "profileName", userId)
 			cancel()
 		}
 		return err

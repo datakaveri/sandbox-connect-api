@@ -28,10 +28,11 @@ func sendResponse(w http.ResponseWriter, logger *slog.Logger, status int, userMe
 }
 func sendError(w http.ResponseWriter, logger *slog.Logger, status int, userMessage string) {
 	formattedMessage := formatMessage(userMessage)
-	message := map[string]string{"error": formattedMessage}
+	message := map[string]string{"detail": formattedMessage, "type": "error"}
 	logger.Error("Request Status",
 		"status", status,
-		"userMessage", formattedMessage)
+		"detail", formattedMessage,
+		"type", "error")
 	jsonResponse(w, status, message)
 }
 func sendResponseJson(w http.ResponseWriter, logger *slog.Logger, status int, userMessage any) {
@@ -71,7 +72,7 @@ func determineNotebookState(latestEvent constants.Events, k8sSpec map[string]any
 		}
 
 		if latestEvent == "" || latestEvent != constants.StatusNotebookApplied {
-			return NotebookStatePending
+			return NotebookStateCreating
 		}
 		return NotebookStateOrphaned
 	}
@@ -90,7 +91,7 @@ func determineNotebookState(latestEvent constants.Events, k8sSpec map[string]any
 			return NotebookStateRunning
 		}
 	}
-	return NotebookStatePending
+	return NotebookStateCreating
 }
 
 var SupportedGPUResources = []string{
@@ -193,7 +194,4 @@ func ValidateNotebookName(name string) bool {
 	pattern := `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
 	match, _ := regexp.MatchString(pattern, name)
 	return match
-}
-func (app *application) createRouterPattern(method string, pattern string) string {
-	return method + " " + pattern
 }

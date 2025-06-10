@@ -23,7 +23,7 @@ func (app *application) enableCORS(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID")
 		}
-
+		w.Header().Set("X-Frame-Options", "DENY")
 		if r.Method == http.MethodOptions {
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, PUT, PATCH, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID")
@@ -67,23 +67,21 @@ func loggingMiddleware(next http.Handler) http.Handler {
 
 func (app *application) rateLimitMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-
 		ip := r.RemoteAddr
 		logger := getLogger(r)
-
 		if ip == "" {
 			logger.Info("No IP address found, using default value for rate limiting")
-			sendError(w, logger, http.StatusTooManyRequests, "No IP address found")
+			sendError(w, logger, http.StatusTooManyRequests, "Unable to identify client IP address")
 			return
 		}
 		host, _, err := net.SplitHostPort(ip)
 		if err != nil {
 			logger.Error("Failed to split IP address", "error", err)
-			sendError(w, logger, http.StatusTooManyRequests, "Invalid IP address")
+			sendError(w, logger, http.StatusTooManyRequests, "Invalid client IP address format")
 			return
 		}
 		if !app.rateLimiter.GetLimiter(host) {
-			sendError(w, logger, http.StatusTooManyRequests, "Too Many Requests")
+			sendError(w, logger, http.StatusTooManyRequests, "Too many requests in a short period. Please try again later")
 			return
 		}
 
@@ -112,7 +110,7 @@ func (app *application) notebookCreationPermissionMiddleware(next http.Handler) 
 		}
 
 		var canCreateNotebook bool
-		query := `SELECT can_create_notebook FROM profile WHERE user_id = $1`
+		query := `SELECT can_create_notebook FROM profiles WHERE user_id = $1`
 		err := app.pgPool.Pool.QueryRow(r.Context(), query, userInfo.Sub).Scan(&canCreateNotebook)
 
 		if err != nil {
@@ -142,15 +140,15 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
-			logger.Warn("Unauthorized request: Missing authorization header")
-			sendError(w, logger, http.StatusUnauthorized, "Unauthorized: Missing authorization header")
+			logger.Warn("Missing authorization header")
+			sendError(w, logger, http.StatusUnauthorized, "Missing authorization header")
 			return
 		}
 
 		parts := strings.Split(authHeader, " ")
 		if len(parts) != 2 || parts[0] != "Bearer" {
-			logger.Warn("Unauthorized request: Invalid authorization header format")
-			sendError(w, logger, http.StatusUnauthorized, "Unauthorized: Invalid authorization header format")
+			logger.Warn("Invalid authorization header format")
+			sendError(w, logger, http.StatusUnauthorized, "Invalid authorization header format")
 			return
 		}
 		tokenString := parts[1]

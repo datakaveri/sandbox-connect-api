@@ -36,57 +36,89 @@ definitions:
   main.Error400:
     description: Response for bad request errors
     properties:
-      error:
+      detail:
         description: Error message
         example: string
+        type: string
+      type:
+        example: error
         type: string
     type: object
   main.Error401:
     description: Response for authentication errors
     properties:
-      error:
+      detail:
         description: Error message
         example: string
+        type: string
+      type:
+        example: error
         type: string
     type: object
   main.Error403:
     description: Response for permission errors
     properties:
-      error:
+      detail:
         description: Error message
         example: string
+        type: string
+      type:
+        example: error
         type: string
     type: object
   main.Error404:
     description: Response for resource not found errors
     properties:
-      error:
+      detail:
         description: Error message
         example: string
+        type: string
+      type:
+        example: error
+        type: string
+    type: object
+  main.Error409:
+    description: Response for resource conflict errors
+    properties:
+      detail:
+        description: Error message
+        example: string
+        type: string
+      type:
+        example: error
         type: string
     type: object
   main.Error422:
     description: Response for invalid request body errors
     properties:
-      error:
+      detail:
         description: Error message
         example: string
+        type: string
+      type:
+        example: error
         type: string
     type: object
   main.Error429:
     description: Response for rate limiting errors
     properties:
-      error:
+      detail:
         description: Error message
         example: string
+        type: string
+      type:
+        example: error
         type: string
     type: object
   main.Error500:
     description: Response for internal server errors
     properties:
-      error:
+      detail:
         description: Error message
         example: string
+        type: string
+      type:
+        example: error
         type: string
     type: object
   main.NotebookListResponse:
@@ -112,14 +144,14 @@ definitions:
     type: object
   main.NotebookState:
     enum:
-    - pending
+    - creating
     - running
     - stopped
     - failed
     - orphaned
     type: string
     x-enum-varnames:
-    - NotebookStatePending
+    - NotebookStateCreating
     - NotebookStateRunning
     - NotebookStateStopped
     - NotebookStateFailed
@@ -290,6 +322,10 @@ paths:
           description: Forbidden
           schema:
             $ref: '#/definitions/main.Error403'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/main.Error409'
         "422":
           description: Unprocessable Entity
           schema:

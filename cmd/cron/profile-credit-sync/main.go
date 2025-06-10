@@ -20,16 +20,30 @@ import (
 	"time"
 
 	"github.com/caarlos0/env/v11"
-	"github.com/google/uuid"
 	"github.com/joho/godotenv"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 func main() {
+	logLevel := slog.LevelInfo
+	if err := godotenv.Load(); err != nil {
+		utils.LogErrorAndExit(slog.Default(), "failed to load environment variables", "error", err)
+	}
+
+	var config CronEnv
+	if err := env.Parse(&config); err != nil {
+		utils.LogErrorAndExit(slog.Default(), "failed to parse environment variables", "error", err)
+	}
+
+	logLevelStr := os.Getenv("PROFILE_CREDIT_SYNC_LOG_LEVEL")
+	if logLevelStr == "debug" {
+		logLevel = slog.LevelDebug
+		slog.Info("Setting log level to DEBUG")
+	} else {
+		slog.Info("Setting log level to INFO")
+	}
+
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: logLevel,
 	}))
 	slog.SetDefault(logger)
 	logger = logger.With("hostname", os.Getenv("HOSTNAME"))
@@ -45,14 +59,6 @@ func main() {
 		cancel()
 	}()
 
-	if err := godotenv.Load(); err != nil {
-		logger.Info("no .env file found or error loading it", "error", err)
-	}
-
-	var config CronEnv
-	if err := env.Parse(&config); err != nil {
-		utils.LogErrorAndExit(logger, "failed to parse environment variables", "error", err)
-	}
 	pool, err := db.NewPool(config.POSTGRES_URL)
 	if err != nil {
 		utils.LogErrorAndExit(logger, "failed to get pool of connection", "error", err)
@@ -70,20 +76,57 @@ func main() {
 		rootCtx:       rootCtx,
 	}
 
-	if rootCtx.Err() != nil {
-		logger.Info("shutting down before processing started")
-		return
-	}
-
-	profiles, err := profileSync.getAllProfiles()
+	k8sProfiles, err := profileSync.getAllProfilesFromK8s()
 	if err != nil {
 		utils.LogErrorAndExit(logger, "failed to get profiles from Kubernetes", "error", err)
 	}
+	dbProfiles, err := profileSync.getAllProfileFromDb()
+	if err != nil {
+		utils.LogErrorAndExit(logger, "failed to fetch profiles from DB", "error", err)
+	}
+	k8sOrphans, dbOrphans := profileSync.findOrphanProfiles(k8sProfiles, dbProfiles)
 
-	logger.Info("successfully retrieved profiles from Kubernetes", "count", len(profiles))
+	if len(k8sOrphans) > 0 {
+		logger.Warn("found orphan profiles in K8s", "k8s_orphans_count", len(k8sOrphans))
 
-	if rootCtx.Err() != nil {
-		logger.Info("shutting down after retrieving profiles")
+		for _, orphan := range k8sOrphans {
+			logger.Error("orphaned K8s profile",
+				"user_id", orphan.UserID,
+				"email", orphan.Email)
+		}
+
+		filteredK8sProfiles := make([]KubeflowProfile, 0, len(k8sProfiles)-len(k8sOrphans))
+		for _, profile := range k8sProfiles {
+			isOrphan := false
+			for _, orphan := range k8sOrphans {
+				if profile.UserID == orphan.UserID {
+					isOrphan = true
+					break
+				}
+			}
+			if !isOrphan {
+				filteredK8sProfiles = append(filteredK8sProfiles, profile)
+			}
+		}
+		k8sProfiles = filteredK8sProfiles
+		logger.Info("filtered out orphaned K8s profiles", "remaining_profiles", len(k8sProfiles))
+	}
+
+	if len(dbOrphans) > 0 {
+		logger.Warn("found orphan profiles in DB", "db_orphans_count", len(dbOrphans))
+
+		for _, orphan := range dbOrphans {
+			logger.Error("orphaned DB profile",
+				"user_id", orphan.UserID,
+				"profile_id", orphan.ProfileID)
+		}
+	}
+
+	if len(k8sOrphans) == 0 && len(dbOrphans) == 0 {
+		logger.Info("no orphan profiles found, counts match", "profile_count", len(dbProfiles))
+	}
+	if len(dbProfiles) == 0 {
+		logger.Info("no profiles found in DB")
 		return
 	}
 
@@ -98,61 +141,43 @@ func main() {
 		logger.Info("shutting down after obtaining Keycloak token")
 		return
 	}
-	if err := profileSync.processProfiles(profiles, token); err != nil {
+	if err := profileSync.processProfiles(k8sProfiles, dbProfiles, token); err != nil {
 		utils.LogErrorAndExit(logger, "failed to process profiles", "error", err)
 	}
-
-	logger.Info("profile credit sync completed successfully")
 }
 
-func (ps *profileSync) getAllProfiles() ([]KubeflowProfile, error) {
-
-	profileGVR := schema.GroupVersionResource{
-		Group:    "kubeflow.org",
-		Version:  "v1",
-		Resource: "profiles",
+func (ps *profileSync) findOrphanProfiles(k8sProfiles []KubeflowProfile, dbProfiles []Profile) ([]KubeflowProfile, []Profile) {
+	var k8sOrphans []KubeflowProfile
+	for _, k8sProfile := range k8sProfiles {
+		found := false
+		for _, dbProfile := range dbProfiles {
+			if dbProfile.UserID == k8sProfile.UserID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			k8sOrphans = append(k8sOrphans, k8sProfile)
+		}
 	}
-	profileList := &unstructured.UnstructuredList{}
-	WithK8sRetry(ps.rootCtx, func() error {
-		var err error
-		profileList, err = ps.dynamicClient.Dynamic.Resource(profileGVR).List(ps.rootCtx, metav1.ListOptions{})
-		if err != nil {
-			return fmt.Errorf("failed to list profiles: %v", err)
+	var dbOrphans []Profile
+	for _, dbProfile := range dbProfiles {
+		found := false
+		for _, k8sProfile := range k8sProfiles {
+			if k8sProfile.UserID == dbProfile.UserID {
+				found = true
+				break
+			}
 		}
-		return nil
-	})
-	profiles := make([]KubeflowProfile, 0, len(profileList.Items))
-
-	for _, item := range profileList.Items {
-		userId := item.GetName()
-
-		if _, err := uuid.Parse(userId); err != nil {
-			ps.logger.Warn("skipping invalid profile ID - must be UUID",
-				"profile_id", userId,
-				"error", err)
-			continue
+		if !found {
+			dbOrphans = append(dbOrphans, dbProfile)
 		}
-
-		ownerEmail, found, err := unstructured.NestedString(item.Object, "spec", "owner", "name")
-		if err != nil || !found {
-			ps.logger.Warn("could not extract owner email from profile",
-				"user_id", userId,
-				"error", err)
-			continue
-		}
-
-		profiles = append(profiles, KubeflowProfile{
-			UserID: userId,
-			Email:  ownerEmail,
-		})
 	}
 
-	ps.logger.Info("found profiles in Kubernetes", "count", len(profiles))
-	return profiles, nil
+	return k8sOrphans, dbOrphans
 }
-
-func (ps *profileSync) processProfiles(profiles []KubeflowProfile, token string) error {
-	ps.logger.Info("processing profiles with concurrency", "count", len(profiles), "concurrency_limit", ps.config.MaxProfileCanSyncAtOnce)
+func (ps *profileSync) processProfiles(k8sProfiles []KubeflowProfile, dbProfiles []Profile, token string) error {
+	ps.logger.Info("processing profiles with concurrency", "count", len(dbProfiles), "concurrency_limit", ps.config.MaxProfileCanSyncAtOnce)
 
 	if ps.rootCtx.Err() != nil {
 		ps.logger.Info("shutdown requested before starting profile processing")
@@ -161,19 +186,14 @@ func (ps *profileSync) processProfiles(profiles []KubeflowProfile, token string)
 
 	semaphore := make(chan struct{}, ps.config.MaxProfileCanSyncAtOnce)
 	wg := sync.WaitGroup{}
-	getAllProfileFromDb, err := ps.getAllProfileFromDb()
-	if err != nil {
-		ps.logger.Error("failed to fetch profiles from DB", "error", err)
-		return err
-	}
 
-	for _, profile := range profiles {
+	for _, profile := range k8sProfiles {
 		select {
 		case <-ps.rootCtx.Done():
 			ps.logger.Warn("context cancelled during profile processing")
 			return nil
 		case semaphore <- struct{}{}:
-			profileFromDb := findProfile(getAllProfileFromDb, profile.UserID)
+			profileFromDb := findProfile(dbProfiles, profile.UserID)
 			if profileFromDb == nil {
 				ps.logger.Error("profile not found in database", "user_id", profile.UserID)
 				<-semaphore
@@ -194,31 +214,66 @@ func (ps *profileSync) processProfiles(profiles []KubeflowProfile, token string)
 				}
 				ctx := context.Background()
 				res, err := ps.costDeductionRequest(ctx, profile.UserID, cost, token)
+				logger.Info("cost deduction request response", "response", res)
 				if err != nil {
-					logger.Error("failed to deduct cost", "error", err)
-					WithDBRetry(ctx, func() error {
-						_, err = ps.pgPool.Exec(ctx, `UPDATE profile 
-						SET pending_deduction = pending_deduction + $2, 
-						aaa_and_opencost_synced_at = $3,
-						can_create_notebook = false 
-						WHERE user_id = $1`, profile.UserID, cost, now)
+					requestTime := time.Now().UTC().Format("2006-01-02T15:04:05")
+					payload, payloadErr := getRequestPayload(cost, profile.UserID, requestTime)
+					if payloadErr != nil {
+						logger.Error("failed to create payload for failed AAA request", "error", payloadErr)
+					}
+
+					errorMessage := err.Error()
+					statusCode := 0
+
+					if serverErr, ok := err.(*ServerError); ok {
+						statusCode = serverErr.StatusCode
+						errorMessage = serverErr.Message
+						logger.Error("server error from AAA API, logging to failed_aaa_requests",
+							"error", serverErr,
+							"status_code", serverErr.StatusCode)
+					} else {
+						logger.Error("failed to deduct cost, logging to failed_aaa_requests", "error", err)
+					}
+					logErr := ps.failedAAARequest(
+						ctx,
+						profile.UserID,
+						cost,
+						requestTime,
+						statusCode,
+						errorMessage,
+						payload,
+					)
+					if logErr != nil {
+						logger.Error("Failed to log failed AAA request", "error", logErr)
+					}
+					err := WithDBRetry(ctx, func() error {
+						_, err = ps.pgPool.Exec(ctx, `UPDATE profiles 
+						SET aaa_and_opencost_synced_at = $2
+						WHERE user_id = $1`, profile.UserID, now)
 						if err != nil {
-							logger.Error("failed to update pending deduction", "error", err)
+							logger.Error("failed to update sync timestamp", "error", err)
 							return err
-						}
-						if profileFromDb.CanCreateNotebook {
-							ps.stopAllNotebooksInNamespace(ctx, profileFromDb.UserID)
 						}
 						return nil
 					})
+
+					if err != nil {
+						logger.Error("failed to update sync timestamp", "error", err)
+					}
+					if profileFromDb.CanCreateNotebook {
+						err := ps.stopAllNotebooksInNamespace(ctx, profileFromDb.UserID)
+						if err != nil {
+							logger.Error("failed to stop notebooks", "error", err)
+						}
+					}
 					return
 				}
 				err = WithDBRetry(ctx, func() error {
-					_, err = ps.pgPool.Exec(ctx, `UPDATE profile SET 
+					_, err = ps.pgPool.Exec(ctx, `UPDATE profiles SET 
 					can_create_notebook = true, 
 					pending_deduction = 0, 
 					aaa_and_opencost_synced_at = $2, 
-					last_sync_balance = $3 
+					last_sync_balance = $3, 
 					total_credit = total_credit + $4
 					WHERE user_id = $1`, profile.UserID, now, res.Result.UpdatedBalance, cost)
 					if err != nil {
@@ -241,10 +296,10 @@ func (ps *profileSync) processProfiles(profiles []KubeflowProfile, token string)
 	return nil
 }
 
-func (ps *profileSync) getProfileCostFromOpenCost(last_sync_at time.Time, start_time time.Time, profile *Profile) (float64, error) {
-	logger := ps.logger.With("profile_id", profile.UserID)
-	end := last_sync_at.Format(time.RFC3339)
-	start := start_time.Format(time.RFC3339)
+func (ps *profileSync) getProfileCostFromOpenCost(last_sync_at time.Time, endTime time.Time, profile *Profile) (float64, error) {
+	logger := ps.logger.With("user_id", profile.UserID)
+	end := endTime.Format(time.RFC3339)
+	start := last_sync_at.Format(time.RFC3339)
 
 	logger.Info("fetched cost data from OpenCost",
 		"start_time", start,
@@ -309,22 +364,56 @@ func findProfile(profiles []Profile, userId string) *Profile {
 }
 
 func (ps *profileSync) getAllProfileFromDb() ([]Profile, error) {
+	ps.logger.Info("Starting to fetch profiles from database")
 	var profiles []Profile
-	WithDBRetry(ps.rootCtx, func() error {
-		err := ps.pgPool.QueryRow(ps.rootCtx, `
-		SELECT profile_id, user_id, aaa_and_opencost_synced_at, total_credit, last_sync_balance, can_create_notebook, pending_deduction
-		FROM profile`,
-		).Scan(&profiles)
+
+	ctx, cancel := WithTimeoutContext(ps.rootCtx, 30*time.Second)
+	defer cancel()
+
+	err := WithDBRetry(ctx, func() error {
+		rows, err := ps.pgPool.Query(ctx, `
+		SELECT id, user_id, aaa_and_opencost_synced_at, total_credit, last_sync_balance, can_create_notebook, pending_deduction
+		FROM profiles`,
+		)
 		if err != nil {
-			return err
+			ps.logger.Error("Query execution failed", "error", err)
+			return fmt.Errorf("failed to fetch profiles from DB: %v", err)
 		}
+		defer rows.Close()
+
+		ps.logger.Info("Query executed successfully, processing rows")
+		rowCount := 0
+		for rows.Next() {
+			var profile Profile
+			if err := rows.Scan(&profile.ProfileID, &profile.UserID, &profile.AaaAndOpenCostSyncedAt,
+				&profile.TotalCredit, &profile.LastSyncBalance, &profile.CanCreateNotebook, &profile.PendingDeduction); err != nil {
+				ps.logger.Error("Failed to scan row", "error", err)
+				return fmt.Errorf("failed to scan profile from DB: %v", err)
+			}
+			profiles = append(profiles, profile)
+			rowCount++
+		}
+
+		if err := rows.Err(); err != nil {
+			ps.logger.Error("Error during row iteration", "error", err)
+			return fmt.Errorf("failed to iterate over DB rows: %v", err)
+		}
+
+		ps.logger.Info("Successfully processed all rows", "row_count", rowCount)
 		return nil
 	})
-	return profiles, nil
+
+	if err != nil {
+		ps.logger.Error("Failed to get profiles from database", "error", err)
+		return nil, err
+	}
+
+	ps.logger.Info("Successfully fetched profiles from database", "profile_count", len(profiles))
+	return profiles, err
 }
 
 func (ps *profileSync) costDeductionRequest(ctx context.Context, profileID string, cost float64, token string) (*AAAResponse, error) {
-	requestTime := time.Now().UTC().Format(time.RFC3339)
+	requestTime := time.Now().UTC().Format("2006-01-02T15:04:05")
 	deductionURL := fmt.Sprintf("%s/auth/v1/admin/user/credit/deduct", ps.config.AAA_URL)
 	payload := map[string]interface{}{
 		"amount":       cost,
@@ -355,7 +444,10 @@ func (ps *profileSync) costDeductionRequest(ctx context.Context, profileID strin
 		resp, err := client.Do(req)
 		if err != nil {
 			ps.logger.Warn("credit deduction request failed, will retry", "error", err)
-			return err
+			return &ServerError{
+				StatusCode: 0,
+				Message:    err.Error(),
+			}
 		}
 		defer resp.Body.Close()
 
@@ -366,24 +458,55 @@ func (ps *profileSync) costDeductionRequest(ctx context.Context, profileID strin
 			return err
 		}
 
+		ps.logger.Debug("AAA API response",
+			"status_code", statusCode,
+			"response_body", string(responseBody),
+			"user_id", profileID,
+			"cost", cost,
+			"requested_at", requestTime)
+
 		if statusCode == http.StatusUnauthorized {
 			ps.logger.Warn("received unauthorized response, token might be expired")
 			return nil
 		}
 
 		if statusCode >= 400 && statusCode < 500 {
+			ps.logger.Error("AAA API client error",
+				"status_code", statusCode,
+				"response_body", string(responseBody),
+				"user_id", profileID,
+				"cost", cost,
+				"requested_at", requestTime,
+				"payload", string(payloadBytes))
 			return nil
 		}
 
 		if statusCode >= 500 {
 			ps.logger.Warn("server error from AAA API, will retry", "status_code", statusCode)
-			return fmt.Errorf("server error: %d", statusCode)
+			return &ServerError{
+				StatusCode: statusCode,
+				Message:    string(responseBody),
+			}
 		}
 
 		return nil
 	})
 
 	if err != nil {
+		if serverErr, ok := err.(*ServerError); ok {
+			logErr := ps.failedAAARequest(
+				ctx,
+				profileID,
+				cost,
+				requestTime,
+				serverErr.StatusCode,
+				serverErr.Message,
+				payloadBytes,
+			)
+			if logErr != nil {
+				ps.logger.Error("Failed to log failed AAA request", "error", logErr)
+			}
+		}
 		return nil, fmt.Errorf("failed to complete credit deduction request after retries: %v", err)
 	}
 
@@ -415,6 +538,24 @@ func (ps *profileSync) costDeductionRequest(ctx context.Context, profileID strin
 			return nil, fmt.Errorf("failed to read response body with new token: %v", err)
 		}
 
+		// Log response details after token refresh
+		ps.logger.Debug("AAA API response after token refresh",
+			"status_code", statusCode,
+			"response_body", string(responseBody),
+			"user_id", profileID,
+			"cost", cost,
+			"requested_at", requestTime)
+
+		if statusCode >= 400 {
+			ps.logger.Error("AAA API error after token refresh",
+				"status_code", statusCode,
+				"response_body", string(responseBody),
+				"user_id", profileID,
+				"cost", cost,
+				"requested_at", requestTime,
+				"payload", string(payloadBytes))
+		}
+
 		if statusCode == http.StatusUnauthorized {
 			return nil, fmt.Errorf("still unauthorized after token refresh")
 		}
@@ -423,6 +564,13 @@ func (ps *profileSync) costDeductionRequest(ctx context.Context, profileID strin
 	err = json.Unmarshal(responseBody, &response)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal response: %v", err)
+	}
+
+	if statusCode >= 200 && statusCode < 300 {
+		markErr := ps.markResolvedAAARequests(ctx, profileID)
+		if markErr != nil {
+			ps.logger.Error("Failed to mark AAA requests as resolved", "error", markErr)
+		}
 	}
 
 	return &response, nil
@@ -446,7 +594,7 @@ func (ps *profileSync) getKeycloakToken() (string, error) {
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: keycloakTokenTimeout}
 
 	var tokenResponse KeycloakTokenResponse
 	var statusCode int

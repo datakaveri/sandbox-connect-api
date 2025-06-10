@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sandbox-backend-service/pkg/k8s"
 	"time"
@@ -12,16 +13,16 @@ import (
 type CronEnv struct {
 	OpenCostURL             string `env:"PROFILE_CREDIT_SYNC_OPENCOST_URL,required"`
 	POSTGRES_URL            string `env:"PROFILE_CREDIT_SYNC_POSTGRES_URL,required"`
-	BatchSize               int    `env:"PROFILE_CREDIT_SYNC_BATCH_SIZE" envDefault:"50"`
-	MaxProfileCanSyncAtOnce int    `env:"PROFILE_CREDIT_SYNC_MAX_PROFILE_CAN_SYNC_AT_ONCE" envDefault:"50"`
+	MaxProfileCanSyncAtOnce int    `env:"PROFILE_CREDIT_SYNC_MAX_PROFILE_CAN_SYNC_AT_ONCE"`
 	AAA_URL                 string `env:"PROFILE_CREDIT_SYNC_AAA_URL,required"`
 	KEYCLOAK_URL            string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_URL,required"`
 	KEYCLOAK_REALM          string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_REALM,required"`
 	KEYCLOAK_CLIENT_ID      string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_CLIENT_ID,required"`
 	KEYCLOAK_USERNAME       string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_USERNAME,required"`
 	KEYCLOAK_PASSWORD       string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_PASSWORD,required"`
-	K8S_CONFIG_MODE         string `env:"PROFILE_CREDIT_SYNC_K8S_CONFIG_MODE" envDefault:"cluster"`
+	K8S_CONFIG_MODE         string `env:"PROFILE_CREDIT_SYNC_K8S_CONFIG_MODE"`
 	K8S_CONFIG_PATH         string `env:"PROFILE_CREDIT_SYNC_K8S_CONFIG_PATH"`
+	LOG_LEVEL               string `env:"PROFILE_CREDIT_SYNC_LOG_LEVEL" envDefault:"info"`
 }
 
 type CostAllocationResponse struct {
@@ -88,6 +89,15 @@ type Profile struct {
 type KubeflowProfile struct {
 	UserID string
 	Email  string
+}
+
+type ServerError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e *ServerError) Error() string {
+	return fmt.Sprintf("server error: %d - %s", e.StatusCode, e.Message)
 }
 
 type profileSync struct {

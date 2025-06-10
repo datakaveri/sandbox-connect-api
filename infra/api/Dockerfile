@@ -18,6 +18,8 @@ RUN apk --no-cache add ca-certificates
 
 COPY --from=builder /app/api .
 
+COPY docs /app/docs 
+
 EXPOSE 3000
 
 CMD ["./api"]
