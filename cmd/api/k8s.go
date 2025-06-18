@@ -8,6 +8,7 @@ import (
 
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
@@ -204,4 +205,136 @@ func (app *application) createKubeflowProfile(ctx context.Context, logger *slog.
 		}
 		return constants.RetryContinue, err
 	})
+}
+
+// CountRunningNotebooks returns the number of running CPU and GPU notebooks in the given namespace.
+func (app *application) CountRunningNotebooks(ctx context.Context, namespace string, gpuTypeKey string) (int, int, error) {
+	notebookGVR := schema.GroupVersionResource{
+		Group:    "kubeflow.org",
+		Version:  "v1beta1",
+		Resource: "notebooks",
+	}
+	list, err := app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return 0, 0, err
+	}
+	runningCPU, runningGPU := 0, 0
+	for _, item := range list.Items {
+		annotations, found, err := unstructured.NestedMap(item.Object, "metadata", "annotations")
+		if err != nil {
+			return 0, 0, err
+		}
+		if !found {
+			annotations = map[string]any{}
+		}
+		if IsNotebookRunningFromAnnotations(annotations) {
+			gpuType, _, _ := unstructured.NestedString(item.Object, "spec", "template", "spec", "containers", "0", "resources", "limits", gpuTypeKey)
+			if gpuType == "" {
+				runningCPU++
+			} else {
+				runningGPU++
+			}
+		}
+	}
+	return runningCPU, runningGPU, nil
+}
+
+// DBNotebookInfo holds minimal info about a notebook from the DB
+// for running state calculation
+// Type: "cpu" or "gpu"
+type DBNotebookInfo struct {
+	Name        string
+	Type        string // "cpu" or "gpu"
+	LatestEvent constants.Events
+}
+
+// getSuccessfullyCreatedNotebookCounts returns the total number of successfully created CPU and GPU notebooks
+// in the given namespace, ignoring stopped ones. It does not check for "applied" state, just existence in k8s.
+func (app *application) getSuccessfullyCreatedNotebookCounts(ctx context.Context, dbNotebooks []DBNotebookInfo, namespace, gpuTypeKey string) (int, int, error) {
+	notebookGVR := schema.GroupVersionResource{
+		Group:    "kubeflow.org",
+		Version:  "v1beta1",
+		Resource: "notebooks",
+	}
+	list, err := app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return 0, 0, err
+	}
+	k8sNotebookNames := make(map[string]struct{}, len(list.Items))
+	for _, item := range list.Items {
+		k8sNotebookNames[item.GetName()] = struct{}{}
+	}
+
+	totalCPU, totalGPU := 0, 0
+	for _, nb := range dbNotebooks {
+		if checkNotebookFailed(nb.LatestEvent) {
+			continue
+		}
+		_, exists := k8sNotebookNames[nb.Name]
+		//orphaned notebook
+		if !exists && nb.LatestEvent == constants.StatusNotebookApplied {
+			continue
+		}
+		if nb.Type == "cpu" {
+			totalCPU++
+		} else {
+			totalGPU++
+		}
+	}
+	return totalCPU, totalGPU, nil
+}
+
+// CountEffectiveRunningNotebooks returns the number of running CPU and GPU notebooks
+// considering both DB and k8s state.
+// we are not checking notebook applied status because our worker can be inbetewen state of creating it
+func (app *application) CountEffectiveRunningNotebooks(ctx context.Context, namespace string, gpuTypeKey string, dbNotebooks []DBNotebookInfo) (int, int, error) {
+	notebookGVR := schema.GroupVersionResource{
+		Group:    "kubeflow.org",
+		Version:  "v1beta1",
+		Resource: "notebooks",
+	}
+	list, err := app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).List(ctx, v1.ListOptions{})
+	if err != nil {
+		return 0, 0, err
+	}
+	k8sMap := make(map[string]*unstructured.Unstructured)
+	for _, item := range list.Items {
+		k8sMap[item.GetName()] = &item
+	}
+
+	runningCPU, runningGPU := 0, 0
+	for _, nb := range dbNotebooks {
+		if checkNotebookFailed(nb.LatestEvent) {
+			continue
+		}
+
+		k8sNotebook, exists := k8sMap[nb.Name]
+		isRunning := false
+		// if the notebook is applied and not in k8s, it means it's not running
+		// orphaned notebook
+		if nb.LatestEvent == constants.StatusNotebookApplied && !exists {
+			continue
+		}
+
+		if exists {
+			annotations, found, err := unstructured.NestedMap(k8sNotebook.Object, "metadata", "annotations")
+			if err != nil {
+				return 0, 0, err
+			}
+			if !found {
+				annotations = map[string]any{}
+			}
+			isRunning = IsNotebookRunningFromAnnotations(annotations)
+		} else {
+			isRunning = true
+		}
+		if isRunning {
+			if nb.Type == "cpu" {
+				runningCPU++
+			} else {
+				runningGPU++
+			}
+		}
+	}
+	return runningCPU, runningGPU, nil
 }

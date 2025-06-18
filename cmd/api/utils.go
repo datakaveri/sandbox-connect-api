@@ -206,3 +206,8 @@ func ValidateNotebookName(name string) bool {
 	match, _ := regexp.MatchString(pattern, name)
 	return match
 }
+
+func IsNotebookRunningFromAnnotations(annotations map[string]any) bool {
+	_, isStopped := annotations["kubeflow-resource-stopped"]
+	return !isStopped
+}

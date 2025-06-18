@@ -108,34 +108,108 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		sendError(w, logger, http.StatusForbidden, "You don't have compute permissions")
 		return
 	}
-	if notebookReq.Type == "gpu" && contains(userInfo.Roles, "compute") {
-		var canCreateGpuNotebook bool
-		profileQuery := `SELECT can_create_gpu_notebook FROM profiles WHERE user_id = $1`
-		err := app.pgPool.Pool.QueryRow(r.Context(), profileQuery, userInfo.Sub).Scan(&canCreateGpuNotebook)
 
-		if err != nil {
-			if err == pgx.ErrNoRows {
-				logger.Warn("no permission record found for user", "user_id", userInfo.Sub)
-				sendError(w, logger, http.StatusForbidden, "No permission record found for user")
-				return
-			}
+	ctx := r.Context()
+	tx, err := app.pgPool.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		logger.Error("failed to start transaction", "error", err)
+		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	defer tx.Rollback(ctx)
 
-			logger.Error("failed to check user permission", "error", err)
-			sendError(w, logger, http.StatusInternalServerError, "Failed to verify permission")
+	var canCreateGpuNotebook bool
+	lockQuery := `SELECT can_create_gpu_notebook FROM profiles WHERE user_id = $1 FOR UPDATE NOWAIT`
+	err = tx.QueryRow(ctx, lockQuery, userInfo.Sub).Scan(&canCreateGpuNotebook)
+	if err != nil {
+		if pgErr, ok := err.(*pgconn.PgError); ok && pgErr.Code == "55P03" {
+			logger.Warn("profile is locked by another operation", "user_id", userInfo.Sub)
+			sendError(w, logger, http.StatusTooManyRequests, "Another operation is in progress for your account, please try again shortly.")
 			return
 		}
+		logger.Error("failed to lock profile row", "error", err)
+		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+		return
+	}
 
+	rows, err := tx.Query(ctx, "SELECT name, gpu_type, gpu_count, events[array_upper(events, 1)] as latest_event FROM notebooks WHERE user_id = $1", userInfo.Sub)
+	if err != nil {
+		logger.Error("failed to fetch notebooks for user", "error", err)
+		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	defer rows.Close()
+
+	dbNotebooks := []DBNotebookInfo{}
+	for rows.Next() {
+		var name string
+		var gpuType *string
+		var gpuCount *int
+		var latestEvent constants.Events
+		if err := rows.Scan(&name, &gpuType, &gpuCount, &latestEvent); err != nil {
+			logger.Error("failed to scan notebook row", "error", err)
+			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+			return
+		}
+		nbType := "cpu"
+		if gpuType != nil && gpuCount != nil {
+			nbType = "gpu"
+		}
+		dbNotebooks = append(dbNotebooks, DBNotebookInfo{
+			Name:        name,
+			Type:        nbType,
+			LatestEvent: latestEvent,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		logger.Error("error iterating notebook rows", "error", err)
+		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	totalCPU, totalGPU, err := app.getSuccessfullyCreatedNotebookCounts(ctx, dbNotebooks, namespace, app.env.NotebookConfig.GPUType)
+	if err != nil {
+		logger.Error("failed to get successfully created notebook counts", "error", err)
+		sendError(w, logger, http.StatusInternalServerError, "Failed to get successfully created notebook counts")
+		return
+	}
+	runningCPU, runningGPU, err := app.CountEffectiveRunningNotebooks(ctx, namespace, app.env.NotebookConfig.GPUType, dbNotebooks)
+	if err != nil {
+		logger.Error("failed to check running notebooks from k8s", "error", err)
+		sendError(w, logger, http.StatusInternalServerError, "Failed to check running notebooks")
+		return
+	}
+	if runningCPU >= app.env.NotebookConfig.MaxRunningCPU {
+		sendError(w, logger, http.StatusBadRequest, "Cannot create notebook: running CPU notebook limit exceeded.")
+		return
+	}
+	if runningGPU >= app.env.NotebookConfig.MaxRunningGPU {
+		sendError(w, logger, http.StatusBadRequest, "Cannot create notebook: running GPU notebook limit exceeded.")
+		return
+	}
+	if totalCPU+totalGPU >= app.env.NotebookConfig.MaxTotalCPU+app.env.NotebookConfig.MaxTotalGPU {
+		sendError(w, logger, http.StatusBadRequest, "Total notebook limit reached")
+		return
+	}
+	if notebookReq.Type == "cpu" && totalCPU >= app.env.NotebookConfig.MaxTotalCPU {
+		sendError(w, logger, http.StatusBadRequest, "CPU notebook limit reached")
+		return
+	}
+	if notebookReq.Type == "gpu" && totalGPU >= app.env.NotebookConfig.MaxTotalGPU {
+		sendError(w, logger, http.StatusBadRequest, "GPU notebook limit reached")
+		return
+	}
+
+	if notebookReq.Type == "gpu" && contains(userInfo.Roles, "compute") {
 		if !canCreateGpuNotebook {
 			logger.Warn("user doesn't have permission to create GPU notebooks", "user_id", userInfo.Sub)
 			sendError(w, logger, http.StatusForbidden, "You don't have enough credit for this operation")
 			return
 		}
-
 		logger.Debug("user has permission to create GPU notebooks", "user_id", userInfo.Sub)
 	}
 
 	baseArgs := []any{
-		namespace,
+		userInfo.Sub,
 		notebookReq.Name,
 		namespace,
 		app.env.NotebookConfig.StorageSize,
@@ -167,16 +241,22 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		) RETURNING id`
 	}
 	var notebookId int64
-	err = app.pgPool.Pool.QueryRow(r.Context(), query, baseArgs...).Scan(&notebookId)
+	err = tx.QueryRow(ctx, query, baseArgs...).Scan(&notebookId)
 	if err != nil {
-		pgErr, isPgError := err.(*pgconn.PgError)
-		if isPgError && pgErr.Code == "23505" {
+		if pgErr, isPgError := err.(*pgconn.PgError); isPgError && pgErr.Code == "23505" {
 			logger.Warn("notebook already exists", "name", notebookReq.Name)
 			sendError(w, logger, http.StatusConflict, "Notebook with this name already exists")
 			return
 		}
 		logger.Error("failed to create notebook in database", "error", err)
 		sendError(w, logger, http.StatusInternalServerError, "Failed to create notebook")
+		return
+	}
+
+	err = tx.Commit(ctx)
+	if err != nil {
+		logger.Error("failed to commit transaction", "error", err)
+		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 	logger.Info("notebook created successfully", "notebookId", notebookId)
@@ -218,21 +298,20 @@ func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
 	logger = logger.With("method", "stopNotebook", "namespace", namespace, "name", stopReq.Name)
 
 	ctx := r.Context()
-	var notebookID int64
-	var latestEvent string
+	var latestEvent constants.Events
 	query := `
-		SELECT id, events[array_upper(events, 1)] as latest_event
+		SELECT events[array_upper(events, 1)] as latest_event
 		FROM notebooks
 		WHERE name = $1 AND namespace = $2
 	`
-	err = app.pgPool.Pool.QueryRow(ctx, query, stopReq.Name, namespace).Scan(&notebookID, &latestEvent)
+	err = app.pgPool.Pool.QueryRow(ctx, query, stopReq.Name, namespace).Scan(&latestEvent)
 	if err != nil {
 		logger.Error("failed to find notebook", "error", err)
 		sendError(w, logger, http.StatusNotFound, "Notebook not found")
 		return
 	}
 
-	if latestEvent != string(constants.StatusNotebookApplied) {
+	if latestEvent != constants.StatusNotebookApplied {
 		logger.Error("cannot stop notebook that is not in applied state", "currentState", latestEvent)
 		sendError(w, logger, http.StatusBadRequest, "Cannot stop notebook that is not in applied state")
 		return
@@ -279,56 +358,114 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logger = logger.With("method", "startNotebook", "namespace", namespace, "name", startReq.Name)
 	ctx := r.Context()
-	var notebookID int64
-	var latestEvent string
+	tx, err := app.pgPool.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		logger.Error("failed to start transaction", "error", err)
+		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	var canCreateGpuNotebook bool
+	lockQuery := `SELECT can_create_gpu_notebook FROM profiles WHERE user_id = $1 FOR UPDATE NOWAIT`
+	err = tx.QueryRow(ctx, lockQuery, userInfo.Sub).Scan(&canCreateGpuNotebook)
+	if err != nil {
+		if pgErr, ok := err.(*pgconn.PgError); ok && pgErr.Code == "55P03" { // lock_not_available
+			logger.Warn("profile is locked by another operation", "user_id", userInfo.Sub)
+			sendError(w, logger, http.StatusTooManyRequests, "Another operation is in progress for your account, please try again shortly.")
+			return
+		}
+		logger.Error("failed to lock profile row", "error", err)
+		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+
+	logger = logger.With("method", "startNotebook", "namespace", namespace, "name", startReq.Name)
+
+	rows, err := tx.Query(ctx, "SELECT id, name, gpu_type, gpu_count, events[array_upper(events, 1)] as latest_event FROM notebooks WHERE user_id = $1", userInfo.Sub)
+	if err != nil {
+		logger.Error("failed to fetch notebooks for user", "error", err)
+		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	defer rows.Close()
+
+	dbNotebooks := []DBNotebookInfo{}
+	var latestEvent constants.Events
 	var gpuType *string
 	var gpuCount *int
-	query := `
-		SELECT id, events[array_upper(events, 1)] as latest_event, gpu_type, gpu_count
-		FROM notebooks
-		WHERE name = $1 AND namespace = $2
-	`
-	err = app.pgPool.Pool.QueryRow(ctx, query, startReq.Name, namespace).Scan(&notebookID, &latestEvent, &gpuType, &gpuCount)
-	if err != nil {
-		logger.Error("failed to find notebook", "error", err)
+	foundNotebook := false
+	for rows.Next() {
+		var id int64
+		var name string
+		var rowGpuType *string
+		var rowGpuCount *int
+		var rowLatestEvent constants.Events
+		if err := rows.Scan(&id, &name, &rowGpuType, &rowGpuCount, &rowLatestEvent); err != nil {
+			logger.Error("failed to scan notebook row", "error", err)
+			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+			return
+		}
+		nbType := "cpu"
+		if rowGpuType != nil && rowGpuCount != nil {
+			nbType = "gpu"
+		}
+		dbNotebooks = append(dbNotebooks, DBNotebookInfo{
+			Name:        name,
+			Type:        nbType,
+			LatestEvent: rowLatestEvent,
+		})
+		if name == startReq.Name {
+			latestEvent = rowLatestEvent
+			gpuType = rowGpuType
+			gpuCount = rowGpuCount
+			foundNotebook = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		logger.Error("error iterating notebook rows", "error", err)
+		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	if !foundNotebook {
+		logger.Error("failed to find notebook", "name", startReq.Name)
 		sendError(w, logger, http.StatusNotFound, "Notebook not found")
 		return
 	}
 
-	if latestEvent != string(constants.StatusNotebookApplied) {
+	if latestEvent != constants.StatusNotebookApplied {
 		logger.Error("cannot start notebook that is not in applied state", "currentState", latestEvent)
 		sendError(w, logger, http.StatusBadRequest, "Cannot start notebook that is not in applied state")
 		return
 	}
 
 	isGPUResource := gpuType != nil && gpuCount != nil
+
+	runningCPU, runningGPU, err := app.CountEffectiveRunningNotebooks(ctx, namespace, app.env.NotebookConfig.GPUType, dbNotebooks)
+	if err != nil {
+		logger.Error("failed to check running notebooks from k8s", "error", err)
+		sendError(w, logger, http.StatusInternalServerError, "Failed to check running notebooks")
+		return
+	}
 	if isGPUResource {
-		logger.Debug("GPU resource request detected, checking permissions", "user_id", userInfo.Sub, "resource", startReq.Name)
-
-		var canCreateGpuNotebook bool
-		profileQuery := `SELECT can_create_gpu_notebook FROM profiles WHERE user_id = $1`
-		err := app.pgPool.Pool.QueryRow(ctx, profileQuery, userInfo.Sub).Scan(&canCreateGpuNotebook)
-
-		if err != nil {
-			if err == pgx.ErrNoRows {
-				logger.Warn("no permission record found for user", "user_id", userInfo.Sub)
-				sendError(w, logger, http.StatusForbidden, "Failed to verify permission")
-				return
-			}
-
-			logger.Error("failed to check user permission", "error", err)
-			sendError(w, logger, http.StatusInternalServerError, "Failed to verify permission")
+		if runningGPU >= app.env.NotebookConfig.MaxRunningGPU {
+			sendError(w, logger, http.StatusBadRequest, "Cannot start notebook: running GPU notebook limit exceeded.")
 			return
 		}
+	} else {
+		if runningCPU >= app.env.NotebookConfig.MaxRunningCPU {
+			sendError(w, logger, http.StatusBadRequest, "Cannot start notebook: running CPU notebook limit exceeded.")
+			return
+		}
+	}
 
+	if isGPUResource {
 		if !canCreateGpuNotebook {
 			logger.Warn("user doesn't have permission to start GPU notebooks", "user_id", userInfo.Sub)
 			sendError(w, logger, http.StatusForbidden, "You don't have enough credit for this operation")
 			return
 		}
-
 		logger.Debug("user has permission to start GPU notebooks", "user_id", userInfo.Sub)
 	}
 
@@ -336,6 +473,13 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		logger.Error("failed to remove stopped annotation from notebook", "error", err)
 		sendError(w, logger, http.StatusInternalServerError, "Failed to start notebook")
+		return
+	}
+
+	err = tx.Commit(ctx)
+	if err != nil {
+		logger.Error("failed to commit transaction", "error", err)
+		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 	sendResponse(w, logger, http.StatusOK, "Notebook started successfully")

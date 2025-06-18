@@ -62,6 +62,11 @@ type NotebookConfig struct {
 	GPULimit                 string `env:"API_DEFAULT_GPU_LIMIT,required"`
 	KubeFlowURL              string `env:"API_KUBEFLOW_URL,required"`
 	DefaultNotebookListLimit int    `env:"API_NOTEBOOK_LIST_LIMIT" envDefault:"10"`
+
+	MaxRunningCPU int `env:"API_MAX_RUNNING_CPU"`
+	MaxRunningGPU int `env:"API_MAX_RUNNING_GPU"`
+	MaxTotalCPU   int `env:"API_MAX_TOTAL_CPU"`
+	MaxTotalGPU   int `env:"API_MAX_TOTAL_GPU"`
 }
 
 type NotebookRequest struct {

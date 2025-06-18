@@ -335,31 +335,14 @@ func (w *worker) CreateNotebook() error {
 			"spec": map[string]any{
 				"template": map[string]any{
 					"spec": map[string]any{
-						"hostPID": false,
-						"hostIPC": false,
-						"securityContext": map[string]any{
-							"seccompProfile": map[string]any{
-								"type": "RuntimeDefault",
-							},
-						},
 						"containers": []any{
 							map[string]any{
 								"name":  nb.Name,
 								"image": "ghcr.io/kubeflow/kubeflow/notebook-servers/jupyter-scipy:v1.10.0",
-								"env": []any{
-									map[string]any{
-										"name":  "S6_READ_ONLY_ROOT",
-										"value": "1",
-									},
-								},
 								"securityContext": map[string]any{
-									"readOnlyRootFilesystem":   true,
+									"privileged":               false,
+									"procMount":                "Default",
 									"allowPrivilegeEscalation": false,
-									"capabilities": map[string]any{
-										"drop": []any{"ALL"},
-									},
-									"privileged": false,
-									"procMount":  "Default",
 								},
 								"resources": map[string]any{
 									"requests": map[string]any{
@@ -373,11 +356,6 @@ func (w *worker) CreateNotebook() error {
 										"name":      "data-volume",
 										"mountPath": "/home/jovyan",
 									},
-									map[string]any{
-										"name":             "run-tmpfs",
-										"mountPath":        "/run",
-										"mountPropagation": "None",
-									},
 								},
 							},
 						},
@@ -386,13 +364,6 @@ func (w *worker) CreateNotebook() error {
 								"name": "data-volume",
 								"persistentVolumeClaim": map[string]any{
 									"claimName": nb.PVCname,
-								},
-							},
-							map[string]any{
-								"name": "run-tmpfs",
-								"emptyDir": map[string]any{
-									"medium":    "Memory",
-									"sizeLimit": "100M",
 								},
 							},
 						},
