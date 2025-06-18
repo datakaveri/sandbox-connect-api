@@ -10,7 +10,6 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 )
 
 func (app *application) enableCORS(next http.Handler) http.Handler {
@@ -98,42 +97,6 @@ func (app *application) contextTimeout(next http.Handler) http.Handler {
 	})
 }
 
-func (app *application) notebookCreationPermissionMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logger := getLogger(r)
-
-		userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
-		if !ok {
-			logger.Error("user info not found in context")
-			sendError(w, logger, http.StatusUnauthorized, "Unauthorized")
-			return
-		}
-
-		var canCreateNotebook bool
-		query := `SELECT can_create_notebook FROM profiles WHERE user_id = $1`
-		err := app.pgPool.Pool.QueryRow(r.Context(), query, userInfo.Sub).Scan(&canCreateNotebook)
-
-		if err != nil {
-			if err == pgx.ErrNoRows {
-				logger.Warn("no permission record found for user", "user_id", userInfo.Sub)
-				sendError(w, logger, http.StatusForbidden, "You don't have enough credit for this operation")
-				return
-			}
-
-			logger.Error("failed to check user permission", "error", err)
-			sendError(w, logger, http.StatusInternalServerError, "Failed to verify permission")
-			return
-		}
-
-		if !canCreateNotebook {
-			logger.Warn("user doesn't have permission to create notebooks", "user_id", userInfo.Sub)
-			sendError(w, logger, http.StatusForbidden, "You don't have enough credit for this operation")
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
-}
 func (app *application) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logger := getLogger(r)

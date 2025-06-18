@@ -29,15 +29,9 @@ func (app *application) router() http.Handler {
 	// Profile routes
 	apiMux.HandleFunc("POST /v1/profile/create", app.createProfile)
 
-	// Apply notebook creation permission middleware
-	permissionMux := http.NewServeMux()
-	permissionMux.HandleFunc("POST /v1/notebook/create", app.createNotebook)
-	permissionMux.HandleFunc("PATCH /v1/notebook/start", app.startNotebook)
-	permissionHandler := app.notebookCreationPermissionMiddleware(permissionMux)
-
-	// Override with permission-protected routes
-	apiMux.Handle("POST /v1/notebook/create", permissionHandler)
-	apiMux.Handle("PATCH /v1/notebook/start", permissionHandler)
+	// Register notebook routes directly
+	apiMux.HandleFunc("POST /v1/notebook/create", app.createNotebook)
+	apiMux.HandleFunc("PATCH /v1/notebook/start", app.startNotebook)
 
 	// Apply auth middleware to all API routes
 	authHandler := app.authMiddleware(apiMux)

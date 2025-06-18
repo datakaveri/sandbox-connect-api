@@ -3,6 +3,8 @@ package utils
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"sandbox-backend-service/pkg/constants"
 	"testing"
 	"time"
 )
@@ -55,12 +57,13 @@ func TestBackoffConfigs(t *testing.T) {
 
 func TestWithExponentialBackoff_Success(t *testing.T) {
 	attempts := 0
-	operation := func() error {
+	logger := slog.Default()
+	operation := func() (constants.ShouldContinue, error) {
 		attempts++
 		if attempts < 3 {
-			return errors.New("temporary error")
+			return constants.RetryContinue, errors.New("temporary error")
 		}
-		return nil
+		return constants.RetryContinue, nil
 	}
 
 	config := BackoffConfig{
@@ -71,7 +74,7 @@ func TestWithExponentialBackoff_Success(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err := WithExponentialBackoff(ctx, config, operation)
+	err := WithExponentialBackoff(ctx, config, logger, operation)
 
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
@@ -83,9 +86,10 @@ func TestWithExponentialBackoff_Success(t *testing.T) {
 
 func TestWithExponentialBackoff_MaxAttemptsExceeded(t *testing.T) {
 	attempts := 0
-	operation := func() error {
+	logger := slog.Default()
+	operation := func() (constants.ShouldContinue, error) {
 		attempts++
-		return errors.New("persistent error")
+		return constants.RetryContinue, errors.New("persistent error")
 	}
 
 	config := BackoffConfig{
@@ -96,7 +100,7 @@ func TestWithExponentialBackoff_MaxAttemptsExceeded(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err := WithExponentialBackoff(ctx, config, operation)
+	err := WithExponentialBackoff(ctx, config, logger, operation)
 
 	if err == nil {
 		t.Error("expected error, got nil")
@@ -108,9 +112,10 @@ func TestWithExponentialBackoff_MaxAttemptsExceeded(t *testing.T) {
 
 func TestWithExponentialBackoff_ContextCancellation(t *testing.T) {
 	attempts := 0
-	operation := func() error {
+	logger := slog.Default()
+	operation := func() (constants.ShouldContinue, error) {
 		attempts++
-		return errors.New("temporary error")
+		return constants.RetryContinue, errors.New("temporary error")
 	}
 
 	config := BackoffConfig{
@@ -123,7 +128,7 @@ func TestWithExponentialBackoff_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	err := WithExponentialBackoff(ctx, config, operation)
+	err := WithExponentialBackoff(ctx, config, logger, operation)
 
 	if err == nil {
 		t.Error("expected context cancellation error, got nil")
@@ -136,12 +141,13 @@ func TestWithExponentialBackoff_ContextCancellation(t *testing.T) {
 // Linear Retry Tests
 func TestWithLinearRetry_Success(t *testing.T) {
 	attempts := 0
-	operation := func() error {
+	logger := slog.Default()
+	operation := func() (constants.ShouldContinue, error) {
 		attempts++
 		if attempts < 3 {
-			return errors.New("temporary error")
+			return constants.RetryContinue, errors.New("temporary error")
 		}
-		return nil
+		return constants.RetryContinue, nil
 	}
 
 	config := LinearRetryConfig{
@@ -152,7 +158,7 @@ func TestWithLinearRetry_Success(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err := WithLinearRetry(ctx, config, operation)
+	err := WithLinearRetry(ctx, config, logger, operation)
 
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
@@ -164,9 +170,10 @@ func TestWithLinearRetry_Success(t *testing.T) {
 
 func TestWithLinearRetry_MaxAttemptsExceeded(t *testing.T) {
 	attempts := 0
-	operation := func() error {
+	logger := slog.Default()
+	operation := func() (constants.ShouldContinue, error) {
 		attempts++
-		return errors.New("persistent error")
+		return constants.RetryContinue, errors.New("persistent error")
 	}
 
 	config := LinearRetryConfig{
@@ -177,7 +184,7 @@ func TestWithLinearRetry_MaxAttemptsExceeded(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err := WithLinearRetry(ctx, config, operation)
+	err := WithLinearRetry(ctx, config, logger, operation)
 
 	if err == nil {
 		t.Error("expected error, got nil")
@@ -189,9 +196,10 @@ func TestWithLinearRetry_MaxAttemptsExceeded(t *testing.T) {
 
 func TestWithLinearRetry_ContextCancellation(t *testing.T) {
 	attempts := 0
-	operation := func() error {
+	logger := slog.Default()
+	operation := func() (constants.ShouldContinue, error) {
 		attempts++
-		return errors.New("temporary error")
+		return constants.RetryContinue, errors.New("temporary error")
 	}
 
 	config := LinearRetryConfig{
@@ -204,12 +212,71 @@ func TestWithLinearRetry_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	err := WithLinearRetry(ctx, config, operation)
+	err := WithLinearRetry(ctx, config, logger, operation)
 
 	if err == nil {
 		t.Error("expected context cancellation error, got nil")
 	}
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("expected deadline exceeded error, got %v", err)
+	}
+}
+
+func TestWithExponentialBackoff_EarlyReturn(t *testing.T) {
+	attempts := 0
+	logger := slog.Default()
+	operation := func() (constants.ShouldContinue, error) {
+		attempts++
+		if attempts == 2 {
+			return constants.RetryStop, errors.New("critical error, stop retrying")
+		}
+		return constants.RetryContinue, errors.New("temporary error")
+	}
+
+	config := BackoffConfig{
+		InitialDelay: 10 * time.Millisecond,
+		MaxDelay:     100 * time.Millisecond,
+		MaxAttempts:  5,
+		Factor:       2.0,
+	}
+
+	ctx := context.Background()
+	err := WithExponentialBackoff(ctx, config, logger, operation)
+
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+	if attempts != 2 {
+		t.Errorf("expected 2 attempts, got %d", attempts)
+	}
+}
+
+func TestWithLinearRetry_EarlyReturn(t *testing.T) {
+	attempts := 0
+	logger := slog.Default()
+	operation := func() (constants.ShouldContinue, error) {
+		attempts++
+		if attempts == 2 {
+			// On second attempt, signal to stop retrying
+			return constants.RetryStop, errors.New("critical error, stop retrying")
+		}
+		return constants.RetryContinue, errors.New("temporary error")
+	}
+
+	config := LinearRetryConfig{
+		InitialDelay: 10 * time.Millisecond,
+		MaxDelay:     100 * time.Millisecond,
+		MaxAttempts:  5,
+		Increment:    20 * time.Millisecond,
+	}
+
+	ctx := context.Background()
+	err := WithLinearRetry(ctx, config, logger, operation)
+
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+	if attempts != 2 {
+		t.Errorf("expected 2 attempts, got %d", attempts)
 	}
 }

@@ -71,17 +71,13 @@ type KeycloakTokenResponse struct {
 	Scope            string `json:"scope"`
 }
 
-type UserFlag struct {
-	UserID            string
-	CanCreateNotebook bool
-}
-
 type Profile struct {
 	ProfileID              string    `json:"id"`
 	UserID                 string    `json:"user_id"`
+	Email                  string    `json:"email"`
 	TotalCredit            float64   `json:"total_credit"`
 	LastSyncBalance        float64   `json:"last_sync_balance"`
-	CanCreateNotebook      bool      `json:"can_create_notebook"`
+	CanCreateGpuNotebook   bool      `json:"can_create_gpu_notebook"`
 	AaaAndOpenCostSyncedAt time.Time `json:"aaa_and_opencost_synced_at"`
 	PendingDeduction       float64   `json:"pending_deduction"`
 }

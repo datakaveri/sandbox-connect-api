@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"sandbox-backend-service/pkg/constants"
 	"sandbox-backend-service/pkg/db"
 	"sandbox-backend-service/pkg/k8s"
 	"sandbox-backend-service/pkg/utils"
@@ -77,6 +78,7 @@ func main() {
 	}
 
 	k8sProfiles, err := profileSync.getAllProfilesFromK8s()
+
 	if err != nil {
 		utils.LogErrorAndExit(logger, "failed to get profiles from Kubernetes", "error", err)
 	}
@@ -85,6 +87,41 @@ func main() {
 		utils.LogErrorAndExit(logger, "failed to fetch profiles from DB", "error", err)
 	}
 	k8sOrphans, dbOrphans := profileSync.findOrphanProfiles(k8sProfiles, dbProfiles)
+
+	if len(k8sOrphans) > 0 {
+		logger.Info("adding missing profiles to DB", "count", len(k8sOrphans))
+		for _, orphan := range k8sOrphans {
+			err := profileSync.addProfileToDb(orphan)
+			if err != nil {
+				logger.Error("failed to add profile to DB", "user_id", orphan.UserID, "email", orphan.Email, "error", err)
+			} else {
+				logger.Info("successfully added profile to DB", "user_id", orphan.UserID, "email", orphan.Email)
+			}
+		}
+	}
+
+	// Add missing profiles to K8s
+	if len(dbOrphans) > 0 {
+		logger.Info("adding missing profiles to K8s", "count", len(dbOrphans))
+		for _, orphan := range dbOrphans {
+			err := profileSync.addProfileToK8s(orphan)
+			if err != nil {
+				logger.Error("failed to add profile to K8s", "user_id", orphan.UserID, "error", err)
+				// Update orphan_profiles table to track profiles missing from K8s
+				err = profileSync.updateOrphanProfile(orphan, true)
+				if err != nil {
+					logger.Error("failed to update orphan profile", "user_id", orphan.UserID, "error", err)
+				}
+			} else {
+				logger.Info("successfully added profile to K8s", "user_id", orphan.UserID)
+				// Update orphan_profiles table to mark profile as no longer missing from K8s
+				err = profileSync.updateOrphanProfile(orphan, false)
+				if err != nil {
+					logger.Error("failed to update orphan profile", "user_id", orphan.UserID, "error", err)
+				}
+			}
+		}
+	}
 
 	if len(k8sOrphans) > 0 {
 		logger.Warn("found orphan profiles in K8s", "k8s_orphans_count", len(k8sOrphans))
@@ -246,21 +283,21 @@ func (ps *profileSync) processProfiles(k8sProfiles []KubeflowProfile, dbProfiles
 					if logErr != nil {
 						logger.Error("Failed to log failed AAA request", "error", logErr)
 					}
-					err := WithDBRetry(ctx, func() error {
+					err := WithDBRetry(ctx, ps.logger, func() (constants.ShouldContinue, error) {
 						_, err = ps.pgPool.Exec(ctx, `UPDATE profiles 
 						SET aaa_and_opencost_synced_at = $2
 						WHERE user_id = $1`, profile.UserID, now)
 						if err != nil {
 							logger.Error("failed to update sync timestamp", "error", err)
-							return err
+							return constants.RetryContinue, err
 						}
-						return nil
+						return constants.RetryStop, nil
 					})
 
 					if err != nil {
 						logger.Error("failed to update sync timestamp", "error", err)
 					}
-					if profileFromDb.CanCreateNotebook {
+					if profileFromDb.CanCreateGpuNotebook {
 						err := ps.stopAllNotebooksInNamespace(ctx, profileFromDb.UserID)
 						if err != nil {
 							logger.Error("failed to stop notebooks", "error", err)
@@ -268,19 +305,19 @@ func (ps *profileSync) processProfiles(k8sProfiles []KubeflowProfile, dbProfiles
 					}
 					return
 				}
-				err = WithDBRetry(ctx, func() error {
+				err = WithDBRetry(ctx, ps.logger, func() (constants.ShouldContinue, error) {
 					_, err = ps.pgPool.Exec(ctx, `UPDATE profiles SET 
-					can_create_notebook = true, 
+					can_create_gpu_notebook = true, 
 					pending_deduction = 0, 
 					aaa_and_opencost_synced_at = $2, 
 					last_sync_balance = $3, 
 					total_credit = total_credit + $4
 					WHERE user_id = $1`, profile.UserID, now, res.Result.UpdatedBalance, cost)
 					if err != nil {
-						logger.Error("failed to update can_create_notebook flag after deduction", "error", err)
-						return err
+						logger.Error("failed to update can_create_gpu_notebook flag after deduction", "error", err)
+						return constants.RetryContinue, err
 					}
-					return nil
+					return constants.RetryStop, nil
 				})
 				if err != nil {
 					logger.Error("error updating DB after successful deduction", "error", err)
@@ -319,24 +356,24 @@ func (ps *profileSync) getProfileCostFromOpenCost(last_sync_at time.Time, endTim
 	var costData CostAllocationResponse
 	var cost float64 = 0
 
-	err = WithExternalApiRetry(ps.rootCtx, func() error {
+	err = WithExternalApiRetry(ps.rootCtx, ps.logger, func() (constants.ShouldContinue, error) {
 		resp, err := client.Do(req)
 		if err != nil {
 			logger.Warn("OpenCost request failed, will retry", "error", err)
-			return err
+			return constants.RetryContinue, err
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			logger.Warn("OpenCost returned non-OK status code, will retry", "status_code", resp.StatusCode)
-			return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+			return constants.RetryContinue, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 		}
 
 		if err := json.NewDecoder(resp.Body).Decode(&costData); err != nil {
 			logger.Warn("failed to decode OpenCost response, will retry", "error", err)
-			return fmt.Errorf("failed to decode cost data: %v", err)
+			return constants.RetryContinue, fmt.Errorf("failed to decode cost data: %v", err)
 		}
-		return nil
+		return constants.RetryStop, nil
 	})
 
 	if err != nil {
@@ -370,14 +407,14 @@ func (ps *profileSync) getAllProfileFromDb() ([]Profile, error) {
 	ctx, cancel := WithTimeoutContext(ps.rootCtx, 30*time.Second)
 	defer cancel()
 
-	err := WithDBRetry(ctx, func() error {
+	err := WithDBRetry(ctx, ps.logger, func() (constants.ShouldContinue, error) {
 		rows, err := ps.pgPool.Query(ctx, `
-		SELECT id, user_id, aaa_and_opencost_synced_at, total_credit, last_sync_balance, can_create_notebook, pending_deduction
+		SELECT id, user_id, aaa_and_opencost_synced_at, total_credit, last_sync_balance, can_create_gpu_notebook, pending_deduction
 		FROM profiles`,
 		)
 		if err != nil {
 			ps.logger.Error("Query execution failed", "error", err)
-			return fmt.Errorf("failed to fetch profiles from DB: %v", err)
+			return constants.RetryContinue, fmt.Errorf("failed to fetch profiles from DB: %v", err)
 		}
 		defer rows.Close()
 
@@ -386,9 +423,9 @@ func (ps *profileSync) getAllProfileFromDb() ([]Profile, error) {
 		for rows.Next() {
 			var profile Profile
 			if err := rows.Scan(&profile.ProfileID, &profile.UserID, &profile.AaaAndOpenCostSyncedAt,
-				&profile.TotalCredit, &profile.LastSyncBalance, &profile.CanCreateNotebook, &profile.PendingDeduction); err != nil {
+				&profile.TotalCredit, &profile.LastSyncBalance, &profile.CanCreateGpuNotebook, &profile.PendingDeduction); err != nil {
 				ps.logger.Error("Failed to scan row", "error", err)
-				return fmt.Errorf("failed to scan profile from DB: %v", err)
+				return constants.RetryContinue, fmt.Errorf("failed to scan profile from DB: %v", err)
 			}
 			profiles = append(profiles, profile)
 			rowCount++
@@ -396,11 +433,11 @@ func (ps *profileSync) getAllProfileFromDb() ([]Profile, error) {
 
 		if err := rows.Err(); err != nil {
 			ps.logger.Error("Error during row iteration", "error", err)
-			return fmt.Errorf("failed to iterate over DB rows: %v", err)
+			return constants.RetryContinue, fmt.Errorf("failed to iterate over DB rows: %v", err)
 		}
 
 		ps.logger.Info("Successfully processed all rows", "row_count", rowCount)
-		return nil
+		return constants.RetryStop, nil
 	})
 
 	if err != nil {
@@ -440,11 +477,11 @@ func (ps *profileSync) costDeductionRequest(ctx context.Context, profileID strin
 	var responseBody []byte
 	var statusCode int
 
-	err = WithExternalApiRetry(ctx, func() error {
+	err = WithExternalApiRetry(ctx, ps.logger, func() (constants.ShouldContinue, error) {
 		resp, err := client.Do(req)
 		if err != nil {
 			ps.logger.Warn("credit deduction request failed, will retry", "error", err)
-			return &ServerError{
+			return constants.RetryContinue, &ServerError{
 				StatusCode: 0,
 				Message:    err.Error(),
 			}
@@ -455,7 +492,7 @@ func (ps *profileSync) costDeductionRequest(ctx context.Context, profileID strin
 		responseBody, err = io.ReadAll(resp.Body)
 		if err != nil {
 			ps.logger.Warn("failed to read response body, will retry", "error", err)
-			return err
+			return constants.RetryContinue, err
 		}
 
 		ps.logger.Debug("AAA API response",
@@ -467,7 +504,7 @@ func (ps *profileSync) costDeductionRequest(ctx context.Context, profileID strin
 
 		if statusCode == http.StatusUnauthorized {
 			ps.logger.Warn("received unauthorized response, token might be expired")
-			return nil
+			return constants.RetryStop, nil
 		}
 
 		if statusCode >= 400 && statusCode < 500 {
@@ -478,18 +515,18 @@ func (ps *profileSync) costDeductionRequest(ctx context.Context, profileID strin
 				"cost", cost,
 				"requested_at", requestTime,
 				"payload", string(payloadBytes))
-			return nil
+			return constants.RetryStop, nil
 		}
 
 		if statusCode >= 500 {
 			ps.logger.Warn("server error from AAA API, will retry", "status_code", statusCode)
-			return &ServerError{
+			return constants.RetryContinue, &ServerError{
 				StatusCode: statusCode,
 				Message:    string(responseBody),
 			}
 		}
 
-		return nil
+		return constants.RetryStop, nil
 	})
 
 	if err != nil {
@@ -599,11 +636,11 @@ func (ps *profileSync) getKeycloakToken() (string, error) {
 	var tokenResponse KeycloakTokenResponse
 	var statusCode int
 
-	err = WithExternalApiRetry(context.Background(), func() error {
+	err = WithExternalApiRetry(ps.rootCtx, ps.logger, func() (constants.ShouldContinue, error) {
 		resp, err := client.Do(req)
 		if err != nil {
 			ps.logger.Warn("Keycloak token request failed, will retry", "error", err)
-			return err
+			return constants.RetryContinue, err
 		}
 		defer resp.Body.Close()
 
@@ -613,15 +650,15 @@ func (ps *profileSync) getKeycloakToken() (string, error) {
 			ps.logger.Warn("Keycloak returned non-OK status code, will retry",
 				"status_code", statusCode,
 				"body", string(body))
-			return fmt.Errorf("unexpected status code: %d", statusCode)
+			return constants.RetryContinue, fmt.Errorf("unexpected status code: %d", statusCode)
 		}
 
 		if err := json.NewDecoder(resp.Body).Decode(&tokenResponse); err != nil {
 			ps.logger.Warn("failed to decode token response, will retry", "error", err)
-			return err
+			return constants.RetryContinue, err
 		}
 
-		return nil
+		return constants.RetryStop, nil
 	})
 
 	if err != nil {

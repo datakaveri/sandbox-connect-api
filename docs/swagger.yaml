@@ -1,4 +1,4 @@
-basePath: /v1
+basePath: /
 definitions:
   constants.Events:
     enum:
@@ -144,14 +144,14 @@ definitions:
     type: object
   main.NotebookState:
     enum:
-    - creating
+    - opening
     - running
     - stopped
     - failed
     - orphaned
     type: string
     x-enum-varnames:
-    - NotebookStateCreating
+    - NotebookStateOpening
     - NotebookStateRunning
     - NotebookStateStopped
     - NotebookStateFailed
@@ -215,17 +215,6 @@ definitions:
         example: true
         type: boolean
     type: object
-  main.SwaggerHealthResponse:
-    description: Standard health response structure
-    properties:
-      status:
-        description: Success message
-        example: string
-        type: string
-      version:
-        example: string
-        type: string
-    type: object
   main.SwaggerMessageResponse:
     description: Standard success response structure with a message
     properties:
@@ -240,24 +229,6 @@ info:
   title: Sandbox Connect API
   version: "1.0"
 paths:
-  /v1/health:
-    get:
-      description: Returns the health status of the API
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/main.SwaggerHealthResponse'
-        "429":
-          description: Too Many Requests
-          schema:
-            $ref: '#/definitions/main.Error429'
-      security: []
-      summary: Health check endpoint
-      tags:
-      - system
   /v1/notebook/check-exists/{notebook_name}:
     get:
       description: Checks if a notebook with the given name exists

@@ -15,3 +15,10 @@ const (
 	StatusNotebookApplied      Events = "notebook-applied"
 	StatusNotebookApplyFailed  Events = "notebook-apply-failed"
 )
+
+type ShouldContinue bool
+
+const (
+	RetryContinue ShouldContinue = true
+	RetryStop     ShouldContinue = false
+)

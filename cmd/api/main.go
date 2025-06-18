@@ -1,11 +1,10 @@
 // @title           Sandbox Connect API
 // @version         1.0
 // @description     API for managing notebooks and profiles
-// @BasePath        /v1
+// @BasePath        /
 // @schemes         http https
 // @produce         json
 // @consumes        json
-
 // @securityDefinitions.apikey BearerAuth
 // @in header
 // @name Authorization
@@ -39,7 +38,7 @@ import (
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: slog.LevelDebug,
 	}))
 	slog.SetDefault(logger)
 

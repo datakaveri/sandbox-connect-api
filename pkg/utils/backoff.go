@@ -2,6 +2,8 @@ package utils
 
 import (
 	"context"
+	"log/slog"
+	"sandbox-backend-service/pkg/constants"
 	"time"
 )
 
@@ -18,25 +20,23 @@ type BackoffConfig struct {
 	Factor       float64
 }
 
-func WithExponentialBackoff(ctx context.Context, config BackoffConfig, operation func() error) error {
+func WithExponentialBackoff(ctx context.Context, config BackoffConfig, logger *slog.Logger,
+	operation func() (constants.ShouldContinue, error)) error {
 	var err error
 	currentDelay := config.InitialDelay
 
 	for attempt := 1; attempt <= config.MaxAttempts; attempt++ {
-		if err = operation(); err == nil {
-			return nil
-		}
-
-		if attempt == config.MaxAttempts {
+		shouldContinue, operationErr := operation()
+		err = operationErr
+		if shouldContinue == constants.RetryStop || attempt == config.MaxAttempts || err == nil {
 			return err
 		}
-
+		logger.Warn("Operation failed, will retry", "attempt", attempt, "maxAttempts", config.MaxAttempts, "error", err)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(currentDelay):
 		}
-
 		currentDelay = time.Duration(float64(currentDelay) * config.Factor)
 		if currentDelay > config.MaxDelay {
 			currentDelay = config.MaxDelay
@@ -45,19 +45,18 @@ func WithExponentialBackoff(ctx context.Context, config BackoffConfig, operation
 
 	return err
 }
-
-func WithLinearRetry(ctx context.Context, config LinearRetryConfig, operation func() error) error {
+func WithLinearRetry(ctx context.Context, config LinearRetryConfig, logger *slog.Logger,
+	operation func() (constants.ShouldContinue, error)) error {
 	var err error
 	currentDelay := config.InitialDelay
 
 	for attempt := 1; attempt <= config.MaxAttempts; attempt++ {
-		if err = operation(); err == nil {
-			return nil
-		}
-
-		if attempt == config.MaxAttempts {
+		shouldContinue, operationErr := operation()
+		err = operationErr
+		if shouldContinue == constants.RetryStop || attempt == config.MaxAttempts || err == nil {
 			return err
 		}
+		logger.Warn("Operation failed, will retry", "attempt", attempt, "maxAttempts", config.MaxAttempts, "error", err)
 
 		select {
 		case <-ctx.Done():
@@ -70,6 +69,5 @@ func WithLinearRetry(ctx context.Context, config LinearRetryConfig, operation fu
 			currentDelay = config.MaxDelay
 		}
 	}
-
 	return err
 }

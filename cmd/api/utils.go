@@ -14,6 +14,15 @@ import (
 	"time"
 )
 
+func checkNotebookFailed(latestEvent constants.Events) bool {
+	return latestEvent == constants.StatusPVCUploadFailed ||
+		latestEvent == constants.StatusPVCUploadApplyFailed ||
+		latestEvent == constants.StatusNotebookApplyFailed ||
+		latestEvent == constants.StatusPVCCreationFailed ||
+		latestEvent == constants.StatusPVCApplyFailed
+
+}
+
 func jsonResponse(w http.ResponseWriter, statusCode int, data any) {
 	w.Header().Set("content-type", "application/json")
 	w.WriteHeader(statusCode)
@@ -29,7 +38,7 @@ func sendResponse(w http.ResponseWriter, logger *slog.Logger, status int, userMe
 func sendError(w http.ResponseWriter, logger *slog.Logger, status int, userMessage string) {
 	formattedMessage := formatMessage(userMessage)
 	message := map[string]string{"detail": formattedMessage, "type": "error"}
-	logger.Error("Request Status",
+	logger.Warn("Request Status",
 		"status", status,
 		"detail", formattedMessage,
 		"type", "error")
@@ -72,7 +81,7 @@ func determineNotebookState(latestEvent constants.Events, k8sSpec map[string]any
 		}
 
 		if latestEvent == "" || latestEvent != constants.StatusNotebookApplied {
-			return NotebookStateCreating
+			return NotebookStateOpening
 		}
 		return NotebookStateOrphaned
 	}
@@ -91,7 +100,7 @@ func determineNotebookState(latestEvent constants.Events, k8sSpec map[string]any
 			return NotebookStateRunning
 		}
 	}
-	return NotebookStateCreating
+	return NotebookStateOpening
 }
 
 var SupportedGPUResources = []string{
@@ -186,10 +195,12 @@ func parseAllowedOrigins(originsStr string) []string {
 	return origins
 }
 
-func WithK8sRetry(ctx context.Context, operation func() error) error {
-	return utils.WithLinearRetry(ctx, k8sRetryConfig, operation)
+func WithK8sRetry(ctx context.Context, logger *slog.Logger, operation func() (constants.ShouldContinue, error)) error {
+	return utils.WithLinearRetry(ctx, k8sRetryConfig, logger, operation)
 }
-
+func WithDBRetry(ctx context.Context, logger *slog.Logger, operation func() (constants.ShouldContinue, error)) error {
+	return utils.WithLinearRetry(ctx, dbRetryConfig, logger, operation)
+}
 func ValidateNotebookName(name string) bool {
 	pattern := `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
 	match, _ := regexp.MatchString(pattern, name)

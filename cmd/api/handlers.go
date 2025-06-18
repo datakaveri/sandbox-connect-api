@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -94,9 +95,6 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		logger.Error("can't parse the body", "Error", err.Error())
 		sendError(w, logger, http.StatusUnprocessableEntity, "Invalid Body")
-		return
-	}
-	if !ValidateNotebookName(notebookReq.Name) {
 		logger.Error("invalid notebook name", "name", notebookReq.Name)
 		sendError(w, logger, http.StatusUnprocessableEntity, "Invalid Notebook Name")
 		return
@@ -107,9 +105,33 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if notebookReq.Type == "gpu" && !contains(userInfo.Roles, "compute") {
-		logger.Error("user doesn't have permission to create gpu notebook", "user_id", userInfo.Sub)
-		sendError(w, logger, http.StatusForbidden, "You don't have permission to create gpu notebook")
+		sendError(w, logger, http.StatusForbidden, "You don't have compute permissions")
 		return
+	}
+	if notebookReq.Type == "gpu" && contains(userInfo.Roles, "compute") {
+		var canCreateGpuNotebook bool
+		profileQuery := `SELECT can_create_gpu_notebook FROM profiles WHERE user_id = $1`
+		err := app.pgPool.Pool.QueryRow(r.Context(), profileQuery, userInfo.Sub).Scan(&canCreateGpuNotebook)
+
+		if err != nil {
+			if err == pgx.ErrNoRows {
+				logger.Warn("no permission record found for user", "user_id", userInfo.Sub)
+				sendError(w, logger, http.StatusForbidden, "No permission record found for user")
+				return
+			}
+
+			logger.Error("failed to check user permission", "error", err)
+			sendError(w, logger, http.StatusInternalServerError, "Failed to verify permission")
+			return
+		}
+
+		if !canCreateGpuNotebook {
+			logger.Warn("user doesn't have permission to create GPU notebooks", "user_id", userInfo.Sub)
+			sendError(w, logger, http.StatusForbidden, "You don't have enough credit for this operation")
+			return
+		}
+
+		logger.Debug("user has permission to create GPU notebooks", "user_id", userInfo.Sub)
 	}
 
 	baseArgs := []any{
@@ -261,12 +283,14 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var notebookID int64
 	var latestEvent string
+	var gpuType *string
+	var gpuCount *int
 	query := `
-		SELECT id, events[array_upper(events, 1)] as latest_event
+		SELECT id, events[array_upper(events, 1)] as latest_event, gpu_type, gpu_count
 		FROM notebooks
 		WHERE name = $1 AND namespace = $2
 	`
-	err = app.pgPool.Pool.QueryRow(ctx, query, startReq.Name, namespace).Scan(&notebookID, &latestEvent)
+	err = app.pgPool.Pool.QueryRow(ctx, query, startReq.Name, namespace).Scan(&notebookID, &latestEvent, &gpuType, &gpuCount)
 	if err != nil {
 		logger.Error("failed to find notebook", "error", err)
 		sendError(w, logger, http.StatusNotFound, "Notebook not found")
@@ -277,6 +301,35 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 		logger.Error("cannot start notebook that is not in applied state", "currentState", latestEvent)
 		sendError(w, logger, http.StatusBadRequest, "Cannot start notebook that is not in applied state")
 		return
+	}
+
+	isGPUResource := gpuType != nil && gpuCount != nil
+	if isGPUResource {
+		logger.Debug("GPU resource request detected, checking permissions", "user_id", userInfo.Sub, "resource", startReq.Name)
+
+		var canCreateGpuNotebook bool
+		profileQuery := `SELECT can_create_gpu_notebook FROM profiles WHERE user_id = $1`
+		err := app.pgPool.Pool.QueryRow(ctx, profileQuery, userInfo.Sub).Scan(&canCreateGpuNotebook)
+
+		if err != nil {
+			if err == pgx.ErrNoRows {
+				logger.Warn("no permission record found for user", "user_id", userInfo.Sub)
+				sendError(w, logger, http.StatusForbidden, "Failed to verify permission")
+				return
+			}
+
+			logger.Error("failed to check user permission", "error", err)
+			sendError(w, logger, http.StatusInternalServerError, "Failed to verify permission")
+			return
+		}
+
+		if !canCreateGpuNotebook {
+			logger.Warn("user doesn't have permission to start GPU notebooks", "user_id", userInfo.Sub)
+			sendError(w, logger, http.StatusForbidden, "You don't have enough credit for this operation")
+			return
+		}
+
+		logger.Debug("user has permission to start GPU notebooks", "user_id", userInfo.Sub)
 	}
 
 	err = app.removeStoppedAnnotationFromNotebook(ctx, namespace, startReq.Name)
@@ -325,7 +378,7 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 		FROM notebooks
 		WHERE name = $1 AND namespace = $2
 	`
-	var latestEvent string
+	var latestEvent constants.Events
 	ctx := r.Context()
 	err = app.pgPool.Pool.QueryRow(ctx, query, deleteReq.Name, namespace).Scan(&latestEvent)
 	if err != nil {
@@ -339,14 +392,9 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	notebookFailed := latestEvent == string(constants.StatusPVCUploadFailed) ||
-		latestEvent == string(constants.StatusPVCUploadApplyFailed) ||
-		latestEvent == string(constants.StatusNotebookApplyFailed) ||
-		latestEvent == string(constants.StatusPVCCreationFailed) ||
-		latestEvent == string(constants.StatusPVCApplyFailed)
+	notebookFailed := checkNotebookFailed(latestEvent)
 
-	if latestEvent != string(constants.StatusNotebookApplied) && !notebookFailed {
-		logger.Error("cannot delete notebook that is not in applied state", "currentState", latestEvent)
+	if latestEvent != constants.StatusNotebookApplied && !notebookFailed {
 		sendError(w, logger, http.StatusBadRequest, "Cannot delete notebook that is not in applied state")
 		return
 	}
@@ -354,22 +402,29 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 	deleteQuery := `DELETE FROM notebooks WHERE name = $1 AND namespace = $2`
 	_, err = app.pgPool.Pool.Exec(ctx, deleteQuery, deleteReq.Name, namespace)
 	if err != nil {
-		logger.Error("failed to delete notebook from database", "error", err)
-		sendError(w, logger, http.StatusInternalServerError, "Failed to delete notebook from database")
+		sendError(w, logger, http.StatusInternalServerError, "Failed to delete notebook")
 		return
 	}
 
 	if !notebookFailed {
-		err = app.deleteNotebookFromK8s(ctx, namespace, deleteReq.Name)
-		if err != nil {
-			logger.Error("failed to delete notebook from Kubernetes", "error", err)
-			sendError(w, logger, http.StatusInternalServerError, "Failed to delete notebook from Kubernetes")
+		err = app.deleteNotebookFromK8s(ctx, logger, namespace, deleteReq.Name)
+		notebookAlreadyDeleted := false
+		if errors.IsNotFound(err) {
+			logger.Warn("notebook not found in Kubernetes", "error", err)
+			notebookAlreadyDeleted = true
+		}
+		if err != nil && !notebookAlreadyDeleted {
+			sendError(w, logger, http.StatusInternalServerError, "Failed to delete notebook")
 			return
 		}
-		err = app.deletePVCFromK8s(ctx, namespace, deleteReq.Name+"-pvc")
+		err = app.deletePVCFromK8s(ctx, logger, namespace, deleteReq.Name+"-pvc")
+		if errors.IsNotFound(err) {
+			if notebookAlreadyDeleted {
+				logger.Warn("notebook already deleted from k8s", "error", err)
+			}
+		}
 		if err != nil {
-			logger.Error("failed to delete PVC from Kubernetes", "error", err)
-			sendError(w, logger, http.StatusInternalServerError, "Failed to delete PVC from Kubernetes")
+			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
 			return
 		}
 	}
@@ -409,6 +464,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 	var filterDates [2]string
 	var filterActive bool
 	var orderDesc bool
+	var err error
 
 	if orderVal != "" {
 		if orderVal == "desc" {
@@ -459,13 +515,6 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	k8sNotebooks, err := app.getNotebooksJSON(r.Context(), namespace)
-	if err != nil {
-		logger.Warn("failed to get notebooks from Kubernetes", "error", err)
-		sendError(w, logger, http.StatusInternalServerError, "Failed to fetch notebooks")
-		return
-	}
-
 	var query string
 	var rows pgx.Rows
 	var orderClause string
@@ -507,13 +556,13 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 	notebooks := []NotebookStatus{}
 	for rows.Next() {
 		var nb NotebookStatus
-		err := rows.Scan(
+		scanErr := rows.Scan(
 			&nb.ID, &nb.Name, &nb.Namespace, &nb.StorageSize, &nb.PVCName,
 			&nb.CPURequest, &nb.CPULimit, &nb.MemoryRequest, &nb.MemoryLimit,
 			&nb.GPUType, &nb.GPUCount, &nb.TemplateName, &nb.Events, &nb.CreatedAt,
 		)
-		if err != nil {
-			logger.Error("failed to scan notebook row", "error", err)
+		if scanErr != nil {
+			logger.Error("failed to scan notebook row", "error", scanErr)
 			continue
 		}
 		var latestEvent constants.Events
@@ -521,24 +570,27 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 			latestEvent = nb.Events[len(nb.Events)-1]
 		}
 
+		notebookFailed := checkNotebookFailed(latestEvent)
+
 		var k8sObject map[string]any = nil
-		if latestEvent == constants.StatusNotebookApplied {
-			if raw, ok := k8sNotebooks[nb.Name]; ok && raw != nil {
-				if obj, ok := raw.(map[string]any); ok {
-					k8sObject = obj
-				} else {
-					logger.Warn("k8sNotebooks entry is not a map[string]any", "name", nb.Name)
-				}
+		if !notebookFailed && latestEvent == constants.StatusNotebookApplied {
+			k8sSpec, k8sErr := app.getNotebookJSON(ctx, logger, namespace, nb.Name)
+			if k8sErr != nil {
+				logger.Warn("failed to get notebook from Kubernetes", "error", k8sErr, "name", nb.Name)
+				k8sObject = nil
+			} else if k8sSpec != nil {
+				k8sObject = k8sSpec.Object
 			}
 		}
+
 		nb.Status = determineNotebookState(latestEvent, k8sObject)
 		if nb.Status == NotebookStateRunning {
 			nb.URL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, nb.Namespace, nb.Name)
 		}
 		notebooks = append(notebooks, nb)
 	}
-	if err := rows.Err(); err != nil {
-		logger.Error("error iterating notebook rows", "error", err)
+	if rowsErr := rows.Err(); rowsErr != nil {
+		logger.Error("error iterating notebook rows", "error", rowsErr)
 		sendError(w, logger, http.StatusInternalServerError, "Failed to fetch notebooks")
 		return
 	}
@@ -627,7 +679,7 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 	var k8sSpec *unstructured.Unstructured
 	if latestEvent == constants.StatusNotebookApplied {
 		var err error
-		k8sSpec, err = app.getNotebookJSON(ctx, status.Namespace, status.Name)
+		k8sSpec, err = app.getNotebookJSON(ctx, logger, status.Namespace, status.Name)
 		if err != nil {
 			logger.Error("failed to get notebook from Kubernetes", "error", err)
 			k8sSpec = nil
@@ -676,28 +728,26 @@ func (app *application) createProfile(w http.ResponseWriter, r *http.Request) {
 	logger.Info("creating kubeflow profile")
 
 	err := app.createKubeflowProfile(r.Context(), logger, userId, email)
-	if err != nil {
-		logger.Error("failed to create kubeflow profile", "error", err, "profileName", userId)
+	if err != nil && !errors.IsAlreadyExists(err) {
+		logger.Warn("failed to create kubeflow profile", "error", err, "profileName", userId)
 		sendError(w, logger, http.StatusInternalServerError, "Failed to create Kubeflow Profile")
 		return
 	}
 
-	logger.Info("kubeflow profile created successfully", "profileName", userId)
-
 	query := `
-			INSERT INTO profiles (user_id)
-			VALUES ($1)
+			INSERT INTO profiles (user_id,email)
+			VALUES ($1,$2)
 			ON CONFLICT (user_id) DO NOTHING
 			RETURNING id
 		`
 	var profileId int64
-	err = app.pgPool.Pool.QueryRow(r.Context(), query, userId).Scan(&profileId)
+	err = WithDBRetry(r.Context(), logger, func() (constants.ShouldContinue, error) {
+		return constants.RetryContinue, app.pgPool.Pool.QueryRow(r.Context(), query, userId, email).Scan(&profileId)
+	})
 	if err != nil && err != pgx.ErrNoRows {
 		logger.Error("failed to create profile in database", "error", err)
 		sendError(w, logger, http.StatusInternalServerError, "Failed to create profile in database")
 		return
 	}
-
-	logger.Info("profile created successfully", "profileName", userId)
-	sendResponse(w, logger, http.StatusCreated, "Profile created successfully")
+	sendResponse(w, logger, http.StatusCreated, "The profile has been created successfully or already exists.")
 }

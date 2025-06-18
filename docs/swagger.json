@@ -13,35 +13,8 @@
         "contact": {},
         "version": "1.0"
     },
-    "basePath": "/v1",
+    "basePath": "/",
     "paths": {
-        "/v1/health": {
-            "get": {
-                "security": [],
-                "description": "Returns the health status of the API",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "system"
-                ],
-                "summary": "Health check endpoint",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/main.SwaggerHealthResponse"
-                        }
-                    },
-                    "429": {
-                        "description": "Too Many Requests",
-                        "schema": {
-                            "$ref": "#/definitions/main.Error429"
-                        }
-                    }
-                }
-            }
-        },
         "/v1/notebook/check-exists/{notebook_name}": {
             "get": {
                 "security": [
@@ -769,14 +742,14 @@
         "main.NotebookState": {
             "type": "string",
             "enum": [
-                "creating",
+                "opening",
                 "running",
                 "stopped",
                 "failed",
                 "orphaned"
             ],
             "x-enum-varnames": [
-                "NotebookStateCreating",
+                "NotebookStateOpening",
                 "NotebookStateRunning",
                 "NotebookStateStopped",
                 "NotebookStateFailed",
@@ -869,21 +842,6 @@
                     "description": "Whether the resource exists",
                     "type": "boolean",
                     "example": true
-                }
-            }
-        },
-        "main.SwaggerHealthResponse": {
-            "description": "Standard health response structure",
-            "type": "object",
-            "properties": {
-                "status": {
-                    "description": "Success message",
-                    "type": "string",
-                    "example": "string"
-                },
-                "version": {
-                    "type": "string",
-                    "example": "string"
                 }
             }
         },

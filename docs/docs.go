@@ -18,33 +18,6 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
-        "/v1/health": {
-            "get": {
-                "security": [],
-                "description": "Returns the health status of the API",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "system"
-                ],
-                "summary": "Health check endpoint",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/main.SwaggerHealthResponse"
-                        }
-                    },
-                    "429": {
-                        "description": "Too Many Requests",
-                        "schema": {
-                            "$ref": "#/definitions/main.Error429"
-                        }
-                    }
-                }
-            }
-        },
         "/v1/notebook/check-exists/{notebook_name}": {
             "get": {
                 "security": [
@@ -772,14 +745,14 @@ const docTemplate = `{
         "main.NotebookState": {
             "type": "string",
             "enum": [
-                "creating",
+                "opening",
                 "running",
                 "stopped",
                 "failed",
                 "orphaned"
             ],
             "x-enum-varnames": [
-                "NotebookStateCreating",
+                "NotebookStateOpening",
                 "NotebookStateRunning",
                 "NotebookStateStopped",
                 "NotebookStateFailed",
@@ -875,21 +848,6 @@ const docTemplate = `{
                 }
             }
         },
-        "main.SwaggerHealthResponse": {
-            "description": "Standard health response structure",
-            "type": "object",
-            "properties": {
-                "status": {
-                    "description": "Success message",
-                    "type": "string",
-                    "example": "string"
-                },
-                "version": {
-                    "type": "string",
-                    "example": "string"
-                }
-            }
-        },
         "main.SwaggerMessageResponse": {
             "description": "Standard success response structure with a message",
             "type": "object",
@@ -918,7 +876,7 @@ const docTemplate = `{
 var SwaggerInfo = &swag.Spec{
 	Version:          "1.0",
 	Host:             "",
-	BasePath:         "/v1",
+	BasePath:         "/",
 	Schemes:          []string{"http", "https"},
 	Title:            "Sandbox Connect API",
 	Description:      "API for managing notebooks and profiles",

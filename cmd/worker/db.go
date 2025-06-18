@@ -15,11 +15,11 @@ func FetchAndMarkNotebook(pg *db.PgPool, logger *slog.Logger, originalCtx contex
 	defer cancel()
 
 	var notebooks []Notebook
-	err := WithDBRetry(ctx, func() error {
+	err := WithDBRetry(ctx, logger, func() (constants.ShouldContinue, error) {
 		tx, err := pg.Pool.BeginTx(ctx, pgx.TxOptions{})
 		if err != nil {
 			logger.Warn("failed to begin transaction, will retry", "error", err)
-			return err
+			return constants.RetryContinue, err
 		}
 		defer tx.Rollback(ctx)
 
@@ -40,13 +40,13 @@ func FetchAndMarkNotebook(pg *db.PgPool, logger *slog.Logger, originalCtx contex
 		rows, err := tx.Query(queryCtx, query)
 		if err != nil {
 			logger.Warn("failed to query notebooks, will retry", "error", err)
-			return err
+			return constants.RetryContinue, err
 		}
 		defer rows.Close()
 
 		if rows.Err() != nil {
 			logger.Warn("rows error, will retry", "error", rows.Err())
-			return rows.Err()
+			return constants.RetryContinue, rows.Err()
 		}
 
 		for rows.Next() {
@@ -66,7 +66,7 @@ func FetchAndMarkNotebook(pg *db.PgPool, logger *slog.Logger, originalCtx contex
 				&newNotebook.TemplateName,
 			); err != nil {
 				logger.Warn("failed to scan notebook row, will retry", "error", err)
-				return err
+				return constants.RetryContinue, err
 			}
 			notebooks = append(notebooks, newNotebook)
 		}
@@ -74,9 +74,9 @@ func FetchAndMarkNotebook(pg *db.PgPool, logger *slog.Logger, originalCtx contex
 		if len(notebooks) == 0 {
 			if err = tx.Commit(ctx); err != nil {
 				logger.Warn("failed to commit empty transaction, will retry", "error", err)
-				return err
+				return constants.RetryContinue, err
 			}
-			return nil
+			return constants.RetryStop, nil
 		}
 
 		updateCtx, updateCancel := WithTimeoutContext(ctx, DBWriteTimeout)
@@ -91,15 +91,15 @@ func FetchAndMarkNotebook(pg *db.PgPool, logger *slog.Logger, originalCtx contex
 		_, err = tx.Exec(updateCtx, updateQuery, notebooks[0].ID, constants.StatusPicked)
 		if err != nil {
 			logger.Warn("failed to update notebook status, will retry", "error", err)
-			return err
+			return constants.RetryContinue, err
 		}
 
 		if err = tx.Commit(ctx); err != nil {
 			logger.Warn("failed to commit transaction, will retry", "error", err)
-			return err
+			return constants.RetryContinue, err
 		}
 
-		return nil
+		return constants.RetryStop, nil
 	})
 
 	if err != nil {
@@ -115,7 +115,7 @@ func FetchAndMarkNotebook(pg *db.PgPool, logger *slog.Logger, originalCtx contex
 
 func (w *worker) NotebookStatusUpdate(id int64, status constants.Events) error {
 	logger := w.logger.With("operation", "NotebookStatusUpdate", "notebookId", id, "status", status)
-	logger.Info("updating notebook status")
+	logger.Debug("updating notebook status")
 
 	ctx, cancel := WithTimeoutContext(context.Background(), DBWriteTimeout)
 	defer cancel()
@@ -126,19 +126,10 @@ func (w *worker) NotebookStatusUpdate(id int64, status constants.Events) error {
 	WHERE id = $1
     `
 
-	err := WithDBRetry(ctx, func() error {
+	err := WithDBRetry(ctx, logger, func() (constants.ShouldContinue, error) {
 		_, err := w.app.pgPool.Pool.Exec(ctx, updateQuery, id, status)
-		if err != nil {
-			logger.Warn("failed to update notebook status, will retry", "error", err)
-		}
-		return err
+		return constants.RetryStop, err
 	})
-
-	if err != nil {
-		logger.Error("failed to update notebook status after retries", "error", err)
-	} else {
-		logger.Info("notebook status updated successfully")
-	}
 
 	return err
 }

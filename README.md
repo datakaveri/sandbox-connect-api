@@ -102,9 +102,9 @@ Notebooks in the `stopped` category are valid notebooks that have been temporari
 
 These notebooks can be restarted using the start endpoint.
 
-### Pending
+### creating 
 
-Notebooks in the `pending` category are still in the process of being created or are waiting for resources. A notebook is categorized as pending if:
+Notebooks in the `creating` category are still in the process of being created or are waiting for resources. A notebook is categorized as creating if:
 - Its latest event is not `notebook-applied` and not one of the failure events
 - Its latest event is `notebook-applied` but it doesn't have `readyReplicas` set to 1 or more
 - Its latest event is `notebook-applied` but there was an error parsing its Kubernetes spec
@@ -141,4 +141,4 @@ The typical event flow for a notebook is:
 3. `pvc-applied`: PVC manifest has been applied to Kubernetes
 4. `notebook-applied`: Notebook manifest has been applied to Kubernetes
 
-After `notebook-applied`, the notebook will be in the `pending` category until Kubernetes reports that it's ready (`readyReplicas` = 1), at which point it moves to the `successful` category.
+After `notebook-applied`, the notebook will be in the `creating` category until Kubernetes reports that it's ready (`readyReplicas` = 1), at which point it moves to the `running` category.

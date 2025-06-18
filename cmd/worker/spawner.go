@@ -45,8 +45,6 @@ func (app *application) worker(ctx context.Context) {
 			logger.Info("Cleaning up resources due to failure")
 			if err := worker.DeleteNotebook(); err != nil {
 				logger.Error("Failed to delete notebook during cleanup", "error", err)
-			} else {
-				logger.Info("Successfully deleted notebook during cleanup")
 			}
 			/*
 				if err := worker.DeletePod(uploadPodName); err != nil {
@@ -57,11 +55,11 @@ func (app *application) worker(ctx context.Context) {
 			*/
 			if err := worker.DeletePVC(); err != nil {
 				logger.Error("Failed to delete PVC during cleanup", "error", err)
-			} else {
-				logger.Info("Successfully deleted PVC during cleanup")
 			}
+			logger.Info("Successfully cleaned up")
 		}
 	}
+
 	var failed bool = true
 	var failedPtr *bool = &failed
 
@@ -94,7 +92,6 @@ func (app *application) worker(ctx context.Context) {
 			return
 		}
 	*/
-	logger.Info("PVC created")
 	/*
 		var presignedUrl *string
 		if notebook.TemplateName != nil {

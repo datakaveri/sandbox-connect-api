@@ -2,14 +2,13 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"sandbox-backend-service/pkg/constants"
 
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/watch"
 )
 
 func (w *worker) CreatePVC() error {
@@ -48,25 +47,19 @@ func (w *worker) CreatePVC() error {
 		Resource: "persistentvolumeclaims",
 	}
 
-	err := WithK8sRetry(ctx, func() error {
+	err := WithK8sRetry(ctx, logger, func() (constants.ShouldContinue, error) {
 		_, err := w.app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Create(ctx, pvc, metav1.CreateOptions{})
 		if k8serrors.IsAlreadyExists(err) {
 			logger.Warn("PVC already exists, will not retry creation", "error", err)
-			cancel()
-		} else if err != nil {
-			logger.Warn("failed to create PVC, will retry", "error", err)
+			return constants.RetryStop, nil
 		}
-		return err
+		return constants.RetryContinue, err
 	})
 
-	if err != nil {
-		logger.Error("failed to create PVC after retries", "error", err)
-		return err
-	}
-
-	return nil
+	return err
 }
 
+/*
 func (w *worker) PVCWatcher() error {
 	namespace := w.notebook.Namespace
 	pvcName := w.notebook.PVCname
@@ -81,7 +74,7 @@ func (w *worker) PVCWatcher() error {
 	defer cancel()
 
 	var watcher watch.Interface
-	err := WithK8sRetry(ctx, func() error {
+	err := WithK8sRetry(ctx, logger, func() (constants.ShouldContinue, error) {
 		var watchErr error
 		watcher, watchErr = w.app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Watch(ctx, metav1.ListOptions{
 			FieldSelector: fmt.Sprintf("metadata.name=%s", pvcName),
@@ -91,8 +84,9 @@ func (w *worker) PVCWatcher() error {
 			cancel()
 		} else if watchErr != nil {
 			logger.Warn("failed to start PVC watcher, will retry", "error", watchErr)
+			return constants.RetryContinue, watchErr
 		}
-		return watchErr
+		return constants.RetryStop, nil
 	})
 
 	if err != nil {
@@ -134,6 +128,7 @@ func (w *worker) PVCWatcher() error {
 		return errors.New("watch ended unexpectedly")
 	}
 }
+
 
 func (w *worker) CreateUploadFileToPVPod(fileUploadPodName, fileDownloadURL string) error {
 	namespace := w.notebook.Namespace
@@ -303,6 +298,7 @@ func (w *worker) CheckStatusOfUploadFilePod(fileUploadPodName string) error {
 		return errors.New("watch ended unexpectedly")
 	}
 }
+*/
 
 func (w *worker) CreateNotebook() error {
 	nb := w.notebook
@@ -344,6 +340,11 @@ func (w *worker) CreateNotebook() error {
 								"name":  nb.Name,
 								"image": "ghcr.io/kubeflow/kubeflow/notebook-servers/jupyter-scipy:v1.10.0",
 								"env":   []any{},
+								"securityContext": map[string]any{
+									"privileged":               false,
+									"allowPrivilegeEscalation": false,
+									"procMount":                "Default",
+								},
 								"resources": map[string]any{
 									"requests": map[string]any{
 										"cpu":    fmt.Sprintf("%.6f", nb.CPURequest),
@@ -354,7 +355,7 @@ func (w *worker) CreateNotebook() error {
 								"volumeMounts": []any{
 									map[string]any{
 										"name":      "data-volume",
-										"mountPath": "/home/jovyan/data",
+										"mountPath": "/home/jovyan",
 									},
 								},
 							},
@@ -379,14 +380,16 @@ func (w *worker) CreateNotebook() error {
 		Resource: "notebooks",
 	}
 
-	err := WithK8sRetry(ctx, func() error {
+	err := WithK8sRetry(ctx, logger, func() (constants.ShouldContinue, error) {
 		_, err := w.app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(nb.Namespace).Create(ctx, notebookObj, metav1.CreateOptions{})
 		if k8serrors.IsAlreadyExists(err) {
 			logger.Warn("notebook already exists, will not retry creation", "error", err)
+			return constants.RetryStop, nil
 		} else if err != nil {
 			logger.Warn("failed to create notebook, will retry", "error", err)
+			return constants.RetryContinue, err
 		}
-		return err
+		return constants.RetryStop, nil
 	})
 
 	if err != nil {
@@ -411,33 +414,23 @@ func (w *worker) DeleteNotebook() error {
 		Version:  "v1beta1",
 		Resource: "notebooks",
 	}
-
-	logger.Info("deleting notebook resource")
-
 	deletePolicy := metav1.DeletePropagationBackground
 	deleteOptions := metav1.DeleteOptions{
 		PropagationPolicy: &deletePolicy,
 	}
 
-	err := WithK8sRetry(ctx, func() error {
+	err := WithK8sRetry(ctx, logger, func() (constants.ShouldContinue, error) {
 		err := w.app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Delete(ctx, notebookName, deleteOptions)
 		if err != nil {
 			if k8serrors.IsNotFound(err) {
-				return nil
+				return constants.RetryStop, nil
 			}
 			logger.Warn("failed to delete notebook resource, will retry", "error", err)
-			return err
+			return constants.RetryContinue, err
 		}
-		return nil
+		return constants.RetryStop, nil
 	})
-
-	if err != nil {
-		logger.Error("failed to delete notebook resource after retries", "error", err)
-		return err
-	}
-
-	logger.Info("successfully deleted notebook resource")
-	return nil
+	return err
 }
 
 func (w *worker) DeletePod(podName string) error {
@@ -453,31 +446,23 @@ func (w *worker) DeletePod(podName string) error {
 		Resource: "pods",
 	}
 
-	logger.Info("deleting pod")
 	deletePolicy := metav1.DeletePropagationBackground
 	deleteOptions := metav1.DeleteOptions{
 		PropagationPolicy: &deletePolicy,
 	}
 
-	err := WithK8sRetry(ctx, func() error {
+	err := WithK8sRetry(ctx, logger, func() (constants.ShouldContinue, error) {
 		err := w.app.k8sClient.Dynamic.Resource(podGVR).Namespace(namespace).Delete(ctx, podName, deleteOptions)
 		if err != nil {
 			if k8serrors.IsNotFound(err) {
-				return nil
+				return constants.RetryStop, nil
 			}
 			logger.Warn("failed to delete pod, will retry", "error", err)
-			return err
+			return constants.RetryContinue, err
 		}
-		return nil
+		return constants.RetryStop, nil
 	})
-
-	if err != nil {
-		logger.Error("failed to delete pod after retries", "error", err)
-		return err
-	}
-
-	logger.Info("successfully deleted pod")
-	return nil
+	return err
 }
 
 func (w *worker) DeletePVC() error {
@@ -494,30 +479,20 @@ func (w *worker) DeletePVC() error {
 		Resource: "persistentvolumeclaims",
 	}
 
-	logger.Info("deleting persistentvolumeclaim")
-
 	deletePolicy := metav1.DeletePropagationBackground
 	deleteOptions := metav1.DeleteOptions{
 		PropagationPolicy: &deletePolicy,
 	}
 
-	err := WithK8sRetry(ctx, func() error {
+	err := WithK8sRetry(ctx, logger, func() (constants.ShouldContinue, error) {
 		err := w.app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Delete(ctx, pvcName, deleteOptions)
 		if err != nil {
 			if k8serrors.IsNotFound(err) {
-				return nil
+				return constants.RetryStop, nil
 			}
-			logger.Warn("failed to delete PVC, will retry", "error", err)
-			return err
+			return constants.RetryContinue, err
 		}
-		return nil
+		return constants.RetryStop, nil
 	})
-
-	if err != nil {
-		logger.Error("failed to delete PVC after retries", "error", err)
-		return err
-	}
-
-	logger.Info("successfully deleted PVC")
-	return nil
+	return err
 }

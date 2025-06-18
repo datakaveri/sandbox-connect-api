@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"sandbox-backend-service/pkg/constants"
 	"time"
 
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -86,7 +87,7 @@ func (app *application) removeStoppedAnnotationFromNotebook(ctx context.Context,
 	return nil
 }
 
-func (app *application) deleteNotebookFromK8s(ctx context.Context, namespace, notebookName string) error {
+func (app *application) deleteNotebookFromK8s(ctx context.Context, logger *slog.Logger, namespace, notebookName string) error {
 	notebookGVR := schema.GroupVersionResource{
 		Group:    "kubeflow.org",
 		Version:  "v1beta1",
@@ -98,37 +99,41 @@ func (app *application) deleteNotebookFromK8s(ctx context.Context, namespace, no
 		PropagationPolicy: &deletePolicy,
 	}
 
-	return WithK8sRetry(ctx, func() error {
+	return WithK8sRetry(ctx, logger, func() (constants.ShouldContinue, error) {
 		err := app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Delete(ctx, notebookName, deleteOptions)
 		if err != nil && k8serrors.IsNotFound(err) {
-			return nil
+			return constants.RetryStop, err
 		}
-		return err
+		return constants.RetryContinue, err
 	})
 }
 
-func (app *application) getNotebooksJSON(ctx context.Context, namespace string) (map[string]any, error) {
-	notebookGVR := schema.GroupVersionResource{
-		Group:    "kubeflow.org",
-		Version:  "v1beta1",
-		Resource: "notebooks",
+/*
+	func (app *application) getNotebooksJSON(ctx context.Context, namespace string) (map[string]any, error) {
+		notebookGVR := schema.GroupVersionResource{
+			Group:    "kubeflow.org",
+			Version:  "v1beta1",
+			Resource: "notebooks",
+		}
+
+		list, err := app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return nil, err
+		}
+
+		notebooks := make(map[string]any)
+
+		for _, item := range list.Items {
+			notebooks[item.GetName()] = item.Object
+		}
+
+		slog.Info("notebooks", "notebooks", notebooks)
+		slog.Info("list", "list", list)
+
+		return notebooks, nil
 	}
-
-	list, err := app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	notebooks := make(map[string]any)
-
-	for _, item := range list.Items {
-		notebooks[item.GetName()] = item.Object
-	}
-
-	return notebooks, nil
-}
-
-func (app *application) deletePVCFromK8s(ctx context.Context, namespace, pvcName string) error {
+*/
+func (app *application) deletePVCFromK8s(ctx context.Context, logger *slog.Logger, namespace, pvcName string) error {
 	pvcGVR := schema.GroupVersionResource{
 		Group:    "",
 		Version:  "v1",
@@ -140,16 +145,16 @@ func (app *application) deletePVCFromK8s(ctx context.Context, namespace, pvcName
 		PropagationPolicy: &deletePolicy,
 	}
 
-	return WithK8sRetry(ctx, func() error {
+	return WithK8sRetry(ctx, logger, func() (constants.ShouldContinue, error) {
 		err := app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Delete(ctx, pvcName, deleteOptions)
 		if err != nil && k8serrors.IsNotFound(err) {
-			return nil
+			return constants.RetryStop, err
 		}
-		return err
+		return constants.RetryContinue, err
 	})
 }
 
-func (app *application) getNotebookJSON(ctx context.Context, namespace, notebookName string) (*unstructured.Unstructured, error) {
+func (app *application) getNotebookJSON(ctx context.Context, logger *slog.Logger, namespace, notebookName string) (*unstructured.Unstructured, error) {
 	notebookGVR := schema.GroupVersionResource{
 		Group:    "kubeflow.org",
 		Version:  "v1beta1",
@@ -157,10 +162,10 @@ func (app *application) getNotebookJSON(ctx context.Context, namespace, notebook
 	}
 
 	var spec *unstructured.Unstructured
-	err := WithK8sRetry(ctx, func() error {
+	err := WithK8sRetry(ctx, logger, func() (constants.ShouldContinue, error) {
 		var err error
 		spec, err = app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Get(ctx, notebookName, metav1.GetOptions{})
-		return err
+		return constants.RetryContinue, err
 	})
 
 	return spec, err
@@ -191,14 +196,12 @@ func (app *application) createKubeflowProfile(ctx context.Context, logger *slog.
 		Resource: "profiles",
 	}
 
-	cancelCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	return WithK8sRetry(cancelCtx, func() error {
+	return WithK8sRetry(ctx, logger, func() (constants.ShouldContinue, error) {
 		_, err := app.k8sClient.Dynamic.Resource(profileGVR).Create(ctx, profile, metav1.CreateOptions{})
 		if k8serrors.IsAlreadyExists(err) {
 			logger.Info("profile already exists", "profileName", userId)
-			cancel()
+			return constants.RetryStop, err
 		}
-		return err
+		return constants.RetryContinue, err
 	})
 }

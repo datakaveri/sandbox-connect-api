@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"sandbox-backend-service/pkg/constants"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,17 +23,17 @@ func (ps *profileSync) listNotebooksInNamespace(ctx context.Context, namespace s
 	ps.logger.Info("listing notebooks in namespace", "namespace", namespace)
 
 	var notebooks []unstructured.Unstructured
-	err := WithK8sRetry(ctx, func() error {
+	err := WithK8sRetry(ctx, ps.logger, func() (constants.ShouldContinue, error) {
 		list, err := ps.dynamicClient.Dynamic.Resource(notebookGVR).Namespace(namespace).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			if k8serrors.IsNotFound(err) {
 				ps.logger.Warn("no notebooks found or namespace does not exist", "namespace", namespace, "error", err)
-				return nil
+				return constants.RetryStop, nil
 			}
-			return err
+			return constants.RetryContinue, err
 		}
 		notebooks = list.Items
-		return nil
+		return constants.RetryStop, nil
 	})
 
 	if err != nil {
@@ -61,17 +62,17 @@ func (ps *profileSync) stopAllNotebooksInNamespace(ctx context.Context, namespac
 
 	for _, notebook := range notebooks {
 		notebookName := notebook.GetName()
-		err := WithK8sRetry(ctx, func() error {
+		err := WithK8sRetry(ctx, ps.logger, func() (constants.ShouldContinue, error) {
 			latestNotebook, err := ps.dynamicClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Get(ctx, notebookName, metav1.GetOptions{})
 			if err != nil {
 				if k8serrors.IsNotFound(err) {
-					return nil
+					return constants.RetryStop, nil
 				}
-				return err
+				return constants.RetryContinue, err
 			}
 			annotations, found, err := unstructured.NestedMap(latestNotebook.Object, "metadata", "annotations")
 			if err != nil {
-				return err
+				return constants.RetryContinue, err
 			}
 
 			if !found {
@@ -81,11 +82,11 @@ func (ps *profileSync) stopAllNotebooksInNamespace(ctx context.Context, namespac
 			annotations["kubeflow-resource-stopped"] = stopTime
 
 			if err := unstructured.SetNestedMap(latestNotebook.Object, annotations, "metadata", "annotations"); err != nil {
-				return err
+				return constants.RetryContinue, err
 			}
 
 			_, err = ps.dynamicClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Update(ctx, latestNotebook, metav1.UpdateOptions{})
-			return err
+			return constants.RetryStop, err
 		})
 
 		if err != nil {
@@ -112,13 +113,13 @@ func (ps *profileSync) getAllProfilesFromK8s() ([]KubeflowProfile, error) {
 		Resource: "profiles",
 	}
 	profileList := &unstructured.UnstructuredList{}
-	err := WithK8sRetry(ps.rootCtx, func() error {
+	err := WithK8sRetry(ps.rootCtx, ps.logger, func() (constants.ShouldContinue, error) {
 		var err error
 		profileList, err = ps.dynamicClient.Dynamic.Resource(profileGVR).List(ps.rootCtx, metav1.ListOptions{})
 		if err != nil {
-			return fmt.Errorf("failed to list profiles: %v", err)
+			return constants.RetryContinue, fmt.Errorf("failed to list profiles: %v", err)
 		}
-		return nil
+		return constants.RetryStop, nil
 	})
 	if err != nil {
 		return nil, err

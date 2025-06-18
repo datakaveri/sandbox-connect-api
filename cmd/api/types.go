@@ -41,7 +41,9 @@ type Resource struct {
 	Request float64 `json:"request" validate:"required,gt=0.1"`
 	Limit   float64 `json:"limit" validate:"required,gt=0.1"`
 }
-
+type CreateGPUResource struct {
+	Name string `json:"name" validate:"required"`
+}
 type GPUResource struct {
 	Type  string `json:"type" validate:"omitempty"`
 	Limit int    `json:"limit" validate:"omitempty"`
@@ -103,7 +105,7 @@ type DeleteNotebookRequest struct {
 type NotebookState string
 
 const (
-	NotebookStateCreating NotebookState = "creating"
+	NotebookStateOpening  NotebookState = "opening"
 	NotebookStateRunning  NotebookState = "running"
 	NotebookStateStopped  NotebookState = "stopped"
 	NotebookStateFailed   NotebookState = "failed"
