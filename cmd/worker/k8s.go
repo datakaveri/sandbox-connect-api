@@ -335,16 +335,13 @@ func (w *worker) CreateNotebook() error {
 			"spec": map[string]any{
 				"template": map[string]any{
 					"spec": map[string]any{
+						"hostPID": false,
+						"hostIPC": false,
 						"containers": []any{
 							map[string]any{
 								"name":  nb.Name,
 								"image": "ghcr.io/kubeflow/kubeflow/notebook-servers/jupyter-scipy:v1.10.0",
 								"env":   []any{},
-								"securityContext": map[string]any{
-									"privileged":               false,
-									"allowPrivilegeEscalation": false,
-									"procMount":                "Default",
-								},
 								"resources": map[string]any{
 									"requests": map[string]any{
 										"cpu":    fmt.Sprintf("%.6f", nb.CPURequest),
