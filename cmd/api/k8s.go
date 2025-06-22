@@ -250,7 +250,7 @@ type DBNotebookInfo struct {
 
 // getSuccessfullyCreatedNotebookCounts returns the total number of successfully created CPU and GPU notebooks
 // in the given namespace, ignoring stopped ones. It does not check for "applied" state, just existence in k8s.
-func (app *application) getSuccessfullyCreatedNotebookCounts(ctx context.Context, dbNotebooks []DBNotebookInfo, namespace, gpuTypeKey string) (int, int, error) {
+func (app *application) getSuccessfullyCreatedNotebookCounts(ctx context.Context, dbNotebooks []DBNotebookInfo, namespace string) (int, int, error) {
 	notebookGVR := schema.GroupVersionResource{
 		Group:    "kubeflow.org",
 		Version:  "v1beta1",
@@ -271,7 +271,6 @@ func (app *application) getSuccessfullyCreatedNotebookCounts(ctx context.Context
 			continue
 		}
 		_, exists := k8sNotebookNames[nb.Name]
-		//orphaned notebook
 		if !exists && nb.LatestEvent == constants.StatusNotebookApplied {
 			continue
 		}
@@ -287,7 +286,7 @@ func (app *application) getSuccessfullyCreatedNotebookCounts(ctx context.Context
 // CountEffectiveRunningNotebooks returns the number of running CPU and GPU notebooks
 // considering both DB and k8s state.
 // we are not checking notebook applied status because our worker can be inbetewen state of creating it
-func (app *application) CountEffectiveRunningNotebooks(ctx context.Context, namespace string, gpuTypeKey string, dbNotebooks []DBNotebookInfo) (int, int, error) {
+func (app *application) CountEffectiveRunningNotebooks(ctx context.Context, dbNotebooks []DBNotebookInfo, namespace string) (int, int, error) {
 	notebookGVR := schema.GroupVersionResource{
 		Group:    "kubeflow.org",
 		Version:  "v1beta1",

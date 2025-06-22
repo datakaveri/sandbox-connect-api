@@ -132,7 +132,7 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := tx.Query(ctx, "SELECT name, gpu_type, gpu_count, events[array_upper(events, 1)] as latest_event FROM notebooks WHERE user_id = $1", userInfo.Sub)
+	rows, err := tx.Query(ctx, "SELECT name, gpu_type, gpu_request, gpu_limit, events[array_upper(events, 1)] as latest_event FROM notebooks WHERE user_id = $1", userInfo.Sub)
 	if err != nil {
 		logger.Error("failed to fetch notebooks for user", "error", err)
 		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
@@ -144,15 +144,16 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var name string
 		var gpuType *string
-		var gpuCount *int
+		var gpuRequest *int
+		var gpuLimit *int
 		var latestEvent constants.Events
-		if err := rows.Scan(&name, &gpuType, &gpuCount, &latestEvent); err != nil {
+		if err := rows.Scan(&name, &gpuType, &gpuRequest, &gpuLimit, &latestEvent); err != nil {
 			logger.Error("failed to scan notebook row", "error", err)
 			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
 			return
 		}
 		nbType := "cpu"
-		if gpuType != nil && gpuCount != nil {
+		if utils.CheckGPUResource(gpuType, gpuRequest, gpuLimit) {
 			nbType = "gpu"
 		}
 		dbNotebooks = append(dbNotebooks, DBNotebookInfo{
@@ -166,23 +167,23 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
 		return
 	}
-	totalCPU, totalGPU, err := app.getSuccessfullyCreatedNotebookCounts(ctx, dbNotebooks, namespace, app.env.NotebookConfig.GPUType)
+	totalCPU, totalGPU, err := app.getSuccessfullyCreatedNotebookCounts(ctx, dbNotebooks, namespace)
 	if err != nil {
 		logger.Error("failed to get successfully created notebook counts", "error", err)
 		sendError(w, logger, http.StatusInternalServerError, "Failed to get successfully created notebook counts")
 		return
 	}
-	runningCPU, runningGPU, err := app.CountEffectiveRunningNotebooks(ctx, namespace, app.env.NotebookConfig.GPUType, dbNotebooks)
+	runningCPU, runningGPU, err := app.CountEffectiveRunningNotebooks(ctx, dbNotebooks, namespace)
 	if err != nil {
 		logger.Error("failed to check running notebooks from k8s", "error", err)
 		sendError(w, logger, http.StatusInternalServerError, "Failed to check running notebooks")
 		return
 	}
-	if runningCPU >= app.env.NotebookConfig.MaxRunningCPU {
+	if runningCPU >= app.env.NotebookConfig.MaxRunningCPU && notebookReq.Type == "cpu" {
 		sendError(w, logger, http.StatusBadRequest, "Cannot create notebook: running CPU notebook limit exceeded.")
 		return
 	}
-	if runningGPU >= app.env.NotebookConfig.MaxRunningGPU {
+	if runningGPU >= app.env.NotebookConfig.MaxRunningGPU && notebookReq.Type == "gpu" {
 		sendError(w, logger, http.StatusBadRequest, "Cannot create notebook: running GPU notebook limit exceeded.")
 		return
 	}
@@ -212,29 +213,25 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		userInfo.Sub,
 		notebookReq.Name,
 		namespace,
-		app.env.NotebookConfig.StorageSize,
 		notebookReq.Name + "-pvc",
-		app.env.NotebookConfig.CPURequest,
-		app.env.NotebookConfig.CPULimit,
-		app.env.NotebookConfig.MemoryRequest,
-		app.env.NotebookConfig.MemoryLimit,
 	}
 
 	var query string
 	if notebookReq.Type == "gpu" {
-		baseArgs = append(baseArgs, app.env.NotebookConfig.GPUType, app.env.NotebookConfig.GPULimit)
+		baseArgs = append(baseArgs, app.env.NotebookConfig.GPUStorageSize, app.env.NotebookConfig.GPUCPURequest, app.env.NotebookConfig.GPUCPULimit, app.env.NotebookConfig.GPUMemoryRequest, app.env.NotebookConfig.GPUMemoryLimit, app.env.NotebookConfig.GPUType, app.env.NotebookConfig.GPURequest, app.env.NotebookConfig.GPULimit)
 		query = `
 			INSERT INTO notebooks (
-				user_id, name, namespace, storage_size, pvc_name, 
+				user_id, name, namespace, pvc_name, storage_size, 
 				cpu_request, cpu_limit, memory_request, memory_limit,
-				gpu_type, gpu_count
+				gpu_type, gpu_request, gpu_limit
 			) VALUES (
-				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
 			) RETURNING id`
 	} else {
+		baseArgs = append(baseArgs, app.env.NotebookConfig.CPUStorageSize, app.env.NotebookConfig.CPURequest, app.env.NotebookConfig.CPULimit, app.env.NotebookConfig.MemoryRequest, app.env.NotebookConfig.MemoryLimit)
 		query = `
 		INSERT INTO notebooks (
-			user_id, name, namespace, storage_size, pvc_name, 
+			user_id, name, namespace, pvc_name, storage_size, 
 			cpu_request, cpu_limit, memory_request, memory_limit
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9
@@ -383,7 +380,7 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 
 	logger = logger.With("method", "startNotebook", "namespace", namespace, "name", startReq.Name)
 
-	rows, err := tx.Query(ctx, "SELECT id, name, gpu_type, gpu_count, events[array_upper(events, 1)] as latest_event FROM notebooks WHERE user_id = $1", userInfo.Sub)
+	rows, err := tx.Query(ctx, "SELECT id, name, gpu_type, gpu_request, gpu_limit, events[array_upper(events, 1)] as latest_event FROM notebooks WHERE user_id = $1", userInfo.Sub)
 	if err != nil {
 		logger.Error("failed to fetch notebooks for user", "error", err)
 		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
@@ -394,21 +391,21 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 	dbNotebooks := []DBNotebookInfo{}
 	var latestEvent constants.Events
 	var gpuType *string
-	var gpuCount *int
+	var gpuRequest, gpuLimit *int
 	foundNotebook := false
 	for rows.Next() {
 		var id int64
 		var name string
 		var rowGpuType *string
-		var rowGpuCount *int
+		var rowGpuRequest, rowGpuLimit *int
 		var rowLatestEvent constants.Events
-		if err := rows.Scan(&id, &name, &rowGpuType, &rowGpuCount, &rowLatestEvent); err != nil {
+		if err := rows.Scan(&id, &name, &rowGpuType, &rowGpuRequest, &rowGpuLimit, &rowLatestEvent); err != nil {
 			logger.Error("failed to scan notebook row", "error", err)
 			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
 			return
 		}
 		nbType := "cpu"
-		if rowGpuType != nil && rowGpuCount != nil {
+		if rowGpuType != nil {
 			nbType = "gpu"
 		}
 		dbNotebooks = append(dbNotebooks, DBNotebookInfo{
@@ -419,7 +416,8 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 		if name == startReq.Name {
 			latestEvent = rowLatestEvent
 			gpuType = rowGpuType
-			gpuCount = rowGpuCount
+			gpuRequest = rowGpuRequest
+			gpuLimit = rowGpuLimit
 			foundNotebook = true
 		}
 	}
@@ -440,9 +438,9 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isGPUResource := gpuType != nil && gpuCount != nil
+	isGPUResource := utils.CheckGPUResource(gpuType, gpuRequest, gpuLimit)
 
-	runningCPU, runningGPU, err := app.CountEffectiveRunningNotebooks(ctx, namespace, app.env.NotebookConfig.GPUType, dbNotebooks)
+	runningCPU, runningGPU, err := app.CountEffectiveRunningNotebooks(ctx, dbNotebooks, namespace)
 	if err != nil {
 		logger.Error("failed to check running notebooks from k8s", "error", err)
 		sendError(w, logger, http.StatusInternalServerError, "Failed to check running notebooks")
@@ -594,7 +592,6 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
 	logger = logger.With("method", "listNotebooks")
-	ctx := r.Context()
 
 	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
 	if !ok {
@@ -602,6 +599,8 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		sendResponse(w, logger, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
+
+	ctx := r.Context()
 	namespace := userInfo.Sub
 	filterVal := r.URL.Query().Get("filter")
 	orderVal := r.URL.Query().Get("order")
@@ -673,7 +672,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		query = fmt.Sprintf(`
 			SELECT id, name, namespace, storage_size, pvc_name,
 				cpu_request, cpu_limit, memory_request, memory_limit,
-				gpu_type, gpu_count, template_name, events, created_at
+				gpu_type, gpu_request, gpu_limit, template_name, events, created_at
 			FROM notebooks
 			WHERE namespace = $1 AND created_at >= $2 AND created_at <= $3
 			%s
@@ -683,7 +682,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		query = fmt.Sprintf(`
 			SELECT id, name, namespace, storage_size, pvc_name,
 				cpu_request, cpu_limit, memory_request, memory_limit,
-				gpu_type, gpu_count, template_name, events, created_at
+				gpu_type, gpu_request, gpu_limit, template_name, events, created_at
 			FROM notebooks
 			WHERE namespace = $1
 			%s
@@ -703,12 +702,25 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		scanErr := rows.Scan(
 			&nb.ID, &nb.Name, &nb.Namespace, &nb.StorageSize, &nb.PVCName,
 			&nb.CPURequest, &nb.CPULimit, &nb.MemoryRequest, &nb.MemoryLimit,
-			&nb.GPUType, &nb.GPUCount, &nb.TemplateName, &nb.Events, &nb.CreatedAt,
+			&nb.GPUType, &nb.GPURequest, &nb.GPULimit, &nb.TemplateName, &nb.Events, &nb.CreatedAt,
 		)
 		if scanErr != nil {
 			logger.Error("failed to scan notebook row", "error", scanErr)
 			continue
 		}
+		notebooks = append(notebooks, nb)
+	}
+
+	type k8sResult struct {
+		index     int
+		k8sObject map[string]any
+		err       error
+	}
+
+	resultChan := make(chan k8sResult, len(notebooks))
+	activeRequests := 0
+
+	for i, nb := range notebooks {
 		var latestEvent constants.Events
 		if len(nb.Events) > 0 {
 			latestEvent = nb.Events[len(nb.Events)-1]
@@ -716,22 +728,52 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 
 		notebookFailed := checkNotebookFailed(latestEvent)
 
-		var k8sObject map[string]any = nil
 		if !notebookFailed && latestEvent == constants.StatusNotebookApplied {
-			k8sSpec, k8sErr := app.getNotebookJSON(ctx, logger, namespace, nb.Name)
-			if k8sErr != nil {
-				logger.Warn("failed to get notebook from Kubernetes", "error", k8sErr, "name", nb.Name)
-				k8sObject = nil
-			} else if k8sSpec != nil {
-				k8sObject = k8sSpec.Object
+			activeRequests++
+			go func(index int, name string) {
+				k8sSpec, k8sErr := app.getNotebookJSON(ctx, logger, namespace, name)
+				var k8sObject map[string]any = nil
+				if k8sErr == nil && k8sSpec != nil {
+					k8sObject = k8sSpec.Object
+				}
+				resultChan <- k8sResult{index: index, k8sObject: k8sObject, err: k8sErr}
+			}(i, nb.Name)
+		}
+	}
+
+	k8sResults := make(map[int]map[string]any)
+	for i := 0; i < activeRequests; i++ {
+		select {
+		case result := <-resultChan:
+			if result.err != nil {
+				logger.Error("failed to get notebook from Kubernetes, returning error", "error", result.err)
+				sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+				return
 			}
+			k8sResults[result.index] = result.k8sObject
+		case <-ctx.Done():
+			logger.Error("context timeout while fetching notebook status")
+			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+			return
+		}
+	}
+
+	for i, nb := range notebooks {
+		var latestEvent constants.Events
+		if len(nb.Events) > 0 {
+			latestEvent = nb.Events[len(nb.Events)-1]
+		}
+
+		var k8sObject map[string]any = nil
+		if result, exists := k8sResults[i]; exists {
+			k8sObject = result
 		}
 
 		nb.Status = determineNotebookState(latestEvent, k8sObject)
 		if nb.Status == NotebookStateRunning {
 			nb.URL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, nb.Namespace, nb.Name)
 		}
-		notebooks = append(notebooks, nb)
+		notebooks[i] = nb
 	}
 	if rowsErr := rows.Err(); rowsErr != nil {
 		logger.Error("error iterating notebook rows", "error", rowsErr)
@@ -786,7 +828,7 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 	query := `
 		SELECT id, name, namespace, storage_size, pvc_name, 
 			cpu_request, cpu_limit, memory_request, memory_limit,
-			gpu_type, gpu_count, template_name, events, created_at
+			gpu_type, gpu_request, gpu_limit, template_name, events, created_at
 		FROM notebooks
 		WHERE namespace= $1 and name = $2`
 
@@ -801,7 +843,8 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 		&status.MemoryRequest,
 		&status.MemoryLimit,
 		&status.GPUType,
-		&status.GPUCount,
+		&status.GPURequest,
+		&status.GPULimit,
 		&status.TemplateName,
 		&status.Events,
 		&status.CreatedAt,

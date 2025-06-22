@@ -53,13 +53,21 @@ type CheckStatusRequest struct {
 	Id int64 `json:"id" validate:"required"`
 }
 type NotebookConfig struct {
-	StorageSize              string `env:"API_DEFAULT_STORAGE_SIZE,required"`
-	CPURequest               string `env:"API_DEFAULT_CPU_REQUEST,required"`
-	CPULimit                 string `env:"API_DEFAULT_CPU_LIMIT,required"`
-	MemoryRequest            string `env:"API_DEFAULT_MEMORY_REQUEST,required"`
-	MemoryLimit              string `env:"API_DEFAULT_MEMORY_LIMIT,required"`
-	GPUType                  string `env:"API_DEFAULT_GPU_TYPE,required"`
-	GPULimit                 string `env:"API_DEFAULT_GPU_LIMIT,required"`
+	CPUStorageSize string `env:"API_DEFAULT_CPU_STORAGE_SIZE,required"`
+	GPUStorageSize string `env:"API_DEFAULT_GPU_STORAGE_SIZE,required"`
+	CPURequest     string `env:"API_DEFAULT_CPU_REQUEST,required"`
+	CPULimit       string `env:"API_DEFAULT_CPU_LIMIT,required"`
+	MemoryRequest  string `env:"API_DEFAULT_MEMORY_REQUEST,required"`
+	MemoryLimit    string `env:"API_DEFAULT_MEMORY_LIMIT,required"`
+
+	GPUType          string `env:"API_DEFAULT_GPU_TYPE,required"`
+	GPURequest       string `env:"API_DEFAULT_GPU_REQUEST,required"`
+	GPULimit         string `env:"API_DEFAULT_GPU_LIMIT,required"`
+	GPUMemoryRequest string `env:"API_DEFAULT_GPU_MEMORY_REQUEST,required"`
+	GPUMemoryLimit   string `env:"API_DEFAULT_GPU_MEMORY_LIMIT,required"`
+	GPUCPULimit      string `env:"API_DEFAULT_GPU_CPU_LIMIT,required"`
+	GPUCPURequest    string `env:"API_DEFAULT_GPU_CPU_REQUEST,required"`
+
 	KubeFlowURL              string `env:"API_KUBEFLOW_URL,required"`
 	DefaultNotebookListLimit int    `env:"API_NOTEBOOK_LIST_LIMIT" envDefault:"10"`
 
@@ -85,7 +93,8 @@ type NotebookStatus struct {
 	MemoryRequest string             `json:"memoryRequest"`
 	MemoryLimit   string             `json:"memoryLimit"`
 	GPUType       *string            `json:"gpuType,omitempty"`
-	GPUCount      *int               `json:"gpuCount,omitempty"`
+	GPURequest    *int               `json:"gpuRequest,omitempty"`
+	GPULimit      *int               `json:"gpuLimit,omitempty"`
 	TemplateName  *string            `json:"templateName,omitempty"`
 	Events        []constants.Events `json:"events"`
 	Status        NotebookState      `json:"status"`
@@ -98,13 +107,13 @@ type NotebookListResponse struct {
 }
 
 type StopNotebookRequest struct {
-	Name string `json:"name" validate:"gt=3,required"`
+	Name string `json:"name" validate:"gt=3,lte=50,required"`
 }
 type StartNotebookRequest struct {
-	Name string `json:"name" validate:"gt=3,required"`
+	Name string `json:"name" validate:"gt=3,lte=50,required"`
 }
 type DeleteNotebookRequest struct {
-	Name string `json:"name" validate:"gt=3,required"`
+	Name string `json:"name" validate:"gt=3,lte=50,required"`
 }
 
 type NotebookState string

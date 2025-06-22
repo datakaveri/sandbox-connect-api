@@ -72,11 +72,7 @@ func getLogger(r *http.Request) *slog.Logger {
 
 func determineNotebookState(latestEvent constants.Events, k8sSpec map[string]any) NotebookState {
 	if k8sSpec == nil {
-		if latestEvent == constants.StatusPVCApplyFailed ||
-			latestEvent == constants.StatusPVCUploadFailed ||
-			latestEvent == constants.StatusPVCUploadApplyFailed ||
-			latestEvent == constants.StatusNotebookApplyFailed ||
-			latestEvent == constants.StatusPVCCreationFailed {
+		if checkNotebookFailed(latestEvent) {
 			return NotebookStateFailed
 		}
 
@@ -127,7 +123,7 @@ func generateNotebookURL(baseURL, namespace, notebookName string) string {
 	}
 	baseURL = strings.TrimSuffix(baseURL, "/")
 
-	notebookPath := fmt.Sprintf("notebook/%s/%s/lab", namespace, notebookName)
+	notebookPath := fmt.Sprintf("notebook/%s/%s/lab/tree/demo.ipynb", namespace, notebookName)
 
 	return baseURL + "/" + notebookPath
 }

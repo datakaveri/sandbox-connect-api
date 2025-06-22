@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sandbox-backend-service/pkg/constants"
+	"sandbox-backend-service/pkg/utils"
 
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -49,9 +50,10 @@ func (w *worker) CreatePVC() error {
 
 	err := WithK8sRetry(ctx, logger, func() (constants.ShouldContinue, error) {
 		_, err := w.app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+		//it can happen that our notebook is in deletion phase and it is still showing it exists so we better throw error
 		if k8serrors.IsAlreadyExists(err) {
 			logger.Warn("PVC already exists, will not retry creation", "error", err)
-			return constants.RetryStop, nil
+			return constants.RetryStop, err
 		}
 		return constants.RetryContinue, err
 	})
@@ -308,16 +310,101 @@ func (w *worker) CreateNotebook() error {
 	defer cancel()
 
 	var limit map[string]any
-	if nb.GPUType != nil && nb.GPUCount != nil && *nb.GPUCount != 0 {
+	var imageName string
+	var request map[string]any
+	if utils.CheckGPUResource(nb.GPUType, nb.GPURequest, nb.GPULimit) {
+		imageName = "108779579607.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-gpu-notebook:latest"
 		limit = map[string]any{
 			"cpu":       fmt.Sprintf("%.6f", nb.CPULimit),
 			"memory":    nb.MemoryLimit,
-			*nb.GPUType: nb.GPUCount,
+			*nb.GPUType: *nb.GPULimit,
+		}
+		request = map[string]any{
+			"cpu":       fmt.Sprintf("%.6f", nb.CPURequest),
+			"memory":    nb.MemoryRequest,
+			*nb.GPUType: *nb.GPURequest,
 		}
 	} else {
+		imageName = "108779579607.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:latest"
 		limit = map[string]any{
 			"cpu":    fmt.Sprintf("%.6f", nb.CPULimit),
 			"memory": nb.MemoryLimit,
+		}
+		request = map[string]any{
+			"cpu":    fmt.Sprintf("%.6f", nb.CPURequest),
+			"memory": nb.MemoryRequest,
+		}
+	}
+
+	// Build the notebook spec
+	specTemplateSpec := map[string]any{
+		"initContainers": []any{
+			map[string]any{
+				"name":  "init-demo-ipynb",
+				"image": "108779579607.dkr.ecr.ap-south-1.amazonaws.com/tgdex/demo-notebook-file:latest",
+				"command": []any{"/bin/sh", "-c", `
+if [ -f /home/jovyan/demo.ipynb ]; then
+  echo '[init] /home/jovyan/demo.ipynb already exists, skipping copy.'
+else
+  echo '[init] /home/jovyan/demo.ipynb not found, attempting to move from /tmp/demo.ipynb...'
+  if mv /tmp/demo.ipynb /home/jovyan/demo.ipynb; then
+    echo '[init] Successfully moved /tmp/demo.ipynb to /home/jovyan/demo.ipynb.'
+    chown 1000:1000 /home/jovyan/demo.ipynb
+    chmod 644 /home/jovyan/demo.ipynb
+  else
+    echo '[init] Failed to move /tmp/demo.ipynb to /home/jovyan/demo.ipynb.'
+    exit 1
+  fi
+fi
+`},
+				"volumeMounts": []any{
+					map[string]any{
+						"name":      "data-volume",
+						"mountPath": "/home/jovyan",
+					},
+				},
+			},
+		},
+		"containers": []any{
+			map[string]any{
+				"name":  nb.Name,
+				"image": imageName,
+				"securityContext": map[string]any{
+					"privileged":               false,
+					"procMount":                "Default",
+					"allowPrivilegeEscalation": false,
+				},
+				"resources": map[string]any{
+					"requests": request,
+					"limits":   limit,
+				},
+				"volumeMounts": []any{
+					map[string]any{
+						"name":      "data-volume",
+						"mountPath": "/home/jovyan",
+					},
+				},
+			},
+		},
+		"volumes": []any{
+			map[string]any{
+				"name": "data-volume",
+				"persistentVolumeClaim": map[string]any{
+					"claimName": nb.PVCname,
+				},
+			},
+		},
+		"serviceAccountName": "default-editor",
+	}
+
+	// Add nodeSelector for CPU or GPU notebooks
+	if utils.CheckGPUResource(nb.GPUType, nb.GPURequest, nb.GPULimit) {
+		specTemplateSpec["nodeSelector"] = map[string]any{
+			"node.kubernetes.io/instance-type": "g4dn.xlarge",
+		}
+	} else {
+		specTemplateSpec["nodeSelector"] = map[string]any{
+			"node.kubernetes.io/instance-type": "t3a.2xlarge",
 		}
 	}
 
@@ -334,41 +421,7 @@ func (w *worker) CreateNotebook() error {
 			},
 			"spec": map[string]any{
 				"template": map[string]any{
-					"spec": map[string]any{
-						"containers": []any{
-							map[string]any{
-								"name":  nb.Name,
-								"image": "ghcr.io/kubeflow/kubeflow/notebook-servers/jupyter-scipy:v1.10.0",
-								"securityContext": map[string]any{
-									"privileged":               false,
-									"procMount":                "Default",
-									"allowPrivilegeEscalation": false,
-								},
-								"resources": map[string]any{
-									"requests": map[string]any{
-										"cpu":    fmt.Sprintf("%.6f", nb.CPURequest),
-										"memory": nb.MemoryRequest,
-									},
-									"limits": limit,
-								},
-								"volumeMounts": []any{
-									map[string]any{
-										"name":      "data-volume",
-										"mountPath": "/home/jovyan",
-									},
-								},
-							},
-						},
-						"volumes": []any{
-							map[string]any{
-								"name": "data-volume",
-								"persistentVolumeClaim": map[string]any{
-									"claimName": nb.PVCname,
-								},
-							},
-						},
-						"serviceAccountName": "default-editor",
-					},
+					"spec": specTemplateSpec,
 				},
 			},
 		},
@@ -383,7 +436,7 @@ func (w *worker) CreateNotebook() error {
 		_, err := w.app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(nb.Namespace).Create(ctx, notebookObj, metav1.CreateOptions{})
 		if k8serrors.IsAlreadyExists(err) {
 			logger.Warn("notebook already exists, will not retry creation", "error", err)
-			return constants.RetryStop, nil
+			return constants.RetryStop, err
 		} else if err != nil {
 			logger.Warn("failed to create notebook, will retry", "error", err)
 			return constants.RetryContinue, err

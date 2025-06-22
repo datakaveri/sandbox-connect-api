@@ -2,14 +2,15 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: profile-credit-sync-config
-  namespace: sandbox-backend
+  namespace: sandbox
 data:
   PROFILE_CREDIT_SYNC_OPENCOST_URL: "http://opencost.opencost:9003"
-  PROFILE_CREDIT_SYNC_BATCH_SIZE: "50"
-  PROFILE_CREDIT_SYNC_AAA_URL: "http://aaa.aaa:9002"
-  PROFILE_CREDIT_SYNC_KEYCLOAK_URL: "http://keycloak.keycloak:9002"
+  PROFILE_CREDIT_SYNC_MAX_PROFILE_CAN_SYNC_AT_ONCE: "50"
+  PROFILE_CREDIT_SYNC_AAA_URL: "https://dx.tgdex.telangana.gov.in"
+  PROFILE_CREDIT_SYNC_KEYCLOAK_URL: "https://idp.tgdex.telangana.gov.in/auth"
   PROFILE_CREDIT_SYNC_KEYCLOAK_REALM: "tgdex"
   PROFILE_CREDIT_SYNC_KEYCLOAK_CLIENT_ID: "angular-tgdex-client"
-  PROFILE_CREDIT_SYNC_KEYCLOAK_USERNAME: "admin"
-  PROFILE_CREDIT_SYNC_KEYCLOAK_PASSWORD: "admin"
   PROFILE_CREDIT_SYNC_K8S_CONFIG_MODE: "cluster"
+  PROFILE_CREDIT_SYNC_GPU_RESOURCE_KEYS: "nvidia.com/gpu"
+  PROFILE_CREDIT_SYNC_LOG_LEVEL: "debug"
+---

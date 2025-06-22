@@ -6,24 +6,24 @@ import (
 )
 
 const (
-	opencostTimeout        = 30 * time.Second
+	opencostTimeout        = 5 * time.Minute
 	keycloakTokenTimeout   = 30 * time.Second
 	creditDeductionTimeout = 30 * time.Second
 )
 
 const (
 	externalApiInitialDelay = 1 * time.Second
-	externalApiMaxDelay     = 10 * time.Second
+	externalApiMaxDelay     = 30 * time.Second
 	externalApiMaxAttempts  = 5
 	externalApiFactor       = 2.0
 
 	K8sInitialDelay = 1 * time.Second
-	K8sMaxDelay     = 5 * time.Second
+	K8sMaxDelay     = 30 * time.Second
 	K8sMaxAttempts  = 5
 	K8sFactor       = 2.0
 
 	DBInitialDelay = 1 * time.Second
-	DBMaxDelay     = 5 * time.Second
+	DBMaxDelay     = 30 * time.Second
 	DBMaxAttempts  = 5
 	DBFactor       = 2.0
 )

@@ -27,3 +27,7 @@ func DecodeAndValidate[T any](reqBody io.Reader, logger *slog.Logger) (T, error)
 	}
 	return body, nil
 }
+
+func CheckGPUResource(gpuType *string, gpuRequest *int, gpuLimit *int) bool {
+	return gpuType != nil && gpuRequest != nil && gpuLimit != nil && *gpuRequest > 0 && *gpuLimit > 0
+}

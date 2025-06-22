@@ -1,0 +1,34 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: profile-credit-sync-pod
+  namespace: sandbox
+  labels:
+    app: profile-credit-sync
+    type: pod
+spec:
+  serviceAccountName: notebook-manager-sa
+  imagePullSecrets:
+    - name: tgdex-registry-cred
+  containers:
+  - name: profile-credit-sync
+    image: ghcr.io/datakaveri/tgdex-sandbox-credit-sync-cron:latest
+    env:
+    - name: PROFILE_CREDIT_SYNC_POSTGRES_URL
+      valueFrom:
+        secretKeyRef:
+          name: database-creds
+          key: POSTGRES_URL
+    envFrom:
+    - configMapRef:
+        name: profile-credit-sync-config
+    - secretRef:
+        name: profile-credit-sync-keycloak-creds
+    resources:
+      limits:
+        memory: "3Gi"
+        cpu: "2"
+      requests:
+        memory: "1Gi"
+        cpu: "500m"
+  restartPolicy: Never 

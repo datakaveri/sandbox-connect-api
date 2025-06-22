@@ -11,18 +11,19 @@ import (
 )
 
 type CronEnv struct {
-	OpenCostURL             string `env:"PROFILE_CREDIT_SYNC_OPENCOST_URL,required"`
-	POSTGRES_URL            string `env:"PROFILE_CREDIT_SYNC_POSTGRES_URL,required"`
-	MaxProfileCanSyncAtOnce int    `env:"PROFILE_CREDIT_SYNC_MAX_PROFILE_CAN_SYNC_AT_ONCE"`
-	AAA_URL                 string `env:"PROFILE_CREDIT_SYNC_AAA_URL,required"`
-	KEYCLOAK_URL            string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_URL,required"`
-	KEYCLOAK_REALM          string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_REALM,required"`
-	KEYCLOAK_CLIENT_ID      string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_CLIENT_ID,required"`
-	KEYCLOAK_USERNAME       string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_USERNAME,required"`
-	KEYCLOAK_PASSWORD       string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_PASSWORD,required"`
-	K8S_CONFIG_MODE         string `env:"PROFILE_CREDIT_SYNC_K8S_CONFIG_MODE"`
-	K8S_CONFIG_PATH         string `env:"PROFILE_CREDIT_SYNC_K8S_CONFIG_PATH"`
-	LOG_LEVEL               string `env:"PROFILE_CREDIT_SYNC_LOG_LEVEL" envDefault:"info"`
+	OPENCOST_URL                 string `env:"PROFILE_CREDIT_SYNC_OPENCOST_URL,required"`
+	POSTGRES_URL                 string `env:"PROFILE_CREDIT_SYNC_POSTGRES_URL,required"`
+	MAX_PROFILE_CAN_SYNC_AT_ONCE int    `env:"PROFILE_CREDIT_SYNC_MAX_PROFILE_CAN_SYNC_AT_ONCE"`
+	AAA_URL                      string `env:"PROFILE_CREDIT_SYNC_AAA_URL,required"`
+	KEYCLOAK_URL                 string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_URL,required"`
+	KEYCLOAK_REALM               string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_REALM,required"`
+	KEYCLOAK_CLIENT_ID           string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_CLIENT_ID,required"`
+	KEYCLOAK_USERNAME            string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_USERNAME,required"`
+	KEYCLOAK_PASSWORD            string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_PASSWORD,required"`
+	K8S_CONFIG_MODE              string `env:"PROFILE_CREDIT_SYNC_K8S_CONFIG_MODE"`
+	K8S_CONFIG_PATH              string `env:"PROFILE_CREDIT_SYNC_K8S_CONFIG_PATH"`
+	LOG_LEVEL                    string `env:"PROFILE_CREDIT_SYNC_LOG_LEVEL" envDefault:"info"`
+	GPUResourceKeys              string `env:"PROFILE_CREDIT_SYNC_GPU_RESOURCE_KEYS"`
 }
 
 type CostAllocationResponse struct {
@@ -75,7 +76,7 @@ type Profile struct {
 	ProfileID              string    `json:"id"`
 	UserID                 string    `json:"user_id"`
 	Email                  string    `json:"email"`
-	TotalCredit            float64   `json:"total_credit"`
+	TotalPaidCredit        float64   `json:"total_paid_credit"`
 	LastSyncBalance        float64   `json:"last_sync_balance"`
 	CanCreateGpuNotebook   bool      `json:"can_create_gpu_notebook"`
 	AaaAndOpenCostSyncedAt time.Time `json:"aaa_and_opencost_synced_at"`
@@ -83,8 +84,9 @@ type Profile struct {
 }
 
 type KubeflowProfile struct {
-	UserID string
-	Email  string
+	UserID    string
+	Email     string
+	CreatedAt time.Time
 }
 
 type ServerError struct {

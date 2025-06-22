@@ -3,9 +3,10 @@ package k8s
 import (
 	"errors"
 	"fmt"
+	"log/slog"
+
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	"log/slog"
 )
 
 func getKubernetesConfig(configType, configPath string) (*rest.Config, error) {

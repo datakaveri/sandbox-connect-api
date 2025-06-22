@@ -1,17 +1,19 @@
 # Infrastructure Setup
-This directory contains the infrastructure configuration for deploying the Sandbox Connect API and Worker services to Kubernetes.
+This directory contains the infrastructure configuration for deploying the Sandbox Connect API, Worker services, and Cron jobs to Kubernetes.
 
 
 ## Deployment Steps
 We are deploying in sandbox namespace
 
-1. Build the Docker images:
+1. Build and pull Docker images:
 
 ```bash
 docker build -t ghcr.io/datakaveri/tgdex-sandbox-connect-api:latest -f infra/api/Dockerfile .
 docker build -t ghcr.io/datakaveri/tgdex-sandbox-connect-worker:latest -f infra/worker/Dockerfile .
+docker build -t ghcr.io/datakaveri/tgdex-sandbox-credit-sync-cron:latest -f infra/cron/profile-credit-sync/Dockerfile .
 docker push ghcr.io/datakaveri/tgdex-sandbox-connect-api:latest
 docker push ghcr.io/datakaveri/tgdex-sandbox-connect-worker:latest
+docker push ghcr.io/datakaveri/tgdex-sandbox-credit-sync-cron:latest
 ```
 
 2. RBAC
@@ -52,15 +54,16 @@ kubectl create secret generic api-auth \
   --from-literal=API_KEY="<your-secure-api-key>" -n sandbox
 ```
 
-# Configuration of notebook 
+4. Configuration of services
 ```bash
 kubectl apply -f infra/api/configmap.yaml
-
+kubectl apply -f infra/cron/profile-credit-sync/configmap.yaml
 ```
-4. Deploy the api and workers:
+5. Deploy the api, workers, and cron jobs:
 
 ```bash
 kubectl apply -f infra/api/deployment.yaml
 kubectl apply -f infra/worker/deployment.yaml
+kubectl apply -f infra/cron/profile-credit-sync/cronjob.yaml
 ```
 

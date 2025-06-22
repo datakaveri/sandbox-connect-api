@@ -66,20 +66,14 @@ func loggingMiddleware(next http.Handler) http.Handler {
 
 func (app *application) rateLimitMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := r.RemoteAddr
+		ip := getClientIP(r)
 		logger := getLogger(r)
 		if ip == "" {
 			logger.Info("No IP address found, using default value for rate limiting")
 			sendError(w, logger, http.StatusTooManyRequests, "Unable to identify client IP address")
 			return
 		}
-		host, _, err := net.SplitHostPort(ip)
-		if err != nil {
-			logger.Error("Failed to split IP address", "error", err)
-			sendError(w, logger, http.StatusTooManyRequests, "Invalid client IP address format")
-			return
-		}
-		if !app.rateLimiter.GetLimiter(host) {
+		if !app.rateLimiter.GetLimiter(ip) {
 			sendError(w, logger, http.StatusTooManyRequests, "Too many requests in a short period. Please try again later")
 			return
 		}
@@ -87,8 +81,8 @@ func (app *application) rateLimitMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
-func (app *application) contextTimeout(next http.Handler) http.Handler {
 
+func (app *application) contextTimeout(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), time.Duration(app.env.TimeoutInSecs)*time.Second)
 		defer cancel()
@@ -173,4 +167,100 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// getClientIP extracts the real client IP address from the request,
+// considering proxy headers like X-Forwarded-For, X-Real-IP, etc.
+func getClientIP(r *http.Request) string {
+	logger := getLogger(r)
+
+	// Check X-Forwarded-For header first (most common)
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		logger.Debug("found X-Forwarded-For header", "header_value", xff)
+		// X-Forwarded-For can contain multiple IPs separated by commas
+		// The first IP is usually the original client IP
+		ips := strings.Split(xff, ",")
+		for _, ip := range ips {
+			ip = strings.TrimSpace(ip)
+			if ip != "" && isValidIP(ip) {
+				logger.Debug("using IP from X-Forwarded-For", "ip", ip, "method", "X-Forwarded-For")
+				return ip
+			}
+		}
+		logger.Debug("X-Forwarded-For header found but no valid IP extracted", "header_value", xff)
+	}
+
+	// Check X-Real-IP header
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		logger.Debug("found X-Real-IP header", "header_value", xri)
+		xri = strings.TrimSpace(xri)
+		if isValidIP(xri) {
+			logger.Debug("using IP from X-Real-IP", "ip", xri, "method", "X-Real-IP")
+			return xri
+		}
+		logger.Debug("X-Real-IP header found but invalid IP", "header_value", xri)
+	}
+
+	// Check X-Forwarded header
+	if xf := r.Header.Get("X-Forwarded"); xf != "" {
+		logger.Debug("found X-Forwarded header", "header_value", xf)
+		// X-Forwarded format: for=192.168.1.1;proto=http;by=proxy
+		parts := strings.Split(xf, ";")
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if strings.HasPrefix(part, "for=") {
+				ip := strings.TrimPrefix(part, "for=")
+				if isValidIP(ip) {
+					logger.Debug("using IP from X-Forwarded", "ip", ip, "method", "X-Forwarded")
+					return ip
+				}
+			}
+		}
+		logger.Debug("X-Forwarded header found but no valid IP extracted", "header_value", xf)
+	}
+
+	// Fallback to RemoteAddr
+	if r.RemoteAddr != "" {
+		logger.Debug("checking RemoteAddr", "remote_addr", r.RemoteAddr)
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			// If SplitHostPort fails, RemoteAddr might be just an IP without port
+			if isValidIP(r.RemoteAddr) {
+				logger.Debug("using IP from RemoteAddr (no port)", "ip", r.RemoteAddr, "method", "RemoteAddr")
+				return r.RemoteAddr
+			}
+			logger.Debug("RemoteAddr found but invalid format", "remote_addr", r.RemoteAddr, "error", err)
+		} else {
+			if isValidIP(host) {
+				logger.Debug("using IP from RemoteAddr (with port)", "ip", host, "method", "RemoteAddr", "original", r.RemoteAddr)
+				return host
+			}
+			logger.Debug("RemoteAddr host found but invalid IP", "host", host, "original", r.RemoteAddr)
+		}
+	}
+
+	logger.Debug("no valid IP found using any method")
+	return ""
+}
+
+// isValidIP checks if the given string is a valid IP address
+func isValidIP(ip string) bool {
+	parsedIP := net.ParseIP(ip)
+	if parsedIP == nil {
+		return false
+	}
+
+	// Reject private/internal IPs that might be from proxies
+	// You might want to customize this based on your infrastructure
+	if parsedIP.IsLoopback() || parsedIP.IsLinkLocalUnicast() || parsedIP.IsLinkLocalMulticast() {
+		return false
+	}
+
+	// Check for private IP ranges (you might want to allow these depending on your setup)
+	if parsedIP.IsPrivate() {
+		// Uncomment the line below if you want to reject private IPs
+		// return false
+	}
+
+	return true
 }

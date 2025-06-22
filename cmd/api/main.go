@@ -37,10 +37,20 @@ import (
 )
 
 func main() {
+	logLevel := slog.LevelInfo
+	logLevelStr := os.Getenv("API_LOG_LEVEL")
+	if logLevelStr == "debug" {
+		logLevel = slog.LevelDebug
+	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
+		Level: logLevel,
 	}))
 	slog.SetDefault(logger)
+	if logLevelStr == "debug" {
+		logger.Info("Setting log level to DEBUG")
+	} else {
+		logger.Info("Setting log level to INFO")
+	}
 
 	if err := godotenv.Load(); err != nil {
 		slog.Info("no .env file found or error loading it", "error", err)

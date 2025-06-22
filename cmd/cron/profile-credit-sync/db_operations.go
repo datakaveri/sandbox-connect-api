@@ -34,7 +34,7 @@ func (ps *profileSync) markResolvedAAARequests(ctx context.Context, profileID st
 	logger := ps.logger.With("user_id", profileID)
 	logger.Info("Marking resolved AAA requests")
 
-	now := time.Now()
+	now := time.Now().UTC()
 
 	_, err := ps.pgPool.Exec(ctx, `
 		UPDATE failed_aaa_requests 

@@ -14,7 +14,8 @@ CREATE TABLE notebooks (
     memory_limit VARCHAR(20) NOT NULL,
 
     gpu_type VARCHAR(50),
-    gpu_count INTEGER,
+    gpu_request INTEGER,
+    gpu_limit INTEGER,
 
     template_name VARCHAR(255),
     created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -33,7 +34,7 @@ CREATE TABLE profiles (
     id BIGSERIAL PRIMARY KEY,
     user_id UUID NOT NULL,
     email VARCHAR(255) NOT NULL,
-    total_credit DECIMAL(12,6) NOT NULL DEFAULT 0,
+    total_paid_credit DECIMAL(12,6) NOT NULL DEFAULT 0,
     can_create_gpu_notebook BOOLEAN NOT NULL DEFAULT true,
     aaa_and_opencost_synced_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     pending_deduction DECIMAL(12,6) NOT NULL DEFAULT 0,
@@ -52,8 +53,6 @@ CREATE TABLE IF NOT EXISTS failed_aaa_requests (
     status_code INT,
     request_payload JSONB,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    totalRetry INT DEFAULT 0,
-    last_retry_at TIMESTAMP,
     resolved BOOLEAN DEFAULT FALSE,
     resolved_at TIMESTAMP
 );
@@ -73,3 +72,10 @@ FOR EACH ROW EXECUTE PROCEDURE update_modified_column();
 CREATE TRIGGER update_profile_costs_modtime 
 BEFORE UPDATE ON profiles 
 FOR EACH ROW EXECUTE PROCEDURE update_modified_column();
+
+--- indexes
+CREATE INDEX idx_notebooks_user_id ON notebooks(user_id);
+CREATE INDEX idx_notebooks_namespace ON notebooks(namespace);    
+CREATE INDEX idx_notebooks_created_at ON notebooks(created_at); 
+CREATE INDEX idx_notebooks_picked_at_null ON notebooks(picked_at) WHERE picked_at IS NULL;
+-- user_id is already unquie and index profile because of unique_user_id constraint
