@@ -89,12 +89,17 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if errorMessage, gotError := getErrorMessageForNotebookName(notebookReq.Name); gotError {
-		logger.Error("invalid notebook name", "name", notebookReq.Name)
+		logger.Error("invalid notebook name",
+			"notebook_name", notebookReq.Name,
+			"validation_error", errorMessage)
 		sendError(w, logger, http.StatusUnprocessableEntity, errorMessage)
 		return
 	}
 	if notebookReq.Type != "cpu" && notebookReq.Type != "gpu" {
-		logger.Error("invalid notebook type", "type", notebookReq.Type)
+		logger.Error("invalid notebook type",
+			"notebook_name", notebookReq.Name,
+			"notebook_type", notebookReq.Type,
+			"valid_types", "cpu,gpu")
 		sendError(w, logger, http.StatusUnprocessableEntity, "Invalid Notebook Type")
 		return
 	}
@@ -117,11 +122,17 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 	err = tx.QueryRow(ctx, lockQuery, userInfo.Sub).Scan(&canCreateGpuNotebook)
 	if err != nil {
 		if pgErr, ok := err.(*pgconn.PgError); ok && pgErr.Code == "55P03" {
-			logger.Warn("profile is locked by another operation", "user_id", userInfo.Sub)
+			logger.Warn("profile is locked by another operation",
+				"notebook_name", notebookReq.Name,
+				"notebook_type", notebookReq.Type,
+				"lock_error_code", pgErr.Code)
 			sendError(w, logger, http.StatusTooManyRequests, "Another operation is in progress for your account, please try again shortly.")
 			return
 		}
-		logger.Error("failed to lock profile row", "error", err)
+		logger.Error("failed to lock profile row",
+			"error", err,
+			"notebook_name", notebookReq.Name,
+			"notebook_type", notebookReq.Type)
 		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
 		return
 	}
@@ -196,11 +207,15 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 
 	if notebookReq.Type == "gpu" && contains(userInfo.Roles, "compute") {
 		if !canCreateGpuNotebook {
-			logger.Warn("user doesn't have permission to create GPU notebooks", "user_id", userInfo.Sub)
+			logger.Warn("user doesn't have permission to create GPU notebooks",
+				"notebook_name", notebookReq.Name,
+				"can_create_gpu_notebook", canCreateGpuNotebook)
 			sendError(w, logger, http.StatusForbidden, "You don't have enough credit for this operation")
 			return
 		}
-		logger.Debug("user has permission to create GPU notebooks", "user_id", userInfo.Sub)
+		logger.Debug("user has permission to create GPU notebooks",
+			"notebook_name", notebookReq.Name,
+			"can_create_gpu_notebook", canCreateGpuNotebook)
 	}
 
 	baseArgs := []any{
@@ -250,7 +265,10 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
 		return
 	}
-	logger.Info("notebook created successfully", "notebookId", notebookId)
+	logger.Info("notebook created successfully",
+		"notebook_id", notebookId,
+		"notebook_name", notebookReq.Name,
+		"notebook_type", notebookReq.Type)
 	sendResponse(w, logger, http.StatusCreated, "Notebook creation is in process")
 }
 
@@ -363,11 +381,16 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 	err = tx.QueryRow(ctx, lockQuery, userInfo.Sub).Scan(&canCreateGpuNotebook)
 	if err != nil {
 		if pgErr, ok := err.(*pgconn.PgError); ok && pgErr.Code == "55P03" { // lock_not_available
-			logger.Warn("profile is locked by another operation", "user_id", userInfo.Sub)
+			logger.Warn("profile is locked by another operation",
+				"notebook_name", startReq.Name,
+				"lock_error_code", pgErr.Code,
+				"error", pgErr)
 			sendError(w, logger, http.StatusTooManyRequests, "Another operation is in progress for your account, please try again shortly.")
 			return
 		}
-		logger.Error("failed to lock profile row", "error", err)
+		logger.Error("failed to lock profile row",
+			"error", err,
+			"notebook_name", startReq.Name)
 		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
 		return
 	}
@@ -399,7 +422,7 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		nbType := "cpu"
-		if rowGpuType != nil {
+		if utils.CheckGPUResource(rowGpuType, rowGpuRequest, rowGpuLimit) {
 			nbType = "gpu"
 		}
 		dbNotebooks = append(dbNotebooks, DBNotebookInfo{
@@ -454,11 +477,15 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 
 	if isGPUResource {
 		if !canCreateGpuNotebook {
-			logger.Warn("user doesn't have permission to start GPU notebooks", "user_id", userInfo.Sub)
+			logger.Warn("user doesn't have permission to start GPU notebooks",
+				"notebook_name", startReq.Name,
+				"can_create_gpu_notebook", canCreateGpuNotebook)
 			sendError(w, logger, http.StatusForbidden, "You don't have enough credit for this operation")
 			return
 		}
-		logger.Debug("user has permission to start GPU notebooks", "user_id", userInfo.Sub)
+		logger.Debug("user has permission to start GPU notebooks",
+			"notebook_name", startReq.Name,
+			"can_create_gpu_notebook", canCreateGpuNotebook)
 	}
 
 	err = app.removeStoppedAnnotationFromNotebook(ctx, namespace, startReq.Name)
@@ -596,8 +623,23 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	namespace := userInfo.Sub
+
+	// Extract all query parameters for logging
 	filterVal := r.URL.Query().Get("filter")
 	orderVal := r.URL.Query().Get("order")
+	limitStr := r.URL.Query().Get("limit")
+	offsetStr := r.URL.Query().Get("offset")
+
+	// Log all request parameters and filters in one place
+	logger.Info("listNotebooks request initiated",
+		"namespace", namespace,
+		"filter_raw", filterVal,
+		"order", orderVal,
+		"limit_raw", limitStr,
+		"offset_raw", offsetStr,
+		"query_params", r.URL.RawQuery,
+	)
+
 	var filterDates [2]string
 	var filterActive bool
 	var orderDesc bool
@@ -635,9 +677,10 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		}
 		filterActive = true
 	}
+
 	limit := app.env.NotebookConfig.DefaultNotebookListLimit
-	if limStr := r.URL.Query().Get("limit"); limStr != "" {
-		if l, err := strconv.Atoi(limStr); err == nil && l > 0 {
+	if limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
 			if l > 50 {
 				limit = 50
 			} else {
@@ -646,11 +689,31 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	offset := 0
-	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
+	if offsetStr != "" {
 		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
 			offset = o
 		}
 	}
+
+	// Log parsed and processed parameters
+	logger.Debug("listNotebooks parameters processed",
+		"filter_active", filterActive,
+		"filter_start_date", func() string {
+			if filterActive {
+				return filterDates[0]
+			}
+			return ""
+		}(),
+		"filter_end_date", func() string {
+			if filterActive {
+				return filterDates[1]
+			}
+			return ""
+		}(),
+		"order_desc", orderDesc,
+		"limit", limit,
+		"offset", offset,
+	)
 
 	var query string
 	var rows pgx.Rows
@@ -671,6 +734,12 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 			WHERE namespace = $1 AND created_at >= $2 AND created_at <= $3
 			%s
 			LIMIT $4 OFFSET $5`, orderClause)
+		logger.Debug("executing filtered query",
+			"query_type", "filtered",
+			"start_date", filterDates[0],
+			"end_date", filterDates[1],
+			"limit", limit,
+			"offset", offset)
 		rows, err = app.pgPool.Pool.Query(ctx, query, namespace, filterDates[0], filterDates[1], limit, offset)
 	} else {
 		query = fmt.Sprintf(`
@@ -681,10 +750,19 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 			WHERE namespace = $1
 			%s
 			LIMIT $2 OFFSET $3`, orderClause)
+		logger.Debug("executing unfiltered query",
+			"query_type", "unfiltered",
+			"limit", limit,
+			"offset", offset)
 		rows, err = app.pgPool.Pool.Query(ctx, query, namespace, limit, offset)
 	}
 	if err != nil {
-		logger.Error("failed to query notebooks", "error", err)
+		logger.Error("failed to query notebooks", "error", err, "query_type", func() string {
+			if filterActive {
+				return "filtered"
+			}
+			return "unfiltered"
+		}())
 		sendError(w, logger, http.StatusInternalServerError, "Failed to query notebooks")
 		return
 	}
@@ -784,6 +862,15 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 	if len(notebooks) == limit {
 		nextOffset = offset + limit
 	}
+
+	logger.Debug("listNotebooks request completed",
+		"notebooks_count", len(notebooks),
+		"has_next_page", nextOffset != -1,
+		"next_offset", nextOffset,
+		"k8s_requests_made", activeRequests,
+		"response_status", http.StatusOK,
+	)
+
 	var resp NotebookListResponse = NotebookListResponse{
 		Notebooks:  notebooks,
 		NextOffset: nextOffset,

@@ -64,9 +64,19 @@ func getLogger(r *http.Request) *slog.Logger {
 		slog.String("request_id", requestID),
 		slog.String("method", r.Method),
 		slog.String("path", r.URL.Path),
-		slog.String("remote_ip", r.RemoteAddr),
 		slog.String("user_agent", r.UserAgent()),
 	)
+
+	// Add comprehensive user information if available in context
+	if userInfo, ok := r.Context().Value(UserContextKey).(UserInfo); ok {
+		logger = logger.With(
+			slog.String("user_id", userInfo.Sub),
+			slog.String("user_email", userInfo.Email),
+			slog.String("user_roles", strings.Join(userInfo.Roles, ",")),
+			slog.String("namespace", userInfo.Sub), // commonly used as namespace
+		)
+	}
+
 	return logger
 }
 

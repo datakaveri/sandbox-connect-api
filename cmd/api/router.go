@@ -12,7 +12,9 @@ func (app *application) router() http.Handler {
 	rootMux := http.NewServeMux()
 
 	// Serve API documentation with ReDoc
-	rootMux.HandleFunc("/v1/docs/", app.serveReDoc)
+	/*
+		rootMux.HandleFunc("/v1/docs/", app.serveReDoc)
+	*/
 
 	// Register health endpoint directly (not behind auth)
 	rootMux.HandleFunc("GET /v1/health", app.healthCheck)

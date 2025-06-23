@@ -151,6 +151,7 @@ type JWTPayload struct {
 	Typ            string         `json:"typ"`
 	Azp            string         `json:"azp" validate:"required"`
 	EmailVerified  bool           `json:"email_verified"`
+	KycVerified    bool           `json:"kyc_verified"`
 	Name           string         `json:"name"`
 	Email          string         `json:"email" validate:"required,email"`
 	RealmAccess    RealmAccess    `json:"realm_access"`

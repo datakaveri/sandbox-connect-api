@@ -66,6 +66,7 @@ func loggingMiddleware(next http.Handler) http.Handler {
 
 func (app *application) rateLimitMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// IP-based rate limiting (protection against unauthenticated attacks)
 		ip := getClientIP(r)
 		logger := getLogger(r)
 		if ip == "" {
@@ -73,7 +74,9 @@ func (app *application) rateLimitMiddleware(next http.Handler) http.Handler {
 			sendError(w, logger, http.StatusTooManyRequests, "Unable to identify client IP address")
 			return
 		}
+		logger.Info("IP address found", "ip", ip)
 		if !app.rateLimiter.GetLimiter(ip) {
+			logger.Warn("IP rate limit exceeded", "ip", ip)
 			sendError(w, logger, http.StatusTooManyRequests, "Too many requests in a short period. Please try again later")
 			return
 		}
@@ -142,8 +145,30 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// Debug: Log detailed user information from JWT payload
+		logger.Debug("JWT token successfully parsed and validated",
+			"user_id", jwtPayload.Sub,
+			"email", jwtPayload.Email,
+			"name", jwtPayload.Name,
+			"client_id", jwtPayload.Azp,
+			"issuer", jwtPayload.Iss,
+			"token_type", jwtPayload.Typ,
+			"email_verified", jwtPayload.EmailVerified,
+			"kyc_verified", jwtPayload.KycVerified,
+			"realm_roles", jwtPayload.RealmAccess.Roles,
+			"account_roles", jwtPayload.ResourceAccess.Account.Roles,
+			"exp", jwtPayload.Exp,
+			"iat", jwtPayload.Iat,
+			"jti", jwtPayload.Jti,
+		)
+
 		if jwtPayload.Azp == "" || jwtPayload.Azp != app.env.KeycloakClientID {
-			logger.Warn("Invalid client ID", "client_id", jwtPayload.Azp)
+			logger.Warn("Authentication failed: Invalid client ID",
+				"provided_client_id", jwtPayload.Azp,
+				"expected_client_id", app.env.KeycloakClientID,
+				"user_id", jwtPayload.Sub,
+				"email", jwtPayload.Email,
+			)
 			sendError(w, logger, http.StatusUnauthorized, "Invalid client")
 			return
 		}
@@ -151,8 +176,52 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 		currentTime := time.Now().Unix()
 		exp, _ := jwtPayload.GetExpirationTime()
 		if exp != nil && exp.Unix() < currentTime {
-			logger.Warn("Token expired", "exp", exp, "current_time", currentTime)
+			logger.Warn("Authentication failed: Token expired",
+				"exp", exp.Unix(),
+				"current_time", currentTime,
+				"expired_seconds_ago", currentTime-exp.Unix(),
+				"user_id", jwtPayload.Sub,
+				"email", jwtPayload.Email,
+			)
 			sendError(w, logger, http.StatusUnauthorized, "Token expired")
+			return
+		}
+
+		// Check email verification
+		if !jwtPayload.EmailVerified {
+			logger.Warn("Authentication failed: Email not verified",
+				"user_id", jwtPayload.Sub,
+				"email", jwtPayload.Email,
+				"name", jwtPayload.Name,
+				"email_verified", jwtPayload.EmailVerified,
+				"kyc_verified", jwtPayload.KycVerified,
+			)
+			sendError(w, logger, http.StatusUnauthorized, "Your email is not verified")
+			return
+		}
+
+		// Check KYC verification
+		if !jwtPayload.KycVerified {
+			logger.Warn("Authentication failed: KYC not verified",
+				"user_id", jwtPayload.Sub,
+				"email", jwtPayload.Email,
+				"name", jwtPayload.Name,
+				"email_verified", jwtPayload.EmailVerified,
+				"kyc_verified", jwtPayload.KycVerified,
+			)
+			sendError(w, logger, http.StatusUnauthorized, "KYC is not verified")
+			return
+		}
+
+		// User-based rate limiting (after authentication)
+		if !app.rateLimiter.GetLimiter(jwtPayload.Sub) {
+			logger.Warn("User rate limit exceeded",
+				"user_id", jwtPayload.Sub,
+				"email", jwtPayload.Email,
+				"name", jwtPayload.Name,
+				"roles", jwtPayload.RealmAccess.Roles,
+			)
+			sendError(w, logger, http.StatusTooManyRequests, "Too many requests in a short period. Please try again later")
 			return
 		}
 
@@ -161,6 +230,15 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 			Email: jwtPayload.Email,
 			Roles: jwtPayload.RealmAccess.Roles,
 		}
+
+		// Debug: Log successful authentication with user context
+		logger.Debug("User authentication successful, setting user context",
+			"user_id", userInfo.Sub,
+			"email", userInfo.Email,
+			"roles", userInfo.Roles,
+			"email_verified", jwtPayload.EmailVerified,
+			"kyc_verified", jwtPayload.KycVerified,
+		)
 
 		ctx := context.WithValue(r.Context(), UserContextKey, userInfo)
 		r = r.WithContext(ctx)
