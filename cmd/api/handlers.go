@@ -38,19 +38,10 @@ func (app *application) checkNotebookExists(w http.ResponseWriter, r *http.Reque
 	}
 	namespace := userInfo.Sub
 	notebookName := r.PathValue("notebook_name")
-	if notebookName == "" {
-		logger.Error("notebook name is empty", "notebookName", notebookName)
-		sendError(w, logger, http.StatusBadRequest, "Notebook name is empty")
-		return
-	}
-	if len(notebookName) > 50 || len(notebookName) < 4 {
-		logger.Error("notebook name is too long", "notebookName", notebookName, "length", len(notebookName))
-		sendError(w, logger, http.StatusBadRequest, "Notebook name cannot exceed 50 characters")
-		return
-	}
-	if !ValidateNotebookName(notebookName) {
+
+	if errorMessage, gotError := getErrorMessageForNotebookName(notebookName); gotError {
 		logger.Error("invalid notebook name", "notebookName", notebookName)
-		sendError(w, logger, http.StatusBadRequest, "Invalid Notebook Name")
+		sendError(w, logger, http.StatusBadRequest, errorMessage)
 		return
 	}
 
@@ -94,9 +85,12 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 	notebookReq, err := utils.DecodeAndValidate[NotebookRequest](r.Body, logger)
 	if err != nil {
 		logger.Error("can't parse the body", "Error", err.Error())
-		sendError(w, logger, http.StatusUnprocessableEntity, "Invalid Body")
+		sendError(w, logger, http.StatusUnprocessableEntity, "Invalid body")
+		return
+	}
+	if errorMessage, gotError := getErrorMessageForNotebookName(notebookReq.Name); gotError {
 		logger.Error("invalid notebook name", "name", notebookReq.Name)
-		sendError(w, logger, http.StatusUnprocessableEntity, "Invalid Notebook Name")
+		sendError(w, logger, http.StatusUnprocessableEntity, errorMessage)
 		return
 	}
 	if notebookReq.Type != "cpu" && notebookReq.Type != "gpu" {
@@ -710,7 +704,11 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		}
 		notebooks = append(notebooks, nb)
 	}
-
+	if rowsErr := rows.Err(); rowsErr != nil {
+		logger.Error("error iterating notebook rows", "error", rowsErr)
+		sendError(w, logger, http.StatusInternalServerError, "Failed to fetch notebooks")
+		return
+	}
 	type k8sResult struct {
 		index     int
 		k8sObject map[string]any
@@ -746,11 +744,17 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		select {
 		case result := <-resultChan:
 			if result.err != nil {
-				logger.Error("failed to get notebook from Kubernetes, returning error", "error", result.err)
-				sendError(w, logger, http.StatusInternalServerError, "Internal server error")
-				return
+				if errors.IsNotFound(result.err) {
+					logger.Warn("notebook not found in Kubernetes, treating as orphaned", "error", result.err)
+					k8sResults[result.index] = nil
+				} else {
+					logger.Error("failed to get notebook from Kubernetes, returning error", "error", result.err)
+					sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+					return
+				}
+			} else {
+				k8sResults[result.index] = result.k8sObject
 			}
-			k8sResults[result.index] = result.k8sObject
 		case <-ctx.Done():
 			logger.Error("context timeout while fetching notebook status")
 			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
@@ -774,11 +778,6 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 			nb.URL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, nb.Namespace, nb.Name)
 		}
 		notebooks[i] = nb
-	}
-	if rowsErr := rows.Err(); rowsErr != nil {
-		logger.Error("error iterating notebook rows", "error", rowsErr)
-		sendError(w, logger, http.StatusInternalServerError, "Failed to fetch notebooks")
-		return
 	}
 
 	nextOffset := -1

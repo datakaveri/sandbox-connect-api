@@ -173,7 +173,6 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 // considering proxy headers like X-Forwarded-For, X-Real-IP, etc.
 func getClientIP(r *http.Request) string {
 	logger := getLogger(r)
-
 	// Check X-Forwarded-For header first (most common)
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		logger.Debug("found X-Forwarded-For header", "header_value", xff)

@@ -69,7 +69,7 @@ type NotebookConfig struct {
 	GPUCPURequest    string `env:"API_DEFAULT_GPU_CPU_REQUEST,required"`
 
 	KubeFlowURL              string `env:"API_KUBEFLOW_URL,required"`
-	DefaultNotebookListLimit int    `env:"API_NOTEBOOK_LIST_LIMIT" envDefault:"10"`
+	DefaultNotebookListLimit int    `env:"API_NOTEBOOK_LIST_LIMIT"`
 
 	MaxRunningCPU int `env:"API_MAX_RUNNING_CPU"`
 	MaxRunningGPU int `env:"API_MAX_RUNNING_GPU"`
@@ -78,7 +78,7 @@ type NotebookConfig struct {
 }
 
 type NotebookRequest struct {
-	Name string `json:"name" validate:"required,gte=4,lte=50"`
+	Name string `json:"name" validate:"required"`
 	Type string `json:"type" validate:"required"`
 }
 
@@ -107,13 +107,13 @@ type NotebookListResponse struct {
 }
 
 type StopNotebookRequest struct {
-	Name string `json:"name" validate:"gt=3,lte=50,required"`
+	Name string `json:"name" validate:"required,min=4,max=50"`
 }
 type StartNotebookRequest struct {
-	Name string `json:"name" validate:"gt=3,lte=50,required"`
+	Name string `json:"name" validate:"required,min=4,max=50"`
 }
 type DeleteNotebookRequest struct {
-	Name string `json:"name" validate:"gt=3,lte=50,required"`
+	Name string `json:"name" validate:"required,min=4,max=50"`
 }
 
 type NotebookState string

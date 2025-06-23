@@ -403,8 +403,22 @@ fi
 			"node.kubernetes.io/instance-type": "g4dn.xlarge",
 		}
 	} else {
-		specTemplateSpec["nodeSelector"] = map[string]any{
-			"node.kubernetes.io/instance-type": "t3a.2xlarge",
+		specTemplateSpec["affinity"] = map[string]any{
+			"nodeAffinity": map[string]any{
+				"requiredDuringSchedulingIgnoredDuringExecution": map[string]any{
+					"nodeSelectorTerms": []any{
+						map[string]any{
+							"matchExpressions": []any{
+								map[string]any{
+									"key":      "node.kubernetes.io/instance-type",
+									"operator": "In",
+									"values":   []any{"t3a.2xlarge", "c5a.4xlarge"},
+								},
+							},
+						},
+					},
+				},
+			},
 		}
 	}
 

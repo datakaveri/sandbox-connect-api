@@ -198,9 +198,21 @@ func WithDBRetry(ctx context.Context, logger *slog.Logger, operation func() (con
 	return utils.WithLinearRetry(ctx, dbRetryConfig, logger, operation)
 }
 func ValidateNotebookName(name string) bool {
-	pattern := `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	pattern := `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
 	match, _ := regexp.MatchString(pattern, name)
 	return match
+}
+func getErrorMessageForNotebookName(name string) (string, bool) {
+	if len(name) > 50 {
+		return "Notebook name cannot exceed 50 characters", true
+	}
+	if len(name) < 4 {
+		return "Notebook name must be at least 4 characters long", true
+	}
+	if !ValidateNotebookName(name) {
+		return "Notebook name can only contain lowercase letters, numbers, and hyphens. It must start and end with a letter or number.", true
+	}
+	return "", false
 }
 
 func IsNotebookRunningFromAnnotations(annotations map[string]any) bool {
