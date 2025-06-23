@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -793,8 +794,19 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		err       error
 	}
 
+	// Create cancellable context for goroutines
+	k8sCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	resultChan := make(chan k8sResult, len(notebooks))
+	semaphore := make(chan struct{}, 3) // Limit concurrency to 3
 	activeRequests := 0
+
+	// Collect notebooks that need K8s status check
+	var notebooksToCheck []struct {
+		index int
+		name  string
+	}
 
 	for i, nb := range notebooks {
 		var latestEvent constants.Events
@@ -805,16 +817,42 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		notebookFailed := checkNotebookFailed(latestEvent)
 
 		if !notebookFailed && latestEvent == constants.StatusNotebookApplied {
-			activeRequests++
-			go func(index int, name string) {
-				k8sSpec, k8sErr := app.getNotebookJSON(ctx, logger, namespace, name)
-				var k8sObject map[string]any = nil
-				if k8sErr == nil && k8sSpec != nil {
-					k8sObject = k8sSpec.Object
-				}
-				resultChan <- k8sResult{index: index, k8sObject: k8sObject, err: k8sErr}
-			}(i, nb.Name)
+			notebooksToCheck = append(notebooksToCheck, struct {
+				index int
+				name  string
+			}{index: i, name: nb.Name})
 		}
+	}
+
+	activeRequests = len(notebooksToCheck)
+
+	for _, nbToCheck := range notebooksToCheck {
+		go func(index int, name string) {
+			select {
+			case semaphore <- struct{}{}:
+				defer func() { <-semaphore }()
+			case <-k8sCtx.Done():
+				return
+			}
+
+			select {
+			case <-k8sCtx.Done():
+				return
+			default:
+			}
+
+			k8sSpec, k8sErr := app.getNotebookJSON(k8sCtx, logger, namespace, name)
+			var k8sObject map[string]any = nil
+			if k8sErr == nil && k8sSpec != nil {
+				k8sObject = k8sSpec.Object
+			}
+
+			select {
+			case resultChan <- k8sResult{index: index, k8sObject: k8sObject, err: k8sErr}:
+			case <-k8sCtx.Done():
+				return
+			}
+		}(nbToCheck.index, nbToCheck.name)
 	}
 
 	k8sResults := make(map[int]map[string]any)
@@ -827,6 +865,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 					k8sResults[result.index] = nil
 				} else {
 					logger.Error("failed to get notebook from Kubernetes, returning error", "error", result.err)
+					cancel()
 					sendError(w, logger, http.StatusInternalServerError, "Internal server error")
 					return
 				}
@@ -835,6 +874,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 			}
 		case <-ctx.Done():
 			logger.Error("context timeout while fetching notebook status")
+			cancel()
 			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
 			return
 		}
