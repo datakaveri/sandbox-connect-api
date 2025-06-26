@@ -21,6 +21,3 @@ func WithExternalApiRetry(ctx context.Context, logger *slog.Logger, operation fu
 func WithTimeoutContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, timeout)
 }
-func checkIfGPUResource(gpuType *string, gpuRequest *int, gpuLimit *int) bool {
-	return gpuType != nil && gpuRequest != nil && gpuLimit != nil
-}

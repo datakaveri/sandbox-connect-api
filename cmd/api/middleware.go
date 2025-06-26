@@ -201,7 +201,11 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Check KYC verification
-		if !jwtPayload.KycVerified {
+		needKYC := true
+		if r.URL.Path == "/v1/profile/create" {
+			needKYC = false
+		}
+		if needKYC && !jwtPayload.KycVerified {
 			logger.Warn("Authentication failed: KYC not verified",
 				"user_id", jwtPayload.Sub,
 				"email", jwtPayload.Email,
@@ -210,18 +214,6 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 				"kyc_verified", jwtPayload.KycVerified,
 			)
 			sendError(w, logger, http.StatusUnauthorized, "KYC is not verified")
-			return
-		}
-
-		// User-based rate limiting (after authentication)
-		if !app.rateLimiter.GetLimiter(jwtPayload.Sub) {
-			logger.Warn("User rate limit exceeded",
-				"user_id", jwtPayload.Sub,
-				"email", jwtPayload.Email,
-				"name", jwtPayload.Name,
-				"roles", jwtPayload.RealmAccess.Roles,
-			)
-			sendError(w, logger, http.StatusTooManyRequests, "Too many requests in a short period. Please try again later")
 			return
 		}
 

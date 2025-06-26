@@ -22,6 +22,7 @@ This service is designed to run as a CronJob in Kubernetes to regularly sync cre
 
 ```bash
 kubectl apply -f infra/cron/profile-credit-sync/configmap.yaml
+kubectl apply -f infra/cron/profile-credit-sync/secret.yaml
 kubectl apply -f infra/cron/profile-credit-sync/cronjob.yaml
 ```
 

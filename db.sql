@@ -47,7 +47,7 @@ CREATE TABLE profiles (
 CREATE TABLE IF NOT EXISTS failed_aaa_requests (
     id BIGSERIAL PRIMARY KEY,
     user_id VARCHAR(255) NOT NULL,
-    cost DECIMAL(10, 2) NOT NULL,
+    cost DECIMAL(10, 6) NOT NULL,
     requested_at TIMESTAMP NOT NULL,
     error_message TEXT,
     status_code INT,
@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS failed_aaa_requests (
     resolved BOOLEAN DEFAULT FALSE,
     resolved_at TIMESTAMP
 );
+
 CREATE OR REPLACE FUNCTION update_modified_column()   
 RETURNS TRIGGER AS $$
 BEGIN

@@ -199,23 +199,29 @@ func (ps *profileSync) processProfiles(k8sProfiles []KubeflowProfile, dbProfiles
 				totalPaidCredit := profileFromDb.TotalPaidCredit
 				totalDeduction := pendingDeduction + cost
 				if totalDeduction > 0 {
-					res, statusCode, err := ps.costDeductionRequest(ctx, profile.UserID, totalDeduction, token, sync_at_time)
-					logger.Debug("cost deduction request response", "response", res, "status_code", statusCode)
+					res, statusCode, payload, requestTime, err := ps.costDeductionRequest(ctx, profile.UserID, totalDeduction, token)
+
+					logger.Debug("cost deduction request response", "response", res, "status_code", statusCode, "payload", payload, "request_time", requestTime)
 					if err != nil {
-						requestTime := sync_at_time.Format("2006-01-02T15:04:05")
-						payload, payloadErr := getRequestPayload(totalDeduction, profile.UserID, requestTime)
-						if payloadErr != nil {
-							logger.Error("failed to create payload for failed AAA request", "error", payloadErr)
-						}
+						// Convert payload to bytes for logging and storage
 						errorMessage := err.Error()
-						if res != nil && strings.Contains(strings.ToLower(res.Detail), "no sufficient balance") {
+						payloadBytes, marshalErr := json.Marshal(payload)
+						if marshalErr != nil {
+							logger.Error("failed to marshal payload", "error", marshalErr)
+							payloadBytes = []byte{}
+						}
+						if res.Detail != "" && strings.Contains(strings.ToLower(res.Detail), "no sufficient balance") {
 							logger.Warn("No sufficient balance, removing GPU access and stopping notebooks", "user_id", profile.UserID)
 							canCreateGpuNotebook = false
+							// we only want to remove if it don't have sufficient balance
+							// because it can happen that user has enough balance but it's not synced yet because of dubplicate transaction
 							err := ps.stopAllGPUNotebooksInNamespace(ctx, profileFromDb)
 							if err != nil {
 								logger.Error("failed to stop notebooks after insufficient balance", "error", err)
 							}
 						} else {
+							logger.Error("failed to deduct cost from AAA", "error", err)
+							logger.Debug("failed to deduct cost from AAA", "status_code", statusCode, "error_message", errorMessage, "payload", string(payloadBytes), "profile", profile)
 							logErr := ps.failedAAARequest(
 								ctx,
 								profile.UserID,
@@ -223,7 +229,7 @@ func (ps *profileSync) processProfiles(k8sProfiles []KubeflowProfile, dbProfiles
 								requestTime,
 								statusCode,
 								errorMessage,
-								payload,
+								payloadBytes,
 							)
 							if logErr != nil {
 								logger.Error("Failed to log failed AAA request", "error", logErr)
@@ -322,7 +328,7 @@ func (ps *profileSync) getProfileCostFromOpenCost(lastSyncAt time.Time, endTime 
 	for _, dataMap := range costData.Data {
 		for _, data := range dataMap {
 			if data.Properties.Namespace == profile.UserID {
-				cost = data.GPUCost
+				cost = data.CPUCost
 				break
 			}
 		}
@@ -389,20 +395,9 @@ func (ps *profileSync) getAllProfileFromDb() ([]Profile, error) {
 	return profiles, err
 }
 
-func (ps *profileSync) costDeductionRequest(ctx context.Context, profileID string, cost float64, token string, syncedTime time.Time) (*AAAResponse, int, error) {
-	requestTime := syncedTime.Format("2006-01-02T15:04:05")
+func (ps *profileSync) costDeductionRequest(ctx context.Context, profileID string, cost float64, token string) (AAAResponse, int, map[string]interface{}, string, error) {
 	deductionURL := fmt.Sprintf("%s/auth/v1/admin/user/credit/deduct", ps.config.AAA_URL)
-	payload := map[string]interface{}{
-		"amount":       cost,
-		"user_id":      profileID,
-		"requested_at": requestTime,
-	}
 	logger := ps.logger.With("user_id", profileID)
-
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to marshal deduction payload: %v", err)
-	}
 
 	client := &http.Client{Timeout: creditDeductionTimeout}
 
@@ -412,8 +407,23 @@ func (ps *profileSync) costDeductionRequest(ctx context.Context, profileID strin
 
 	tokenUsed := token
 	triedRefresh := false
+	var requestTime string
+	var payload map[string]interface{}
 
-	err = WithExternalApiRetry(ctx, logger, func() (constants.ShouldContinue, error) {
+	err := WithExternalApiRetry(ctx, logger, func() (constants.ShouldContinue, error) {
+		// Generate fresh timestamp for each retry attempt
+		requestTime = time.Now().Format("2006-01-02T15:04:05")
+		payload = map[string]interface{}{
+			"amount":       cost,
+			"user_id":      profileID,
+			"requested_at": requestTime,
+		}
+
+		payloadBytes, err := json.Marshal(payload)
+		if err != nil {
+			return constants.RetryStop, fmt.Errorf("failed to marshal deduction payload: %v", err)
+		}
+
 		req, err := http.NewRequest("PUT", deductionURL, bytes.NewBuffer(payloadBytes))
 		if err != nil {
 			return constants.RetryStop, fmt.Errorf("failed to create deduction request: %v", err)
@@ -483,16 +493,17 @@ func (ps *profileSync) costDeductionRequest(ctx context.Context, profileID strin
 	})
 
 	if err != nil {
-		return &response, statusCode, fmt.Errorf("failed to complete credit deduction request after retries: %v", err)
+		ps.logger.Error("failed to complete credit deduction request", "error", err)
+		return response, statusCode, payload, requestTime, fmt.Errorf("failed to complete credit deduction request: %v", err)
 	}
 
 	if statusCode < 200 || statusCode >= 300 {
-		return nil, statusCode, fmt.Errorf("AAA API returned non-success status code: %d, response: %s", statusCode, string(responseBody))
+		return response, statusCode, payload, requestTime, fmt.Errorf("AAA API returned non-success status code: %d, response: %s", statusCode, string(responseBody))
 	}
 
 	err = json.Unmarshal(responseBody, &response)
 	if err != nil {
-		return nil, statusCode, fmt.Errorf("failed to unmarshal response: %v", err)
+		return response, statusCode, payload, requestTime, fmt.Errorf("failed to unmarshal response: %v", err)
 	}
 
 	markErr := ps.markResolvedAAARequests(ctx, profileID)
@@ -500,7 +511,7 @@ func (ps *profileSync) costDeductionRequest(ctx context.Context, profileID strin
 		ps.logger.Error("Failed to mark AAA requests as resolved", "error", markErr)
 	}
 
-	return &response, statusCode, nil
+	return response, statusCode, payload, requestTime, nil
 }
 func (ps *profileSync) getKeycloakToken() (string, error) {
 	ps.logger.Info("getting Keycloak token")

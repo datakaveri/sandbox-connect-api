@@ -110,6 +110,39 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+
+	var profileExists bool
+	checkProfileQuery := `SELECT EXISTS(SELECT 1 FROM profiles WHERE user_id = $1)`
+	err = app.pgPool.Pool.QueryRow(ctx, checkProfileQuery, userInfo.Sub).Scan(&profileExists)
+	if err != nil {
+		logger.Error("failed to check if profile exists", "error", err)
+		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+
+	if !profileExists {
+		logger.Info("profile doesn't exist, creating profile automatically", "user_id", userInfo.Sub, "email", userInfo.Email)
+		err = app.createKubeflowProfile(ctx, logger, userInfo.Sub, userInfo.Email)
+		if err != nil && !errors.IsAlreadyExists(err) {
+			logger.Error("failed to create kubeflow profile", "error", err, "user_id", userInfo.Sub)
+			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+			return
+		}
+		createProfileQuery := `
+			INSERT INTO profiles (user_id, email)
+			VALUES ($1, $2)
+			ON CONFLICT (user_id) DO NOTHING
+		`
+		_, err = app.pgPool.Pool.Exec(ctx, createProfileQuery, userInfo.Sub, userInfo.Email)
+		if err != nil {
+			logger.Error("failed to create profile in database", "error", err)
+			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+			return
+		}
+
+		logger.Info("profile created successfully", "user_id", userInfo.Sub, "email", userInfo.Email)
+	}
+
 	tx, err := app.pgPool.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		logger.Error("failed to start transaction", "error", err)
