@@ -356,6 +356,34 @@ else
     exit 1
   fi
 fi
+
+if [ -f /home/jovyan/requirements.txt ]; then
+  echo '[init] /home/jovyan/requirements.txt already exists, skipping copy.'
+else
+  echo '[init] /home/jovyan/requirements.txt not found, attempting to move from /tmp/requirements.txt...'
+  if mv /tmp/requirements.txt /home/jovyan/requirements.txt; then
+    echo '[init] Successfully moved /tmp/requirements.txt to /home/jovyan/requirements.txt.'
+    chown 1000:1000 /home/jovyan/requirements.txt
+    chmod 644 /home/jovyan/requirements.txt
+  else
+    echo '[init] Failed to move /tmp/requirements.txt to /home/jovyan/requirements.txt.'
+    exit 1
+  fi
+fi
+
+if [ -f /home/jovyan/Python_Packages_Installation_Demo.ipynb ]; then
+  echo '[init] /home/jovyan/Python_Packages_Installation_Demo.ipynb already exists, skipping copy.'
+else
+  echo '[init] /home/jovyan/Python_Packages_Installation_Demo.ipynb not found, attempting to move from /tmp/Python_Packages_Installation_Demo.ipynb...'
+  if mv /tmp/Python_Packages_Installation_Demo.ipynb /home/jovyan/Python_Packages_Installation_Demo.ipynb; then
+    echo '[init] Successfully moved /tmp/Python_Packages_Installation_Demo.ipynb to /home/jovyan/Python_Packages_Installation_Demo.ipynb.'
+    chown 1000:1000 /home/jovyan/Python_Packages_Installation_Demo.ipynb
+    chmod 644 /home/jovyan/Python_Packages_Installation_Demo.ipynb
+  else
+    echo '[init] Failed to move /tmp/Python_Packages_Installation_Demo.ipynb to /home/jovyan/Python_Packages_Installation_Demo.ipynb.'
+    exit 1
+  fi
+fi
 `},
 				"volumeMounts": []any{
 					map[string]any{

@@ -19,13 +19,13 @@ const (
 )
 
 const (
-	K8sInitialDelay = 500 * time.Millisecond
-	K8sMaxDelay     = 30 * time.Second
+	K8sInitialDelay = 5 * time.Second
+	K8sMaxDelay     = 1 * time.Minute
 	K8sMaxAttempts  = 5
 	K8sFactor       = 2.0
 
-	DBInitialDelay = 200 * time.Millisecond
-	DBMaxDelay     = 30 * time.Second
+	DBInitialDelay = 5 * time.Second
+	DBMaxDelay     = 1 * time.Minute
 	DBMaxAttempts  = 5
 	DBFactor       = 2.0
 )

@@ -105,7 +105,7 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if notebookReq.Type == "gpu" && !contains(userInfo.Roles, "compute") {
-		sendError(w, logger, http.StatusForbidden, "You don't have compute permissions")
+		sendError(w, logger, http.StatusForbidden, "Please upgrade your Role with Compute to access the GPU")
 		return
 	}
 
@@ -219,23 +219,28 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if runningCPU >= app.env.NotebookConfig.MaxRunningCPU && notebookReq.Type == "cpu" {
-		sendError(w, logger, http.StatusBadRequest, "Cannot create notebook: running CPU notebook limit exceeded.")
+		errorMsg := fmt.Sprintf("Cannot create CPU notebook: running CPU notebook limit exceeded (%d/%d running). Please stop an existing CPU notebook before creating a new one.", runningCPU, app.env.NotebookConfig.MaxRunningCPU)
+		sendError(w, logger, http.StatusBadRequest, errorMsg)
 		return
 	}
 	if runningGPU >= app.env.NotebookConfig.MaxRunningGPU && notebookReq.Type == "gpu" {
-		sendError(w, logger, http.StatusBadRequest, "Cannot create notebook: running GPU notebook limit exceeded.")
+		errorMsg := fmt.Sprintf("Cannot create GPU notebook: running GPU notebook limit exceeded (%d/%d running). Please stop an existing GPU notebook before creating a new one.", runningGPU, app.env.NotebookConfig.MaxRunningGPU)
+		sendError(w, logger, http.StatusBadRequest, errorMsg)
 		return
 	}
 	if totalCPU+totalGPU >= app.env.NotebookConfig.MaxTotalCPU+app.env.NotebookConfig.MaxTotalGPU {
-		sendError(w, logger, http.StatusBadRequest, "Total notebook limit reached")
+		errorMsg := fmt.Sprintf("Cannot create notebook: total notebook limit exceeded (%d/%d total notebooks). Please delete some existing notebooks before creating new ones.", totalCPU+totalGPU, app.env.NotebookConfig.MaxTotalCPU+app.env.NotebookConfig.MaxTotalGPU)
+		sendError(w, logger, http.StatusBadRequest, errorMsg)
 		return
 	}
 	if notebookReq.Type == "cpu" && totalCPU >= app.env.NotebookConfig.MaxTotalCPU {
-		sendError(w, logger, http.StatusBadRequest, "CPU notebook limit reached")
+		errorMsg := fmt.Sprintf("Cannot create CPU notebook: CPU notebook limit exceeded (%d/%d CPU notebooks). Please delete some existing CPU notebooks before creating new ones.", totalCPU, app.env.NotebookConfig.MaxTotalCPU)
+		sendError(w, logger, http.StatusBadRequest, errorMsg)
 		return
 	}
 	if notebookReq.Type == "gpu" && totalGPU >= app.env.NotebookConfig.MaxTotalGPU {
-		sendError(w, logger, http.StatusBadRequest, "GPU notebook limit reached")
+		errorMsg := fmt.Sprintf("Cannot create GPU notebook: GPU notebook limit exceeded (%d/%d GPU notebooks). Please delete some existing GPU notebooks before creating new ones.", totalGPU, app.env.NotebookConfig.MaxTotalGPU)
+		sendError(w, logger, http.StatusBadRequest, errorMsg)
 		return
 	}
 
@@ -499,12 +504,14 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 	}
 	if isGPUResource {
 		if runningGPU >= app.env.NotebookConfig.MaxRunningGPU {
-			sendError(w, logger, http.StatusBadRequest, "Cannot start notebook: running GPU notebook limit exceeded.")
+			errorMsg := fmt.Sprintf("Cannot start GPU notebook: running GPU notebook limit exceeded (%d/%d running). Please stop an existing GPU notebook before starting this one.", runningGPU, app.env.NotebookConfig.MaxRunningGPU)
+			sendError(w, logger, http.StatusBadRequest, errorMsg)
 			return
 		}
 	} else {
 		if runningCPU >= app.env.NotebookConfig.MaxRunningCPU {
-			sendError(w, logger, http.StatusBadRequest, "Cannot start notebook: running CPU notebook limit exceeded.")
+			errorMsg := fmt.Sprintf("Cannot start CPU notebook: running CPU notebook limit exceeded (%d/%d running). Please stop an existing CPU notebook before starting this one.", runningCPU, app.env.NotebookConfig.MaxRunningCPU)
+			sendError(w, logger, http.StatusBadRequest, errorMsg)
 			return
 		}
 	}

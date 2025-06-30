@@ -34,11 +34,11 @@ CREATE TABLE profiles (
     id BIGSERIAL PRIMARY KEY,
     user_id UUID NOT NULL,
     email VARCHAR(255) NOT NULL,
-    total_paid_credit DECIMAL(12,6) NOT NULL DEFAULT 0,
+    total_paid_credit DECIMAL(26,15) NOT NULL DEFAULT 0,
     can_create_gpu_notebook BOOLEAN NOT NULL DEFAULT true,
     aaa_and_opencost_synced_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    pending_deduction DECIMAL(12,6) NOT NULL DEFAULT 0,
-    last_sync_balance DECIMAL(12,6) NOT NULL DEFAULT 0,
+    pending_deduction DECIMAL(26, 15) NOT NULL DEFAULT 0,
+    last_sync_balance DECIMAL(26, 15) NOT NULL DEFAULT 0,
     created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT profiles_unique_user_id UNIQUE (user_id)
@@ -47,7 +47,7 @@ CREATE TABLE profiles (
 CREATE TABLE IF NOT EXISTS failed_aaa_requests (
     id BIGSERIAL PRIMARY KEY,
     user_id VARCHAR(255) NOT NULL,
-    cost DECIMAL(10, 6) NOT NULL,
+    cost DECIMAL(26, 15) NOT NULL,
     requested_at TIMESTAMP NOT NULL,
     error_message TEXT,
     status_code INT,
@@ -74,9 +74,7 @@ CREATE TRIGGER update_profile_costs_modtime
 BEFORE UPDATE ON profiles 
 FOR EACH ROW EXECUTE PROCEDURE update_modified_column();
 
---- indexes
 CREATE INDEX idx_notebooks_user_id ON notebooks(user_id);
 CREATE INDEX idx_notebooks_namespace ON notebooks(namespace);    
 CREATE INDEX idx_notebooks_created_at ON notebooks(created_at); 
 CREATE INDEX idx_notebooks_picked_at_null ON notebooks(picked_at) WHERE picked_at IS NULL;
--- user_id is already unquie and index profile because of unique_user_id constraint

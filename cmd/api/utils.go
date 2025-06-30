@@ -54,8 +54,7 @@ func formatMessage(message string) string {
 	if message == "" {
 		return ""
 	}
-	lowerMessage := strings.ToLower(message)
-	return strings.ToUpper(string(lowerMessage[0])) + lowerMessage[1:]
+	return strings.ToUpper(string(message[0])) + message[1:]
 }
 
 func getLogger(r *http.Request) *slog.Logger {

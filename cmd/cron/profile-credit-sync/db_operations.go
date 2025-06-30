@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 )
 
@@ -49,14 +48,4 @@ func (ps *profileSync) markResolvedAAARequests(ctx context.Context, profileID st
 
 	logger.Info("Successfully marked AAA requests as resolved")
 	return nil
-}
-
-func getRequestPayload(amount float64, userID string, requestedAt string) ([]byte, error) {
-	payload := map[string]interface{}{
-		"amount":       amount,
-		"user_id":      userID,
-		"requested_at": requestedAt,
-	}
-
-	return json.Marshal(payload)
 }

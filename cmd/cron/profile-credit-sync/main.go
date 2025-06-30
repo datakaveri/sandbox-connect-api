@@ -24,6 +24,14 @@ import (
 	"github.com/joho/godotenv"
 )
 
+type ProfileCostData struct {
+	Profile       KubeflowProfile
+	ProfileFromDb *Profile
+	Cost          float64
+	Error         error
+	SyncAtTime    time.Time
+}
+
 func main() {
 	logLevel := slog.LevelInfo
 	logLevelStr := os.Getenv("PROFILE_CREDIT_SYNC_LOG_LEVEL")
@@ -160,15 +168,19 @@ func (ps *profileSync) findOrphanProfiles(k8sProfiles []KubeflowProfile, dbProfi
 }
 
 func (ps *profileSync) processProfiles(k8sProfiles []KubeflowProfile, dbProfiles []Profile, token string) error {
-	ps.logger.Info("processing profiles with concurrency", "count", len(dbProfiles), "concurrency_limit", ps.config.MAX_PROFILE_CAN_SYNC_AT_ONCE)
+	ps.logger.Info("processing profiles with two-phase approach", "count", len(dbProfiles), "phase1", "parallel cost fetching", "phase2", "sequential deduction with 1s breaks", "concurrent_opencost_requests", ps.config.OPENCOST_MAX_CONCURRENT_REQUESTS)
 
-	semaphore := make(chan struct{}, ps.config.MAX_PROFILE_CAN_SYNC_AT_ONCE)
+	// Phase 1: Fetch costs in parallel for all users
+	ps.logger.Info("Phase 1: Starting parallel cost fetching for all users")
+
+	costDataChan := make(chan ProfileCostData, len(k8sProfiles))
+	semaphore := make(chan struct{}, ps.config.OPENCOST_MAX_CONCURRENT_REQUESTS)
 	wg := sync.WaitGroup{}
 
 	for _, profile := range k8sProfiles {
 		select {
 		case <-ps.rootCtx.Done():
-			ps.logger.Warn("context cancelled during profile processing")
+			ps.logger.Warn("context cancelled during cost fetching phase")
 			return nil
 		case semaphore <- struct{}{}:
 			profileFromDb := findProfile(dbProfiles, profile.UserID)
@@ -177,105 +189,190 @@ func (ps *profileSync) processProfiles(k8sProfiles []KubeflowProfile, dbProfiles
 				<-semaphore
 				continue
 			}
+
 			wg.Add(1)
 			go func(profile KubeflowProfile, profileFromDb *Profile) {
 				defer func() {
 					wg.Done()
 					<-semaphore
 				}()
+
 				logger := ps.logger.With("user_id", profile.UserID)
 				start := profileFromDb.AaaAndOpenCostSyncedAt
-				sync_at_time := time.Now()
-				cost, err := ps.getProfileCostFromOpenCost(start, sync_at_time, profileFromDb)
+				syncAtTime := time.Now()
+
+				cost, err := ps.getProfileCostFromOpenCost(start, syncAtTime, profileFromDb)
+
+				costData := ProfileCostData{
+					Profile:       profile,
+					ProfileFromDb: profileFromDb,
+					Cost:          cost,
+					Error:         err,
+					SyncAtTime:    syncAtTime,
+				}
+
 				if err != nil {
 					logger.Error("failed to get profile cost", "error", err)
-					return
-				}
-				logger.Debug("profile cost", "cost", cost)
-				ctx := context.Background()
-				canCreateGpuNotebook := profileFromDb.CanCreateGpuNotebook
-				pendingDeduction := profileFromDb.PendingDeduction
-				lastSyncBalance := profileFromDb.LastSyncBalance
-				totalPaidCredit := profileFromDb.TotalPaidCredit
-				totalDeduction := pendingDeduction + cost
-				if totalDeduction > 0 {
-					res, statusCode, payload, requestTime, err := ps.costDeductionRequest(ctx, profile.UserID, totalDeduction, token)
-
-					logger.Debug("cost deduction request response", "response", res, "status_code", statusCode, "payload", payload, "request_time", requestTime)
-					if err != nil {
-						// Convert payload to bytes for logging and storage
-						errorMessage := err.Error()
-						payloadBytes, marshalErr := json.Marshal(payload)
-						if marshalErr != nil {
-							logger.Error("failed to marshal payload", "error", marshalErr)
-							payloadBytes = []byte{}
-						}
-						if res.Detail != "" && strings.Contains(strings.ToLower(res.Detail), "no sufficient balance") {
-							logger.Warn("No sufficient balance, removing GPU access and stopping notebooks", "user_id", profile.UserID)
-							canCreateGpuNotebook = false
-							// we only want to remove if it don't have sufficient balance
-							// because it can happen that user has enough balance but it's not synced yet because of dubplicate transaction
-							err := ps.stopAllGPUNotebooksInNamespace(ctx, profileFromDb)
-							if err != nil {
-								logger.Error("failed to stop notebooks after insufficient balance", "error", err)
-							}
-						} else {
-							logger.Error("failed to deduct cost from AAA", "error", err)
-							logger.Debug("failed to deduct cost from AAA", "status_code", statusCode, "error_message", errorMessage, "payload", string(payloadBytes), "profile", profile)
-							logErr := ps.failedAAARequest(
-								ctx,
-								profile.UserID,
-								totalDeduction,
-								requestTime,
-								statusCode,
-								errorMessage,
-								payloadBytes,
-							)
-							if logErr != nil {
-								logger.Error("Failed to log failed AAA request", "error", logErr)
-							}
-						}
-						pendingDeduction = totalDeduction
-					} else {
-						logger.Info("successfully deducted cost from AAA", "deducted_amount", totalDeduction, "new_balance", res.Result.UpdatedBalance)
-						pendingDeduction = 0
-						lastSyncBalance = res.Result.UpdatedBalance
-						canCreateGpuNotebook = true
-					}
-				}
-				if profileFromDb.CanCreateGpuNotebook != canCreateGpuNotebook {
-					if !canCreateGpuNotebook {
-						ps.logger.Info("user got their permission removed for creating notebook", "user_id", profile.UserID, "old_value", profileFromDb.CanCreateGpuNotebook, "new_value", canCreateGpuNotebook)
-					} else {
-						ps.logger.Info("user got their permission to create notebook", "user_id", profile.UserID, "old_value", profileFromDb.CanCreateGpuNotebook, "new_value", canCreateGpuNotebook)
-					}
+				} else {
+					logger.Debug("profile cost fetched", "cost", cost)
 				}
 
-				dbErr := WithDBRetry(ctx, logger, func() (constants.ShouldContinue, error) {
-					_, err := ps.pgPool.Exec(ctx, `UPDATE profiles SET
-							can_create_gpu_notebook = $2,
-							pending_deduction = $3,
-							aaa_and_opencost_synced_at = $4,
-							last_sync_balance = $5,
-							total_paid_credit = $6
-							WHERE user_id = $1`,
-						profile.UserID, canCreateGpuNotebook, pendingDeduction, sync_at_time, lastSyncBalance, totalPaidCredit)
-					if err != nil {
-						logger.Error("failed to update profile after deduction", "error", err)
-						return constants.RetryContinue, err
-					}
-					return constants.RetryStop, nil
-				})
-				if dbErr != nil {
-					logger.Error("error updating DB after deduction", "error", dbErr)
-					return
-				}
+				costDataChan <- costData
 			}(profile, profileFromDb)
 		}
 	}
-	wg.Wait()
 
-	ps.logger.Info("profile sync completed successfully")
+	wg.Wait()
+	close(costDataChan)
+
+	// Collect all cost data
+	var allCostData []ProfileCostData
+	for costData := range costDataChan {
+		allCostData = append(allCostData, costData)
+	}
+
+	ps.logger.Info("Phase 1 completed: Cost fetching finished", "successful_fetches", len(allCostData))
+
+	// Phase 2: Process deduction requests sequentially with 1s breaks
+	ps.logger.Info("Phase 2: Starting sequential cost deduction requests with 1s breaks")
+
+	successfulDeductions := 0
+	for _, costData := range allCostData {
+		select {
+		case <-ps.rootCtx.Done():
+			ps.logger.Warn("context cancelled during deduction phase")
+			return nil
+		default:
+			logger := ps.logger.With("user_id", costData.Profile.UserID)
+
+			// Skip if cost fetching failed
+			if costData.Error != nil {
+				logger.Error("skipping deduction due to cost fetch error", "error", costData.Error)
+				continue
+			}
+
+			// Process the deduction
+			err := ps.processProfileDeduction(costData, token, logger)
+			if err != nil {
+				logger.Error("failed to process profile deduction", "error", err)
+			} else {
+				successfulDeductions++
+				logger.Info("successfully processed profile deduction", "cost", costData.Cost)
+			}
+
+			time.Sleep(1 * time.Millisecond)
+		}
+	}
+
+	ps.logger.Info("profile sync completed successfully",
+		"total_profiles", len(allCostData),
+		"successful_deductions", successfulDeductions)
+	return nil
+}
+
+func (ps *profileSync) processProfileDeduction(costData ProfileCostData, token string, logger *slog.Logger) error {
+	ctx := context.Background()
+	profile := costData.Profile
+	profileFromDb := costData.ProfileFromDb
+	cost := costData.Cost
+	syncAtTime := costData.SyncAtTime
+
+	canCreateGpuNotebook := profileFromDb.CanCreateGpuNotebook
+	pendingDeduction := profileFromDb.PendingDeduction
+	lastSyncBalance := profileFromDb.LastSyncBalance
+	totalPaidCredit := profileFromDb.TotalPaidCredit
+	totalDeduction := pendingDeduction + cost
+
+	if totalDeduction > 0 {
+		res, statusCode, payload, requestTime, err := ps.costDeductionRequest(ctx, profile.UserID, totalDeduction, token)
+
+		logger.Info("cost deduction request response", "response", res, "status_code", statusCode, "payload", payload, "request_time", requestTime)
+		if err != nil {
+			errorMessage := err.Error()
+			payloadBytes, marshalErr := json.Marshal(payload)
+			if marshalErr != nil {
+				logger.Error("failed to marshal payload", "error", marshalErr)
+				payloadBytes = []byte{}
+			}
+			if res.Detail != "" && strings.Contains(strings.ToLower(res.Detail), "no sufficient balance") {
+				logger.Warn("No sufficient balance, removing GPU access and stopping notebooks", "user_id", profile.UserID)
+				canCreateGpuNotebook = false
+				// we only want to remove if it don't have sufficient balance
+				// because it can happen that user has enough balance but it's not synced yet because of dubplicate transaction
+				err := ps.stopAllGPUNotebooksInNamespace(ctx, profileFromDb)
+				if err != nil {
+					logger.Error("failed to stop notebooks after insufficient balance", "error", err)
+				}
+
+				// Check user balance and deduct all remaining credits if any
+				logger.Info("Checking user balance to deduct any remaining credits", "user_id", profile.UserID)
+				balance, balanceErr := ps.getUserBalance(ctx, profile.UserID, token)
+				if balanceErr != nil {
+					logger.Error("Failed to get user balance, continuing with processing", "error", balanceErr)
+				} else {
+					newBalance, deductErr := ps.deductAllRemainingCredits(ctx, profile.UserID, balance, token)
+					if deductErr != nil {
+						logger.Error("Failed to deduct all remaining credits, continuing with processing", "error", deductErr)
+					} else if balance > 0 {
+						// Update lastSyncBalance if we successfully deducted credits
+						lastSyncBalance = newBalance
+						logger.Info("Updated last sync balance after deducting remaining credits", "new_balance", newBalance)
+					}
+				}
+			} else {
+				logger.Error("failed to deduct cost from AAA", "error", err)
+				logger.Debug("failed to deduct cost from AAA", "status_code", statusCode, "error_message", errorMessage, "payload", string(payloadBytes), "profile", profile)
+				logErr := ps.failedAAARequest(
+					ctx,
+					profile.UserID,
+					totalDeduction,
+					requestTime,
+					statusCode,
+					errorMessage,
+					payloadBytes,
+				)
+				if logErr != nil {
+					logger.Error("Failed to log failed AAA request", "error", logErr)
+				}
+			}
+
+			pendingDeduction = totalDeduction
+		} else {
+			logger.Info("successfully deducted cost from AAA", "deducted_amount", totalDeduction, "new_balance", res.Result.UpdatedBalance)
+			pendingDeduction = 0
+			lastSyncBalance = res.Result.UpdatedBalance
+			canCreateGpuNotebook = true
+		}
+	}
+
+	if profileFromDb.CanCreateGpuNotebook != canCreateGpuNotebook {
+		if !canCreateGpuNotebook {
+			ps.logger.Info("user got their permission removed for creating notebook", "user_id", profile.UserID, "old_value", profileFromDb.CanCreateGpuNotebook, "new_value", canCreateGpuNotebook)
+		} else {
+			ps.logger.Info("user got their permission to create notebook", "user_id", profile.UserID, "old_value", profileFromDb.CanCreateGpuNotebook, "new_value", canCreateGpuNotebook)
+		}
+	}
+
+	dbErr := WithDBRetry(ctx, logger, func() (constants.ShouldContinue, error) {
+		_, err := ps.pgPool.Exec(ctx, `UPDATE profiles SET
+				can_create_gpu_notebook = $2,
+				pending_deduction = $3,
+				aaa_and_opencost_synced_at = $4,
+				last_sync_balance = $5,
+				total_paid_credit = $6
+				WHERE user_id = $1`,
+			profile.UserID, canCreateGpuNotebook, pendingDeduction, syncAtTime, lastSyncBalance, totalPaidCredit)
+		if err != nil {
+			logger.Error("failed to update profile after deduction", "error", err)
+			return constants.RetryContinue, err
+		}
+		return constants.RetryStop, nil
+	})
+	if dbErr != nil {
+		logger.Error("error updating DB after deduction", "error", dbErr)
+		return dbErr
+	}
+
 	return nil
 }
 
@@ -284,7 +381,7 @@ func (ps *profileSync) getProfileCostFromOpenCost(lastSyncAt time.Time, endTime 
 	end := endTime.Format(time.RFC3339)
 	start := lastSyncAt.Format(time.RFC3339)
 
-	logger.Debug("fetching cost data from OpenCost",
+	logger.Info("fetching cost data from OpenCost",
 		"start_time", start,
 		"end_time", end,
 		"url", ps.config.OPENCOST_URL)
@@ -328,7 +425,7 @@ func (ps *profileSync) getProfileCostFromOpenCost(lastSyncAt time.Time, endTime 
 	for _, dataMap := range costData.Data {
 		for _, data := range dataMap {
 			if data.Properties.Namespace == profile.UserID {
-				cost = data.CPUCost
+				cost = data.GPUCost
 				break
 			}
 		}
@@ -412,9 +509,17 @@ func (ps *profileSync) costDeductionRequest(ctx context.Context, profileID strin
 
 	err := WithExternalApiRetry(ctx, logger, func() (constants.ShouldContinue, error) {
 		// Generate fresh timestamp for each retry attempt
-		requestTime = time.Now().Format("2006-01-02T15:04:05")
+		requestTime = time.Now().Format("2006-01-02T15:04:05.000")
+
+		// Format amount to preserve decimal places with 15 decimal precision
+		amountStr := fmt.Sprintf("%.15f", cost)
+		amountStr = strings.TrimRight(amountStr, "0")
+		if strings.HasSuffix(amountStr, ".") {
+			amountStr += "0"
+		}
+
 		payload = map[string]interface{}{
-			"amount":       cost,
+			"amount":       json.Number(amountStr),
 			"user_id":      profileID,
 			"requested_at": requestTime,
 		}
@@ -470,13 +575,6 @@ func (ps *profileSync) costDeductionRequest(ctx context.Context, profileID strin
 		}
 
 		if statusCode >= 400 && statusCode < 500 {
-			ps.logger.Debug("AAA API client error",
-				"status_code", statusCode,
-				"response_body", string(responseBody),
-				"user_id", profileID,
-				"cost", cost,
-				"requested_at", requestTime,
-				"payload", string(payloadBytes))
 
 			if parseErr := json.Unmarshal(responseBody, &response); parseErr != nil {
 				ps.logger.Warn("Failed to parse error response JSON", "error", parseErr, "response_body", string(responseBody))
@@ -513,6 +611,138 @@ func (ps *profileSync) costDeductionRequest(ctx context.Context, profileID strin
 
 	return response, statusCode, payload, requestTime, nil
 }
+
+func (ps *profileSync) getUserBalance(ctx context.Context, userID string, token string) (float64, error) {
+	balanceURL := fmt.Sprintf("%s/auth/v1/admin/user/credit/balance/%s", ps.config.AAA_URL, userID)
+	logger := ps.logger.With("user_id", userID)
+
+	client := &http.Client{Timeout: creditDeductionTimeout}
+
+	var response BalanceResponse
+	var responseBody []byte
+	var statusCode int
+
+	tokenUsed := token
+	triedRefresh := false
+
+	err := WithExternalApiRetry(ctx, logger, func() (constants.ShouldContinue, error) {
+		req, err := http.NewRequest("GET", balanceURL, nil)
+		if err != nil {
+			return constants.RetryStop, fmt.Errorf("failed to create balance request: %v", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+tokenUsed)
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			logger.Warn("balance check request failed, will retry", "error", err)
+			statusCode = 0
+			return constants.RetryContinue, err
+		}
+		defer resp.Body.Close()
+
+		statusCode = resp.StatusCode
+		responseBody, err = io.ReadAll(resp.Body)
+		if err != nil {
+			logger.Warn("failed to read balance response body, will retry", "error", err)
+			return constants.RetryContinue, err
+		}
+
+		logger.Info("Balance API response",
+			"status_code", statusCode,
+			"response_body", string(responseBody),
+			"user_id", userID)
+
+		if statusCode == http.StatusUnauthorized {
+			ps.logger.Warn("received unauthorized response for balance check, token might be expired")
+			if !triedRefresh {
+				ps.logger.Info("Attempting to refresh Keycloak token for balance check due to 401 Unauthorized")
+				newToken, tokenErr := ps.getKeycloakToken()
+				if tokenErr != nil {
+					logger.Error("Failed to refresh Keycloak token for balance check", "error", tokenErr)
+					return constants.RetryStop, fmt.Errorf("failed to refresh Keycloak token: %v", tokenErr)
+				}
+				tokenUsed = newToken
+				triedRefresh = true
+				return constants.RetryContinue, fmt.Errorf("retrying balance check with refreshed token")
+			}
+			return constants.RetryStop, fmt.Errorf("balance check authentication failed even after token refresh: status code %d", statusCode)
+		}
+
+		if statusCode >= 400 && statusCode < 500 {
+			logger.Warn("Balance API client error", "status_code", statusCode, "response_body", string(responseBody))
+			return constants.RetryStop, fmt.Errorf("balance API client error: status code %d, response: %s", statusCode, string(responseBody))
+		}
+
+		if statusCode >= 500 {
+			ps.logger.Warn("server error from Balance API, will retry", "status_code", statusCode)
+			return constants.RetryContinue, fmt.Errorf("server error from Balance API, will retry")
+		}
+
+		return constants.RetryStop, nil
+	})
+
+	if err != nil {
+		ps.logger.Error("failed to complete balance check request", "error", err)
+		return 0, fmt.Errorf("failed to complete balance check request: %v", err)
+	}
+
+	if statusCode < 200 || statusCode >= 300 {
+		return 0, fmt.Errorf("balance API returned non-success status code: %d, response: %s", statusCode, string(responseBody))
+	}
+
+	err = json.Unmarshal(responseBody, &response)
+	if err != nil {
+		return 0, fmt.Errorf("failed to unmarshal balance response: %v", err)
+	}
+
+	logger.Info("successfully retrieved user balance", "balance", response.Result.Balance)
+	return response.Result.Balance, nil
+}
+
+func (ps *profileSync) deductAllRemainingCredits(ctx context.Context, userID string, balance float64, token string) (float64, error) {
+	logger := ps.logger.With("user_id", userID)
+
+	if balance <= 0 {
+		logger.Info("User has zero balance, skipping credit deduction", "balance", balance)
+		return 0, nil
+	}
+
+	logger.Info("Attempting to deduct all remaining credits", "balance", balance)
+
+	res, statusCode, payload, requestTime, err := ps.costDeductionRequest(ctx, userID, balance, token)
+	if err != nil {
+		logger.Error("Failed to deduct all remaining credits",
+			"balance", balance,
+			"error", err,
+			"status_code", statusCode)
+
+		payloadBytes, marshalErr := json.Marshal(payload)
+		if marshalErr != nil {
+			logger.Error("failed to marshal payload for failed deduction log", "error", marshalErr)
+			payloadBytes = []byte{}
+		}
+
+		logErr := ps.failedAAARequest(
+			ctx,
+			userID,
+			balance,
+			requestTime,
+			statusCode,
+			err.Error(),
+			payloadBytes,
+		)
+		if logErr != nil {
+			logger.Error("Failed to log failed balance deduction request", "error", logErr)
+		}
+
+		return 0, fmt.Errorf("failed to deduct all remaining credits: %v", err)
+	} else {
+		logger.Info("Successfully deducted all remaining credits", "deducted_amount", balance, "new_balance", res.Result.UpdatedBalance)
+		return res.Result.UpdatedBalance, nil
+	}
+}
+
 func (ps *profileSync) getKeycloakToken() (string, error) {
 	ps.logger.Info("getting Keycloak token")
 

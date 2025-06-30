@@ -210,7 +210,7 @@ func (ps *profileSync) stopAllGPUNotebooksInNamespace(ctx context.Context, profi
 		}
 	}
 
-	logger.Info("notebook stopping complete",
+	logger.Info("notebook stopping complete (it will also count which are already stopped)",
 		"total_notebooks", len(notebooks),
 		"gpu_notebooks_stopped", len(stoppedNotebookNames),
 		"failed_notebooks", len(failedNotebookNames),
