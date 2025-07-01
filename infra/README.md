@@ -16,51 +16,61 @@ docker push ghcr.io/datakaveri/tgdex-sandbox-connect-worker:latest
 docker push ghcr.io/datakaveri/tgdex-sandbox-credit-sync-cron:latest
 ```
 
-2. RBAC
-apply rbac.yaml to create the required roles and rolebindings
+2. RBAC Setup
+Apply rbac.yaml to create the required roles and rolebindings:
 ```bash
 kubectl apply -f infra/rbac.yaml
 ```
-3. Secrets 
 
-create the docker registry secret for the images
+3. Secrets Setup
+
+a. Docker Registry Secret:
 ```bash
-kubectl create secret docker-registry tgdex-registry-cred --docker-server=<url> --docker-username=<username> --docker-password=<password> -n sandbox
+kubectl create secret docker-registry tgdex-registry-cred \
+  --docker-server=<url> \
+  --docker-username=<username> \
+  --docker-password=<password> \
+  -n sandbox
 ```
 
-- Database
-create the secrets directly with kubectl:
-
+b. Database Credentials:
 ```bash
 kubectl create secret generic database-creds \
-  --from-literal=POSTGRES_URL="<url>" -n sandbox
+  --from-literal=POSTGRES_URL="<url>" \
+  -n sandbox
 ```
 
-- S3 
-create the secret directly with kubectl:
+c. S3 Credentials:
 ```bash
 kubectl create secret generic s3-creds \
   --from-literal=S3_ENDPOINT="<endpoint>" \
   --from-literal=S3_REGION="<region>" \
   --from-literal=S3_ACCESS_KEY="<access-key>" \
   --from-literal=S3_SECRET_KEY="<secret-key>" \
-  --from-literal=S3_TEMPLATE_BUCKET_NAME="<bucket-name>" -n sandbox
+  --from-literal=S3_TEMPLATE_BUCKET_NAME="<bucket-name>" \
+  -n sandbox
 ```
 
-- API Authentication
-create the API key secret for authentication:
+
+e. Keycloak Credentials:
+Before applying the Keycloak credentials, make sure to edit the `infra/api/secret.yaml` file and replace the following values:
+- `<username>`: Your Keycloak admin username
+- `<password>`: Your Keycloak admin password
+
+Then apply the secret:
 ```bash
-kubectl create secret generic api-auth \
-  --from-literal=API_KEY="<your-secure-api-key>" -n sandbox
+kubectl apply -f infra/api/secret.yaml
 ```
 
-4. Configuration of services
+4. Service Configuration
+Apply the configuration maps for API and cron jobs:
 ```bash
 kubectl apply -f infra/api/configmap.yaml
 kubectl apply -f infra/cron/profile-credit-sync/configmap.yaml
 ```
-5. Deploy the api, workers, and cron jobs:
 
+5. Deploy Services
+Deploy the API, workers, and cron jobs:
 ```bash
 kubectl apply -f infra/api/deployment.yaml
 kubectl apply -f infra/worker/deployment.yaml

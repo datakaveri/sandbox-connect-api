@@ -26,8 +26,19 @@ const (
 	DBMaxDelay     = 30 * time.Second
 	DBMaxAttempts  = 5
 	DBFactor       = 2.0
+
+	ProfileProcessingInitialDelay = 1 * time.Second
+	ProfileProcessingMaxDelay     = 15 * time.Second
+	ProfileProcessingMaxAttempts  = 3
+	ProfileProcessingFactor       = 2.0
 )
 
+var profileProcessingRetryConfig = utils.BackoffConfig{
+	InitialDelay: ProfileProcessingInitialDelay,
+	MaxDelay:     ProfileProcessingMaxDelay,
+	MaxAttempts:  ProfileProcessingMaxAttempts,
+	Factor:       ProfileProcessingFactor,
+}
 var externalApiRetryConfig = utils.BackoffConfig{
 	InitialDelay: externalApiInitialDelay,
 	MaxDelay:     externalApiMaxDelay,

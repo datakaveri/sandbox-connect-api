@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 func checkNotebookFailed(latestEvent constants.Events) bool {
@@ -227,4 +229,139 @@ func getErrorMessageForNotebookName(name string) (string, bool) {
 func IsNotebookRunningFromAnnotations(annotations map[string]any) bool {
 	_, isStopped := annotations["kubeflow-resource-stopped"]
 	return !isStopped
+}
+
+// tryRestoreGPUAccess attempts to process pending credits and restore GPU access
+// Returns: (hasAccess bool, error)
+// - hasAccess: true if user now has GPU access, false if still insufficient credits
+// - error: non-nil if there was a system error during processing
+func (app *application) tryRestoreGPUAccess(ctx context.Context, tx pgx.Tx, profile *BillingProfile, logger *slog.Logger) (bool, error) {
+	logger = logger.With("operation", "tryRestoreGPUAccess", "user_id", profile.UserID)
+
+	// If user already has access, return true
+	if profile.CanCreateGpuNotebook {
+		logger.Info("user already has GPU access")
+		return true, nil
+	}
+
+	// Check if last sync was less than 3 minutes ago
+	currentTime := time.Now()
+	timeSinceLastSync := currentTime.Sub(profile.AaaAndOpenCostSyncedAt)
+
+	var cost float64
+	syncAtTime := time.Now()
+
+	if timeSinceLastSync < 3*time.Minute {
+		logger.Info("last sync was less than 3 minutes ago, setting OpenCost to 0 but checking pending deductions",
+			"last_sync", profile.AaaAndOpenCostSyncedAt,
+			"time_since_last_sync", timeSinceLastSync.String(),
+			"pending_deduction", profile.PendingDeduction)
+		cost = 0 // Don't call OpenCost for short intervals
+	} else {
+		logger.Info("processing credits - sufficient time since last sync",
+			"last_sync", profile.AaaAndOpenCostSyncedAt,
+			"time_since_last_sync", timeSinceLastSync.String())
+
+		// Calculate cost from OpenCost
+		start := profile.AaaAndOpenCostSyncedAt
+
+		var err error
+		cost, err = app.getProfileCostFromOpenCost(start, syncAtTime, profile)
+		if err != nil {
+			logger.Error("failed to get profile cost from OpenCost", "error", err)
+			return false, fmt.Errorf("failed to get profile cost: %w", err)
+		}
+		logger.Info("cost calculated from OpenCost", "cost", cost)
+	}
+
+	// Calculate total deduction needed
+	totalDeduction := profile.PendingDeduction + cost
+
+	// Initialize variables for updates
+	canCreateGpuNotebook := false
+	pendingDeduction := profile.PendingDeduction
+	lastSyncBalance := profile.LastSyncBalance
+	totalPaidCredit := profile.TotalPaidCredit
+
+	if totalDeduction > 0 {
+		logger.Info("total deduction > 0, checking user balance", "total_deduction", totalDeduction)
+
+		// Get Keycloak token
+		token, tokenErr := app.getKeycloakToken()
+		if tokenErr != nil {
+			logger.Error("failed to get Keycloak token", "error", tokenErr)
+			return false, fmt.Errorf("failed to get Keycloak token: %w", tokenErr)
+		}
+
+		// Get current user balance
+		balance, balanceErr := app.getUserBalance(ctx, profile.UserID, token)
+		if balanceErr != nil {
+			logger.Error("failed to get user balance", "error", balanceErr)
+			return false, fmt.Errorf("failed to get user balance: %w", balanceErr)
+		}
+
+		logger.Info("retrieved user balance", "balance", balance, "required", totalDeduction)
+
+		if balance == 0 {
+			logger.Info("user has zero balance, keeping pending deduction")
+			pendingDeduction = totalDeduction
+			canCreateGpuNotebook = false
+		} else if balance < totalDeduction {
+			logger.Info("user has partial balance, deducting available amount",
+				"balance", balance, "total_required", totalDeduction)
+
+			res, deductErr := app.costDeductionRequest(ctx, profile.UserID, balance, token)
+
+			canCreateGpuNotebook = false
+			if deductErr != nil {
+				logger.Error("failed to deduct partial balance", "error", deductErr)
+				pendingDeduction = totalDeduction
+			} else {
+				lastSyncBalance = res.Result.UpdatedBalance
+				pendingDeduction = totalDeduction - balance
+				totalPaidCredit += balance
+				logger.Info("successfully deducted partial balance",
+					"deducted_amount", balance, "new_balance", res.Result.UpdatedBalance, "remaining_pending", pendingDeduction)
+			}
+		} else {
+			// User has sufficient balance - deduct full amount
+			logger.Info("user has sufficient balance, deducting full amount",
+				"balance", balance, "total_deduction", totalDeduction)
+
+			res, deductErr := app.costDeductionRequest(ctx, profile.UserID, totalDeduction, token)
+			if deductErr != nil {
+				logger.Error("failed to deduct full amount despite sufficient balance", "error", deductErr)
+				pendingDeduction = totalDeduction
+				canCreateGpuNotebook = false
+			} else {
+				logger.Info("successfully deducted full amount, enabling GPU access",
+					"deducted_amount", totalDeduction, "new_balance", res.Result.UpdatedBalance)
+				totalPaidCredit += totalDeduction
+				pendingDeduction = 0
+				lastSyncBalance = res.Result.UpdatedBalance
+				canCreateGpuNotebook = true
+			}
+		}
+	}
+
+	// Update profile in database
+	_, updateErr := tx.Exec(ctx, `UPDATE profiles SET
+		can_create_gpu_notebook = $2,
+		pending_deduction = $3,
+		aaa_and_opencost_synced_at = $4,
+		last_sync_balance = $5,
+		total_paid_credit = $6
+		WHERE user_id = $1`,
+		profile.UserID, canCreateGpuNotebook, pendingDeduction, syncAtTime, lastSyncBalance, totalPaidCredit)
+
+	if updateErr != nil {
+		logger.Error("failed to update profile", "error", updateErr)
+		return false, fmt.Errorf("failed to update profile: %w", updateErr)
+	}
+
+	logger.Info("credit processing completed",
+		"can_create_gpu_notebook", canCreateGpuNotebook,
+		"pending_deduction", pendingDeduction)
+
+	return canCreateGpuNotebook, nil
 }

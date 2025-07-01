@@ -39,3 +39,6 @@ data:
   API_DEFAULT_GPU_MEMORY_REQUEST: "12Gi"
   API_DEFAULT_GPU_MEMORY_LIMIT: "14Gi"
   API_LOG_LEVEL: "debug"
+  API_AAA_URL: "https://dx.tgdex.telangana.gov.in"
+  API_OPENCOST_URL: "http://opencost.opencost:9003"
+  API_KEYCLOAK_BILLING_CLIENT_ID: "frontend-client"

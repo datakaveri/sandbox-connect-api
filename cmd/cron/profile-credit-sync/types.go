@@ -11,19 +11,18 @@ import (
 )
 
 type CronEnv struct {
-	OPENCOST_URL                     string `env:"PROFILE_CREDIT_SYNC_OPENCOST_URL,required"`
-	POSTGRES_URL                     string `env:"PROFILE_CREDIT_SYNC_POSTGRES_URL,required"`
-	OPENCOST_MAX_CONCURRENT_REQUESTS int    `env:"PROFILE_CREDIT_OPENCOST_MAX_CONCURRENT_REQUESTS,required"`
-	AAA_URL                          string `env:"PROFILE_CREDIT_SYNC_AAA_URL,required"`
-	KEYCLOAK_URL                     string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_URL,required"`
-	KEYCLOAK_REALM                   string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_REALM,required"`
-	KEYCLOAK_CLIENT_ID               string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_CLIENT_ID,required"`
-	KEYCLOAK_USERNAME                string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_USERNAME,required"`
-	KEYCLOAK_PASSWORD                string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_PASSWORD,required"`
-	K8S_CONFIG_MODE                  string `env:"PROFILE_CREDIT_SYNC_K8S_CONFIG_MODE"`
-	K8S_CONFIG_PATH                  string `env:"PROFILE_CREDIT_SYNC_K8S_CONFIG_PATH"`
-	LOG_LEVEL                        string `env:"PROFILE_CREDIT_SYNC_LOG_LEVEL" envDefault:"info"`
-	GPUResourceKeys                  string `env:"PROFILE_CREDIT_SYNC_GPU_RESOURCE_KEYS"`
+	OPENCOST_URL       string `env:"PROFILE_CREDIT_SYNC_OPENCOST_URL,required"`
+	POSTGRES_URL       string `env:"PROFILE_CREDIT_SYNC_POSTGRES_URL,required"`
+	AAA_URL            string `env:"PROFILE_CREDIT_SYNC_AAA_URL,required"`
+	KEYCLOAK_URL       string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_URL,required"`
+	KEYCLOAK_REALM     string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_REALM,required"`
+	KEYCLOAK_CLIENT_ID string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_CLIENT_ID,required"`
+	KEYCLOAK_USERNAME  string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_USERNAME,required"`
+	KEYCLOAK_PASSWORD  string `env:"PROFILE_CREDIT_SYNC_KEYCLOAK_PASSWORD,required"`
+	K8S_CONFIG_MODE    string `env:"PROFILE_CREDIT_SYNC_K8S_CONFIG_MODE"`
+	K8S_CONFIG_PATH    string `env:"PROFILE_CREDIT_SYNC_K8S_CONFIG_PATH"`
+	LOG_LEVEL          string `env:"PROFILE_CREDIT_SYNC_LOG_LEVEL" envDefault:"info"`
+	GPUResourceKeys    string `env:"PROFILE_CREDIT_SYNC_GPU_RESOURCE_KEYS"`
 }
 
 type CostAllocationResponse struct {

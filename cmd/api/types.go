@@ -29,6 +29,7 @@ type ApiEnv struct {
 	ReadTimeoutSecs   int    `env:"API_READ_TIMEOUT_SECS"`
 	Version           string `env:"API_VERSION,required"`
 	NotebookConfig    NotebookConfig
+	BillingConfig     BillingConfig
 }
 
 type application struct {
@@ -75,6 +76,14 @@ type NotebookConfig struct {
 	MaxRunningGPU int `env:"API_MAX_RUNNING_GPU"`
 	MaxTotalCPU   int `env:"API_MAX_TOTAL_CPU"`
 	MaxTotalGPU   int `env:"API_MAX_TOTAL_GPU"`
+}
+
+type BillingConfig struct {
+	AAAURL           string `env:"API_AAA_URL,required"`
+	OpenCostURL      string `env:"API_OPENCOST_URL,required"`
+	KeycloakClientID string `env:"API_KEYCLOAK_BILLING_CLIENT_ID,required"`
+	KeycloakUsername string `env:"API_KEYCLOAK_ADMIN_USERNAME,required"`
+	KeycloakPassword string `env:"API_KEYCLOAK_ADMIN_PASSWORD,required"`
 }
 
 type NotebookRequest struct {
@@ -284,4 +293,89 @@ type Error409 struct {
 	// Error message
 	Detail string `json:"detail" example:"string"`
 	Type   string `json:"type" example:"error"`
+}
+
+// Billing API Response Types
+
+type KeycloakTokenResponse struct {
+	AccessToken      string `json:"access_token"`
+	ExpiresIn        int    `json:"expires_in"`
+	RefreshExpiresIn int    `json:"refresh_expires_in"`
+	RefreshToken     string `json:"refresh_token"`
+	TokenType        string `json:"token_type"`
+	SessionState     string `json:"session_state"`
+	Scope            string `json:"scope"`
+}
+
+type AAAResponse struct {
+	Type   string       `json:"type"`
+	Title  string       `json:"title"`
+	Detail string       `json:"detail,omitempty"`
+	Result CreditResult `json:"result,omitempty"`
+}
+
+type CreditResult struct {
+	ID                string  `json:"id"`
+	UserID            string  `json:"userId"`
+	Amount            float64 `json:"amount"`
+	TransactedBy      string  `json:"transactedBy"`
+	TransactionStatus string  `json:"transactionStatus"`
+	TransactionType   string  `json:"transactionType"`
+	CreatedAt         string  `json:"createdAt"`
+	RequestedAt       string  `json:"requestedAt"`
+	UpdatedBalance    float64 `json:"updatedBalance"`
+	TableName         string  `json:"tableName"`
+}
+
+type BalanceResult struct {
+	Balance float64 `json:"balance"`
+	UserID  string  `json:"user_id"`
+}
+
+type BalanceResponse struct {
+	Type   string        `json:"type"`
+	Title  string        `json:"title"`
+	Result BalanceResult `json:"result"`
+}
+
+// Profile for billing operations (matches cron job Profile type)
+type ProfileForBilling struct {
+	ProfileID              string    `json:"id"`
+	UserID                 string    `json:"user_id"`
+	Email                  string    `json:"email"`
+	TotalPaidCredit        float64   `json:"total_paid_credit"`
+	LastSyncBalance        float64   `json:"last_sync_balance"`
+	CanCreateGpuNotebook   bool      `json:"can_create_gpu_notebook"`
+	AaaAndOpenCostSyncedAt time.Time `json:"aaa_and_opencost_synced_at"`
+	PendingDeduction       float64   `json:"pending_deduction"`
+}
+
+// BillingProfile contains all billing-related profile data for API operations
+type BillingProfile struct {
+	ProfileID              string    `db:"id"`
+	UserID                 string    `db:"user_id"`
+	Email                  string    `db:"email"`
+	TotalPaidCredit        float64   `db:"total_paid_credit"`
+	LastSyncBalance        float64   `db:"last_sync_balance"`
+	CanCreateGpuNotebook   bool      `db:"can_create_gpu_notebook"`
+	AaaAndOpenCostSyncedAt time.Time `db:"aaa_and_opencost_synced_at"`
+	PendingDeduction       float64   `db:"pending_deduction"`
+}
+
+// OpenCost Response Types
+
+type CostAllocationResponse struct {
+	Data []map[string]CostAllocation `json:"data"`
+}
+
+type CostAllocation struct {
+	Name       string `json:"name"`
+	Properties struct {
+		Cluster   string `json:"cluster"`
+		Namespace string `json:"namespace"`
+	} `json:"properties"`
+	CPUCost   float64 `json:"cpuCost"`
+	GPUCost   float64 `json:"gpuCost"`
+	RAMCost   float64 `json:"ramCost"`
+	TotalCost float64 `json:"totalCost"`
 }
