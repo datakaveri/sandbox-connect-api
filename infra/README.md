@@ -97,7 +97,7 @@ For connecting Keycloak with Kubeflow, follow the [Dex configuration guide](http
 
 ## Database Setup
 
-The project uses PostgreSQL as its database. The schema includes tables for managing notebooks, user profiles, and AAA (Authentication, Authorization, and Accounting) requests.
+The project uses PostgreSQL as its database. The schema includes tables for managing notebooks, user profiles, and failed aaa requests.
 
 1. Create the database in your PostgreSQL instance
 2. Apply the schema from `db.sql` in the root directory:
