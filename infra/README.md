@@ -1,8 +1,21 @@
 # Infrastructure Setup
 This directory contains the infrastructure configuration for deploying the Sandbox Connect API, Worker services, and Cron jobs to Kubernetes.
-Deploying Opencost
-create opencost-value.yaml file
+
+# Deploying OpenCost
+
+## Overview
+OpenCost provides real-time cost monitoring for Kubernetes workloads.
+
+## Installation Steps
+
+1. Add OpenCost Helm repository:
+```bash
+helm repo add opencost-charts https://opencost.github.io/opencost-helm-chart
+helm repo update
 ```
+
+2. Create `values.yaml` with the following configuration:
+```yaml
 opencost:
   exporter:
     env:
@@ -31,20 +44,59 @@ opencost:
         cpu: "500m"
 ```
 
-deploy with these commands
-
-```
-helm repo add opencost-charts https://opencost.github.io/opencost-helm-chart
-helm repo update
+Deploy 
+```bash
 helm install opencost opencost-charts/opencost --namespace opencost --create-namespace -f values.yaml
-````
+```
 
-# Deploying kubeflow
+# Deploying Kubeflow
 
+## Prerequisites
+- Kubernetes cluster
+- Cert Manager v1.17.2 (already installed)
+- Git
 
-## Deployment Steps
-We are deploying in sandbox namespace
+## Installation Steps
 
+1. Clone the manifests repository:
+```bash
+git clone https://github.com/kubeflow/manifests.git
+```
+
+2. Install components in the following order:
+   - Istio
+   - OAuth2 Proxy
+   - Dex
+   - Kubeflow Namespace
+   - Network Policies
+   - Kubeflow Roles
+   - Kubeflow Istio Resources
+   - Notebooks
+   - Profiles & KFAM
+   - User Namespaces
+
+For detailed installation instructions for each component, refer to the [Readme of Kubeflow manifests](https://github.com/kubeflow/manifests?tab=readme-ov-file#install-individual-components).
+
+## Keycloak Integration
+For connecting Keycloak with Kubeflow, follow the [Dex configuration guide](https://github.com/kubeflow/manifests/blob/ad65081672344022dccb1356c830b789c6060d31/common/dex/README.md).
+
+## Database Setup
+
+The project uses PostgreSQL as its database. The schema includes tables for managing notebooks, user profiles, and AAA (Authentication, Authorization, and Accounting) requests.
+
+1. Create the database in your PostgreSQL instance
+2. Apply the schema from `db.sql` in the root directory:
+```bash
+psql -U <username> -d <database_name> -f db.sql
+```
+
+The schema includes:
+- `notebooks`: Manages Kubernetes notebook instances
+- `profiles`: Stores user profiles and credit information
+- `failed_aaa_requests`: Tracks failed accounting requests
+- Necessary indexes and triggers for performance optimization
+
+## deploying sandbox servies 
 1. Build and pull Docker images:
 
 ```bash
