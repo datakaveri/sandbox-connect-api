@@ -152,6 +152,7 @@ Before applying the Keycloak credentials, make sure to edit the `infra/api/secre
 Then apply the secret:
 ```bash
 kubectl apply -f infra/api/secret.yaml
+kubectl apply -f infra/cron/profile-credit-sync/secret.yaml
 ```
 
 4. Service Configuration
@@ -167,5 +168,10 @@ Deploy the API, workers, and cron jobs:
 kubectl apply -f infra/api/deployment.yaml
 kubectl apply -f infra/worker/deployment.yaml
 kubectl apply -f infra/cron/profile-credit-sync/cronjob.yaml
+```
+
+6. Deploy Ingress
+```bash
+kubectl apply -f infra/api/ingress.yaml
 ```
 

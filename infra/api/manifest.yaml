@@ -54,3 +54,20 @@ spec:
           requests:
             cpu: "500m"
             memory: "1Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sandbox-api
+  namespace: sandbox
+  labels:
+    app: sandbox-api
+spec:
+  selector:
+    app: sandbox-api
+  ports:
+  - port: 80
+    targetPort: 3000
+    protocol: TCP
+    name: http
+  type: ClusterIP
