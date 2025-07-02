@@ -56,6 +56,21 @@ helm install opencost opencost-charts/opencost --namespace opencost --create-nam
 - Cert Manager v1.17.2 (already installed)
 - Git
 
+## Pre-Installation Configuration
+
+1. Configure Notebook Controller settings for auto-culling:
+   Navigate to `manifests/apps/jupyter/notebook-controller/upstream/manager/params.env` and update:
+```env
+ENABLE_CULLING=true
+CULL_IDLE_TIME=360
+IDLENESS_CHECK_PERIOD=10
+```
+
+2. Configure OAuth2-Proxy settings:
+   Navigate to `manifests/common/oauth2-proxy/base/oauth2_proxy.cfg` and update:
+```cfg
+skip_provider_button = true
+```
 ## Installation Steps
 
 1. Clone the manifests repository:
@@ -165,7 +180,7 @@ kubectl apply -f infra/cron/profile-credit-sync/configmap.yaml
 5. Deploy Services
 Deploy the API, workers, and cron jobs:
 ```bash
-kubectl apply -f infra/api/deployment.yaml
+kubectl apply -f infra/api/manifest.yaml
 kubectl apply -f infra/worker/deployment.yaml
 kubectl apply -f infra/cron/profile-credit-sync/cronjob.yaml
 ```
