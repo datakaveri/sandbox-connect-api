@@ -21,7 +21,7 @@ spec:
             - name: tgdex-registry-cred
           containers:
           - name: profile-credit-sync
-            image: ghcr.io/datakaveri/tgdex-sandbox-credit-sync-cron:latest
+            image: ghcr.io/datakaveri/tgdex-sandbox-credit-sync-cron:tgdex-1.0.0
             env:
             - name: PROFILE_CREDIT_SYNC_POSTGRES_URL
               valueFrom:

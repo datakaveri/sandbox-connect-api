@@ -1,5 +1,45 @@
 # Infrastructure Setup
 This directory contains the infrastructure configuration for deploying the Sandbox Connect API, Worker services, and Cron jobs to Kubernetes.
+Deploying Opencost
+create opencost-value.yaml file
+```
+opencost:
+  exporter:
+    env:
+      - name: PROMETHEUS_SERVER_ENDPOINT
+        value: "http://prometheus-server.mon-stack.svc.cluster.local:80"
+    resources:
+      requests:
+        memory: "7.5Gi"
+        cpu: "3"
+      limits:
+        memory: "8Gi"
+        cpu: "4"
+  prometheus:
+    internal:
+      enabled: false
+    external:
+      enabled: true
+  ui:
+    enabled: true
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "100m"
+      limits:
+        memory: "1Gi"
+        cpu: "500m"
+```
+
+deploy with these commands
+
+```
+helm repo add opencost-charts https://opencost.github.io/opencost-helm-chart
+helm repo update
+helm install opencost opencost-charts/opencost --namespace opencost --create-namespace -f values.yaml
+````
+
+# Deploying kubeflow
 
 
 ## Deployment Steps

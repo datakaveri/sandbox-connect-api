@@ -20,7 +20,7 @@ spec:
       - name: tgdex-registry-cred
       containers:
       - name: sandbox-api
-        image: ghcr.io/datakaveri/tgdex-sandbox-connect-api:latest
+        image: ghcr.io/datakaveri/tgdex-sandbox-connect-api:tgdex-1.0.0
         ports:
         - containerPort: 3000
         livenessProbe:
