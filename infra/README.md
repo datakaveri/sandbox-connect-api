@@ -115,12 +115,12 @@ The schema includes:
 1. Build and pull Docker images:
 
 ```bash
-docker build -t ghcr.io/datakaveri/tgdex-sandbox-connect-api:latest -f infra/api/Dockerfile .
-docker build -t ghcr.io/datakaveri/tgdex-sandbox-connect-worker:latest -f infra/worker/Dockerfile .
-docker build -t ghcr.io/datakaveri/tgdex-sandbox-credit-sync-cron:latest -f infra/cron/profile-credit-sync/Dockerfile .
-docker push ghcr.io/datakaveri/tgdex-sandbox-connect-api:latest
-docker push ghcr.io/datakaveri/tgdex-sandbox-connect-worker:latest
-docker push ghcr.io/datakaveri/tgdex-sandbox-credit-sync-cron:latest
+docker build -t ghcr.io/datakaveri/tgdex-sandbox-connect-api:tgdex-1.0.0 -f infra/api/Dockerfile .
+docker build -t ghcr.io/datakaveri/tgdex-sandbox-connect-worker:tgdex-1.0.0 -f infra/worker/Dockerfile .
+docker build -t ghcr.io/datakaveri/tgdex-sandbox-credit-sync-cron:tgdex-1.0.0 -f infra/cron/profile-credit-sync/Dockerfile .
+docker push ghcr.io/datakaveri/tgdex-sandbox-connect-api:tgdex-1.0.0
+docker push ghcr.io/datakaveri/tgdex-sandbox-connect-worker:tgdex-1.0.0
+docker push ghcr.io/datakaveri/tgdex-sandbox-credit-sync-cron:tgdex-1.0.0
 ```
 
 2. RBAC Setup
