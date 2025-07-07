@@ -203,6 +203,48 @@ Finally, create a new namespace for the default user (named kubeflow-user-exampl
 kustomize build common/user-namespace/base | kubectl apply -f -
 ```
 
+11. create ingress for notebooks
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: istio-gateway-ingress
+  namespace: istio-system
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/enable-modsecurity: "false"
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "http://localhost:8080,http://localhost:5173,http://localhost:5174,http://localhost:4200,http://localhost:4007,https://staging.catalogue.tgdex.iudx.io,https://catalogue.tgdex.iudx.io,https://tgdex.telangana.gov.in"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "Content-Type, Authorization, X-Request-ID"
+    nginx.ingress.kubernetes.io/cors-expose-headers: "X-Request-ID, X-Execution-Time"
+    nginx.ingress.kubernetes.io/server-snippet: add_header Content-Security-Policy "default-src 'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; frame-ancestors 'self'; form-action 'self';" always;
+    nginx.ingress.kubernetes.io/global-rate-limit: "1000"
+    nginx.ingress.kubernetes.io/global-rate-limit-key: $server_name
+    nginx.ingress.kubernetes.io/global-rate-limit-window: 1s
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "1"
+    nginx.ingress.kubernetes.io/limit-connections: "150"
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: sandbox.tgdex.telangana.gov.in
+    http:
+      paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: istio-ingressgateway
+              port:
+                number: 80
+  tls:
+  - hosts:
+    - sandbox.tgdex.telangana.gov.in
+    secretName: kd-tls-cert
+```
+
 ## Keycloak Integration
 For connecting Keycloak with Kubeflow, follow the [./keycloak-dex-integeration.md](./keycloak-dex-integration.md).
 

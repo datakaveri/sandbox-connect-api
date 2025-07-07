@@ -23,6 +23,14 @@ import (
 	"github.com/joho/godotenv"
 )
 
+func normalizeValue(value float64) float64 {
+	const epsilon = 1e-10
+	if value <= epsilon {
+		return 0
+	}
+	return value
+}
+
 func main() {
 	logLevel := slog.LevelInfo
 	logLevelStr := os.Getenv("PROFILE_CREDIT_SYNC_LOG_LEVEL")
@@ -440,7 +448,7 @@ func (ps *profileSync) getProfileCostFromOpenCost(lastSyncAt time.Time, endTime 
 	for _, dataMap := range costData.Data {
 		for _, data := range dataMap {
 			if data.Properties.Namespace == profile.UserID {
-				cost = data.GPUCost
+				cost = normalizeValue(data.GPUCost)
 				break
 			}
 		}
@@ -702,51 +710,9 @@ func (ps *profileSync) getUserBalance(ctx context.Context, userID string, token 
 		return 0, fmt.Errorf("failed to unmarshal balance response: %v", err)
 	}
 
-	logger.Info("successfully retrieved user balance", "balance", response.Result.Balance)
-	return response.Result.Balance, nil
-}
-
-func (ps *profileSync) deductAllRemainingCredits(ctx context.Context, userID string, balance float64, token string) (float64, error) {
-	logger := ps.logger.With("user_id", userID)
-
-	if balance <= 0 {
-		logger.Info("User has zero balance, skipping credit deduction", "balance", balance)
-		return 0, nil
-	}
-
-	logger.Info("Attempting to deduct all remaining credits", "balance", balance)
-
-	res, statusCode, payload, requestTime, err := ps.costDeductionRequest(ctx, userID, balance, token)
-	if err != nil {
-		logger.Error("Failed to deduct all remaining credits",
-			"balance", balance,
-			"error", err,
-			"status_code", statusCode)
-
-		payloadBytes, marshalErr := json.Marshal(payload)
-		if marshalErr != nil {
-			logger.Error("failed to marshal payload for failed deduction log", "error", marshalErr)
-			payloadBytes = []byte{}
-		}
-
-		logErr := ps.failedAAARequest(
-			ctx,
-			userID,
-			balance,
-			requestTime,
-			statusCode,
-			err.Error(),
-			payloadBytes,
-		)
-		if logErr != nil {
-			logger.Error("Failed to log failed balance deduction request", "error", logErr)
-		}
-
-		return 0, fmt.Errorf("failed to deduct all remaining credits: %v", err)
-	} else {
-		logger.Info("Successfully deducted all remaining credits", "deducted_amount", balance, "new_balance", res.Result.UpdatedBalance)
-		return res.Result.UpdatedBalance, nil
-	}
+	normalizedBalance := normalizeValue(response.Result.Balance)
+	logger.Info("successfully retrieved user balance", "balance", normalizedBalance)
+	return normalizedBalance, nil
 }
 
 func (ps *profileSync) getKeycloakToken() (string, error) {
