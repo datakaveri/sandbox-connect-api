@@ -86,7 +86,13 @@ Install the following components in order:
 
 istio is used by most Kubeflow components to secure their traffic, enforce network authorization, and implement routing policies. If you use Cilium CNI on your cluster, you must configure it properly for Istio as shown here; otherwise, you will encounter RBAC access denied on the central dashboard.
 
-Install Istio:
+1. install Cluster Issuer
+```bash
+kustomize build common/cert-manager/kubeflow-issuer/base | kubectl apply -f -
+```
+
+2. Install Istio:
+
 ```bash
 echo "Installing Istio configured with external authorization..."
 kustomize build common/istio-1-24/istio-crds/base | kubectl apply -f -
@@ -97,7 +103,7 @@ echo "Waiting for all Istio Pods to become ready..."
 kubectl wait --for=condition=Ready pods --all -n istio-system --timeout 300s
 ```
 
-2. OAuth2 Proxy
+3. OAuth2 Proxy
 
 The oauth2-proxy extends your Istio Ingress-Gateway capabilities to function as an OIDC client. It supports user sessions as well as proper token-based machine-to-machine authentication.
 
@@ -133,7 +139,7 @@ kubectl wait --for=condition=Ready pod -l 'app.kubernetes.io/name=oauth2-proxy' 
 #kubectl wait --for=condition=Ready pod -l 'app.kubernetes.io/name=oauth2-proxy' --timeout=180s -n oauth2-proxy
 ```
 
-3. Dex
+4. Dex
 
 Dex is an OpenID Connect (OIDC) identity provider with multiple authentication backends. In this default installation, it includes a static user with the email user@example.com. By default, the user's password is 12341234. For any production Kubeflow deployment, you should change the default password by following the relevant section.
 
@@ -144,7 +150,7 @@ kustomize build common/dex/overlays/oauth2-proxy | kubectl apply -f -
 kubectl wait --for=condition=Ready pods --all --timeout=180s -n auth
 ```
 
-4. Kubeflow Namespace
+5. Kubeflow Namespace
 
 Create the namespace where the Kubeflow components will reside. This namespace is named kubeflow.
 
@@ -153,14 +159,14 @@ Install the Kubeflow namespace:
 kustomize build common/kubeflow-namespace/base | kubectl apply -f -
 ```
 
-5. Network Policies
+6. Network Policies
 
 Install network policies:
 ```bash
 kustomize build common/networkpolicies/base | kubectl apply -f -
 ```
 
-6. Kubeflow Roles
+7. Kubeflow Roles
 
 Create the Kubeflow ClusterRoles: kubeflow-view, kubeflow-edit, and kubeflow-admin. Kubeflow components aggregate permissions to these ClusterRoles.
 
@@ -169,7 +175,7 @@ Install Kubeflow roles:
 kustomize build common/kubeflow-roles/base | kubectl apply -f -
 ```
 
-7. Kubeflow Istio Resources
+8. Kubeflow Istio Resources
 
 Create the Kubeflow Gateway kubeflow-gateway and ClusterRole kubeflow-istio-admin.
 
@@ -178,7 +184,12 @@ Install Kubeflow Istio resources:
 kustomize build common/istio-1-24/kubeflow-istio-resources/base | kubectl apply -f -
 ```
 
-8. Notebooks
+9. Admission Webhook
+```bash
+kustomize build apps/admission-webhook/upstream/overlays/cert-manager | kubectl apply -f -
+```
+
+10. Notebooks
 
 Install the Notebook Controller and Jupyter Web Application:
 ```bash
@@ -189,21 +200,21 @@ kustomize build apps/jupyter/notebook-controller/upstream/overlays/kubeflow | ku
 kustomize build apps/jupyter/jupyter-web-app/upstream/overlays/istio | kubectl apply -f -
 ```
 
-9. Profiles & KFAM
+11. Profiles & KFAM
 
 Install the Profile Controller and the Kubeflow Access-Management (KFAM):
 ```bash
 kustomize build apps/profiles/upstream/overlays/kubeflow | kubectl apply -f -
 ```
 
-10. User Namespaces
+12. User Namespaces
 
 Finally, create a new namespace for the default user (named kubeflow-user-example-com):
 ```bash
 kustomize build common/user-namespace/base | kubectl apply -f -
 ```
 
-11. create ingress for notebooks
+13. create ingress for notebooks
 ```yaml
 apiVersion: networking.k8s.io/v1
 kind: Ingress
