@@ -82,16 +82,14 @@ skip_provider_button = true
 ## Component Installation
 
 Install the following components in order:
-1. Istio
-
-istio is used by most Kubeflow components to secure their traffic, enforce network authorization, and implement routing policies. If you use Cilium CNI on your cluster, you must configure it properly for Istio as shown here; otherwise, you will encounter RBAC access denied on the central dashboard.
-
 1. install Cluster Issuer
 ```bash
 kustomize build common/cert-manager/kubeflow-issuer/base | kubectl apply -f -
 ```
 
-2. Install Istio:
+2. Istio
+
+istio is used by most Kubeflow components to secure their traffic, enforce network authorization, and implement routing policies. If you use Cilium CNI on your cluster, you must configure it properly for Istio as shown here; otherwise, you will encounter RBAC access denied on the central dashboard.
 
 ```bash
 echo "Installing Istio configured with external authorization..."
@@ -214,7 +212,7 @@ Finally, create a new namespace for the default user (named kubeflow-user-exampl
 kustomize build common/user-namespace/base | kubectl apply -f -
 ```
 
-13. create ingress for notebooks
+12. create ingress for notebooks
 ```yaml
 apiVersion: networking.k8s.io/v1
 kind: Ingress
