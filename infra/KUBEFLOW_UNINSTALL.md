@@ -16,10 +16,8 @@ kustomize build apps/profiles/upstream/overlays/kubeflow | kubectl delete -f -
 
 ### 3. Remove Notebooks
 ```bash
-# Remove Jupyter Web Application
 kustomize build apps/jupyter/jupyter-web-app/upstream/overlays/istio | kubectl delete -f -
 
-# Remove Notebook Controller
 kustomize build apps/jupyter/notebook-controller/upstream/overlays/kubeflow | kubectl delete -f -
 ```
 
@@ -61,10 +59,8 @@ kustomize build common/oauth2-proxy/overlays/m2m-dex-only/ | kubectl delete -f -
 
 ### 11. Remove Istio
 ```bash
-# Remove Istio installation
 kustomize build common/istio-1-24/istio-install/overlays/oauth2-proxy | kubectl delete -f -
 
-# Remove Istio namespace
 kustomize build common/istio-1-24/istio-namespace/base | kubectl delete -f -
 
 # Remove Istio CRDs
