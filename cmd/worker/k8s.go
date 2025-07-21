@@ -313,7 +313,7 @@ func (w *worker) CreateNotebook() error {
 	var imageName string
 	var request map[string]any
 	if utils.CheckGPUResource(nb.GPUType, nb.GPURequest, nb.GPULimit) {
-		imageName = "108779579607.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-gpu-notebook:latest"
+		imageName = w.app.env.GPU_NOTEBOOK_IMAGE
 		limit = map[string]any{
 			"cpu":       fmt.Sprintf("%.6f", nb.CPULimit),
 			"memory":    nb.MemoryLimit,
@@ -325,7 +325,7 @@ func (w *worker) CreateNotebook() error {
 			*nb.GPUType: *nb.GPURequest,
 		}
 	} else {
-		imageName = "108779579607.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:latest"
+		imageName = w.app.env.CPU_NOTEBOOK_IMAGE
 		limit = map[string]any{
 			"cpu":    fmt.Sprintf("%.6f", nb.CPULimit),
 			"memory": nb.MemoryLimit,
@@ -341,7 +341,7 @@ func (w *worker) CreateNotebook() error {
 		"initContainers": []any{
 			map[string]any{
 				"name":  "init-demo-ipynb",
-				"image": "108779579607.dkr.ecr.ap-south-1.amazonaws.com/tgdex/demo-notebook-file:latest",
+				"image": w.app.env.INIT_CONTAINER_IMAGE,
 				"command": []any{"/bin/sh", "-c", `
 if [ -f /home/jovyan/demo.ipynb ]; then
   echo '[init] /home/jovyan/demo.ipynb already exists, skipping copy.'

@@ -26,6 +26,9 @@ type Env struct {
 	S3_SECRET_KEY           string `env:"WORKER_S3_SECRET_KEY,required"`
 	S3_TEMPLATE_BUCKET_NAME string `env:"WORKER_S3_TEMPLATE_BUCKET_NAME,required"`
 	STORAGE_CLASS_NAME      string `env:"WORKER_STORAGE_CLASS_NAME,required"`
+	CPU_NOTEBOOK_IMAGE      string `env:"WORKER_CPU_NOTEBOOK_IMAGE,required"`
+	GPU_NOTEBOOK_IMAGE      string `env:"WORKER_GPU_NOTEBOOK_IMAGE,required"`
+	INIT_CONTAINER_IMAGE    string `env:"WORKER_INIT_CONTAINER_IMAGE,required"`
 }
 type Notebook struct {
 	ID            int64   `json:"id"`

@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sandbox-worker-config
+  namespace: sandbox
+data:
+  WORKER_CPU_NOTEBOOK_IMAGE: "108779579607.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:latest"
+  WORKER_GPU_NOTEBOOK_IMAGE: "108779579607.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-gpu-notebook:latest"
+  WORKER_INIT_CONTAINER_IMAGE: "108779579607.dkr.ecr.ap-south-1.amazonaws.com/tgdex/demo-notebook-file:latest" 

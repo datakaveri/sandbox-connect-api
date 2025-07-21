@@ -21,6 +21,9 @@ spec:
       containers:
       - name: worker
         image: ghcr.io/datakaveri/tgdex-sandbox-connect-worker:tgdex-1.0.0
+        envFrom:
+        - configMapRef:
+            name: sandbox-worker-config
         env:
         - name: WORKER_POSTGRES_URL
           valueFrom:
