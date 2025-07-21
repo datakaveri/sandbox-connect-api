@@ -257,6 +257,9 @@ spec:
 ## Keycloak Integration
 For connecting Keycloak with Kubeflow, follow the [./keycloak-dex-integeration.md](./keycloak-dex-integration.md).
 
+- while installing make sure you enable `skip_provider_button = true` in  `common/oauth2-proxy/base/oauth2_proxy.cfg`
+- enable offline access for keycloak user otherwise you can face `invalid grant` error
+
 ## Database Setup
 
 The project uses PostgreSQL as its database. The schema includes tables for managing notebooks, user profiles, and failed aaa requests.
