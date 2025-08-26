@@ -508,7 +508,7 @@ func (ps *profileSync) getAllProfileFromDb() ([]Profile, error) {
 }
 
 func (ps *profileSync) costDeductionRequest(ctx context.Context, profileID string, cost float64, token string) (AAAResponse, int, map[string]interface{}, string, error) {
-	deductionURL := fmt.Sprintf("%s/auth/v1/admin/user/credit/deduct", ps.config.AAA_URL)
+	deductionURL := utils.GetDeductionURL(ps.config.AAA_URL)
 	logger := ps.logger.With("user_id", profileID)
 
 	client := &http.Client{Timeout: creditDeductionTimeout}
@@ -628,7 +628,7 @@ func (ps *profileSync) costDeductionRequest(ctx context.Context, profileID strin
 }
 
 func (ps *profileSync) getUserBalance(ctx context.Context, userID string, token string) (float64, error) {
-	balanceURL := fmt.Sprintf("%s/auth/v1/admin/user/credit/balance/%s", ps.config.AAA_URL, userID)
+	balanceURL := utils.GetBalanceURL(ps.config.AAA_URL, userID)
 	logger := ps.logger.With("user_id", userID)
 
 	client := &http.Client{Timeout: creditDeductionTimeout}

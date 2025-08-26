@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sandbox-backend-service/pkg/utils"
 	"strings"
 	"time"
 )
@@ -56,7 +57,7 @@ func (app *application) getKeycloakToken() (string, error) {
 
 // getUserBalance gets the current balance for a user
 func (app *application) getUserBalance(ctx context.Context, userID string, token string) (float64, error) {
-	balanceURL := fmt.Sprintf("%s/auth/v1/admin/user/credit/balance/%s", app.env.BillingConfig.AAAURL, userID)
+	balanceURL := utils.GetBalanceURL(app.env.BillingConfig.AAAURL, userID)
 
 	client := &http.Client{Timeout: 5 * time.Second}
 
@@ -93,7 +94,7 @@ func (app *application) getUserBalance(ctx context.Context, userID string, token
 
 // costDeductionRequest performs a cost deduction request
 func (app *application) costDeductionRequest(ctx context.Context, profileID string, cost float64, token string) (AAAResponse, error) {
-	deductionURL := fmt.Sprintf("%s/auth/v1/admin/user/credit/deduct", app.env.BillingConfig.AAAURL)
+	deductionURL := utils.GetDeductionURL(app.env.BillingConfig.AAAURL)
 
 	client := &http.Client{Timeout: 5 * time.Second}
 
