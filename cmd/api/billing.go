@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -56,7 +55,7 @@ func (app *application) getKeycloakToken() (string, error) {
 }
 
 // getUserBalance gets the current balance for a user
-func (app *application) getUserBalance(ctx context.Context, userID string, token string) (float64, error) {
+func (app *application) getUserBalance(userID string, token string) (float64, error) {
 	balanceURL := utils.GetBalanceURL(app.env.BillingConfig.AAAURL, userID)
 
 	client := &http.Client{Timeout: 5 * time.Second}
@@ -93,7 +92,7 @@ func (app *application) getUserBalance(ctx context.Context, userID string, token
 }
 
 // costDeductionRequest performs a cost deduction request
-func (app *application) costDeductionRequest(ctx context.Context, profileID string, cost float64, token string) (AAAResponse, error) {
+func (app *application) costDeductionRequest(profileID string, cost float64, token string) (AAAResponse, error) {
 	deductionURL := utils.GetDeductionURL(app.env.BillingConfig.AAAURL)
 
 	client := &http.Client{Timeout: 5 * time.Second}

@@ -130,7 +130,7 @@ func main() {
 		utils.LogErrorAndExit(logger, "failed to get Keycloak token", "error", err)
 	}
 
-	if err := profileSync.processProfiles(k8sProfiles, dbProfiles, token); err != nil {
+	if err := profileSync.processProfiles(k8sProfiles, token); err != nil {
 		utils.LogErrorAndExit(logger, "failed to process profiles", "error", err)
 	}
 }
@@ -166,7 +166,7 @@ func (ps *profileSync) findOrphanProfiles(k8sProfiles []KubeflowProfile, dbProfi
 	return k8sOrphans, dbOrphans
 }
 
-func (ps *profileSync) processProfiles(k8sProfiles []KubeflowProfile, dbProfiles []Profile, token string) error {
+func (ps *profileSync) processProfiles(k8sProfiles []KubeflowProfile, token string) error {
 	ps.logger.Info("processing profiles with single-phase approach", "count", len(k8sProfiles), "approach", "sequential cost calculation and immediate deduction")
 
 	successfulDeductions := 0

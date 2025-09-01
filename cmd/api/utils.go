@@ -294,7 +294,7 @@ func (app *application) tryRestoreGPUAccess(ctx context.Context, tx pgx.Tx, prof
 		}
 
 		// Get current user balance
-		balance, balanceErr := app.getUserBalance(ctx, profile.UserID, token)
+		balance, balanceErr := app.getUserBalance(profile.UserID, token)
 		if balanceErr != nil {
 			logger.Error("failed to get user balance", "error", balanceErr)
 			return false, fmt.Errorf("failed to get user balance: %w", balanceErr)
@@ -310,7 +310,7 @@ func (app *application) tryRestoreGPUAccess(ctx context.Context, tx pgx.Tx, prof
 			logger.Info("user has partial balance, deducting available amount",
 				"balance", balance, "total_required", totalDeduction)
 
-			res, deductErr := app.costDeductionRequest(ctx, profile.UserID, balance, token)
+			res, deductErr := app.costDeductionRequest(profile.UserID, balance, token)
 
 			canCreateGpuNotebook = false
 			if deductErr != nil {
@@ -328,7 +328,7 @@ func (app *application) tryRestoreGPUAccess(ctx context.Context, tx pgx.Tx, prof
 			logger.Info("user has sufficient balance, deducting full amount",
 				"balance", balance, "total_deduction", totalDeduction)
 
-			res, deductErr := app.costDeductionRequest(ctx, profile.UserID, totalDeduction, token)
+			res, deductErr := app.costDeductionRequest(profile.UserID, totalDeduction, token)
 			if deductErr != nil {
 				logger.Error("failed to deduct full amount despite sufficient balance", "error", deductErr)
 				pendingDeduction = totalDeduction
