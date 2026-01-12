@@ -41,9 +41,9 @@ func (app *application) router() http.Handler {
 	// Mount the authenticated API handler to the main router
 	rootMux.Handle("/v1/", authHandler)
 
-	handler := app.enableCORS(rootMux)
-	handler = app.contextTimeout(handler)
+	handler := app.contextTimeout(rootMux)
 	handler = app.rateLimitMiddleware(handler)
+	handler = app.enableCORS(handler)
 	handler = loggingMiddleware(handler)
 	return http.MaxBytesHandler(handler, int64(app.env.MaxBodySizeInMB)<<20)
 }

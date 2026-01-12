@@ -151,19 +151,11 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(ctx)
 
-	var billingProfile BillingProfile
-	lockQuery := `SELECT id, user_id, email, total_paid_credit, last_sync_balance, 
-		       can_create_gpu_notebook, aaa_and_opencost_synced_at, pending_deduction 
-		       FROM profiles WHERE user_id = $1 FOR UPDATE NOWAIT`
-	err = tx.QueryRow(ctx, lockQuery, userInfo.Sub).Scan(
-		&billingProfile.ProfileID,
-		&billingProfile.UserID,
-		&billingProfile.Email,
-		&billingProfile.TotalPaidCredit,
-		&billingProfile.LastSyncBalance,
-		&billingProfile.CanCreateGpuNotebook,
-		&billingProfile.AaaAndOpenCostSyncedAt,
-		&billingProfile.PendingDeduction)
+	// Lock profile for concurrency control
+	var profileID int64
+	var canCreateGpuNotebook bool
+	lockQuery := `SELECT id, can_create_gpu_notebook FROM profiles WHERE user_id = $1 FOR UPDATE NOWAIT`
+	err = tx.QueryRow(ctx, lockQuery, userInfo.Sub).Scan(&profileID, &canCreateGpuNotebook)
 	if err != nil {
 		if pgErr, ok := err.(*pgconn.PgError); ok && pgErr.Code == "55P03" {
 			logger.Warn("profile is locked by another operation",
@@ -178,6 +170,12 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 			"notebook_name", notebookReq.Name,
 			"notebook_type", notebookReq.Type)
 		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+
+	if notebookReq.Type == "gpu" && !canCreateGpuNotebook {
+		logger.Warn("user credit limit exceeded for GPU notebooks", "notebook_name", notebookReq.Name)
+		sendError(w, logger, http.StatusForbidden, "Credit limit exceeded. You cannot create GPU notebooks.")
 		return
 	}
 
@@ -252,36 +250,6 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		errorMsg := fmt.Sprintf("Cannot create GPU notebook: GPU notebook limit exceeded (%d/%d GPU notebooks). Please delete some existing GPU notebooks before creating new ones.", totalGPU, app.env.NotebookConfig.MaxTotalGPU)
 		sendError(w, logger, http.StatusBadRequest, errorMsg)
 		return
-	}
-
-	if notebookReq.Type == "gpu" && contains(userInfo.Roles, "compute") {
-		if !billingProfile.CanCreateGpuNotebook {
-			logger.Info("user doesn't have GPU permission, checking if credit can be processed",
-				"notebook_name", notebookReq.Name,
-				"can_create_gpu_notebook", billingProfile.CanCreateGpuNotebook)
-
-			// Try to process pending credits and restore access
-			hasAccess, creditErr := app.tryRestoreGPUAccess(ctx, tx, &billingProfile, logger)
-			if creditErr != nil {
-				logger.Error("failed to process credits for GPU access", "error", creditErr)
-				sendError(w, logger, http.StatusInternalServerError, "Internal server error while processing credits")
-				return
-			}
-
-			if !hasAccess {
-				logger.Warn("user still doesn't have enough credit for GPU notebooks after credit check",
-					"notebook_name", notebookReq.Name)
-				sendError(w, logger, http.StatusForbidden, "You don't have enough credit for this operation")
-				return
-			}
-
-			logger.Info("user regained GPU access after credit processing",
-				"notebook_name", notebookReq.Name)
-		} else {
-			logger.Debug("user has permission to create GPU notebooks",
-				"notebook_name", notebookReq.Name,
-				"can_create_gpu_notebook", billingProfile.CanCreateGpuNotebook)
-		}
 	}
 
 	baseArgs := []any{
@@ -442,19 +410,11 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(ctx)
 
-	var billingProfile BillingProfile
-	lockQuery := `SELECT id, user_id, email, total_paid_credit, last_sync_balance, 
-		       can_create_gpu_notebook, aaa_and_opencost_synced_at, pending_deduction 
-		       FROM profiles WHERE user_id = $1 FOR UPDATE NOWAIT`
-	err = tx.QueryRow(ctx, lockQuery, userInfo.Sub).Scan(
-		&billingProfile.ProfileID,
-		&billingProfile.UserID,
-		&billingProfile.Email,
-		&billingProfile.TotalPaidCredit,
-		&billingProfile.LastSyncBalance,
-		&billingProfile.CanCreateGpuNotebook,
-		&billingProfile.AaaAndOpenCostSyncedAt,
-		&billingProfile.PendingDeduction)
+	// Lock profile for concurrency control
+	var profileID int64
+	var canCreateGpuNotebook bool
+	lockQuery := `SELECT id, can_create_gpu_notebook FROM profiles WHERE user_id = $1 FOR UPDATE NOWAIT`
+	err = tx.QueryRow(ctx, lockQuery, userInfo.Sub).Scan(&profileID, &canCreateGpuNotebook)
 	if err != nil {
 		if pgErr, ok := err.(*pgconn.PgError); ok && pgErr.Code == "55P03" { // lock_not_available
 			logger.Warn("profile is locked by another operation",
@@ -540,6 +500,11 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if isGPUResource {
+		if !canCreateGpuNotebook {
+			logger.Warn("user credit limit exceeded for GPU notebooks", "notebook_name", startReq.Name)
+			sendError(w, logger, http.StatusForbidden, "Credit limit exceeded. You cannot start GPU notebooks.")
+			return
+		}
 		if runningGPU >= app.env.NotebookConfig.MaxRunningGPU {
 			errorMsg := fmt.Sprintf("Cannot start GPU notebook: running GPU notebook limit exceeded (%d/%d running). Please stop an existing GPU notebook before starting this one.", runningGPU, app.env.NotebookConfig.MaxRunningGPU)
 			sendError(w, logger, http.StatusBadRequest, errorMsg)
@@ -550,36 +515,6 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 			errorMsg := fmt.Sprintf("Cannot start CPU notebook: running CPU notebook limit exceeded (%d/%d running). Please stop an existing CPU notebook before starting this one.", runningCPU, app.env.NotebookConfig.MaxRunningCPU)
 			sendError(w, logger, http.StatusBadRequest, errorMsg)
 			return
-		}
-	}
-
-	if isGPUResource {
-		if !billingProfile.CanCreateGpuNotebook {
-			logger.Info("user doesn't have GPU permission, checking if credit can be processed",
-				"notebook_name", startReq.Name,
-				"can_create_gpu_notebook", billingProfile.CanCreateGpuNotebook)
-
-			// Try to process pending credits and restore access
-			hasAccess, creditErr := app.tryRestoreGPUAccess(ctx, tx, &billingProfile, logger)
-			if creditErr != nil {
-				logger.Error("failed to process credits for GPU access", "error", creditErr)
-				sendError(w, logger, http.StatusInternalServerError, "Internal server error while processing credits")
-				return
-			}
-
-			if !hasAccess {
-				logger.Warn("user still doesn't have enough credit for GPU notebooks after credit check",
-					"notebook_name", startReq.Name)
-				sendError(w, logger, http.StatusForbidden, "You don't have enough credit for this operation")
-				return
-			}
-
-			logger.Info("user regained GPU access after credit processing",
-				"notebook_name", startReq.Name)
-		} else {
-			logger.Debug("user has permission to start GPU notebooks",
-				"notebook_name", startReq.Name,
-				"can_create_gpu_notebook", billingProfile.CanCreateGpuNotebook)
 		}
 	}
 

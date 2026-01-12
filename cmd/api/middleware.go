@@ -201,7 +201,7 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Check KYC verification
-		needKYC := true
+		needKYC := app.env.KYCEnabled
 		if r.URL.Path == "/v1/profile/create" {
 			needKYC = false
 		}
