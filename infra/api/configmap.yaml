@@ -18,6 +18,7 @@ data:
   API_ADDRESS: "0.0.0.0:3000"
   API_KUBE_CONFIG_MODE: "cluster"
   API_CORS_ORIGINS: "*"
+  API_KYC_ENABLED: "true"
   API_RATE_LIMIT: "80"
   API_RATE_WINDOW_SECS: "30"
   API_KEYCLOAK_URL: "https://idp.tgdex.telangana.gov.in/auth"
