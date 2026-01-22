@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sandbox-backend-service/pkg/constants"
 	"sandbox-backend-service/pkg/utils"
+	"strings"
 
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -431,10 +432,7 @@ fi
 			"node.kubernetes.io/instance-type": w.app.env.GPU_NODE_INSTANCE_TYPE,
 		}
 	} else {
-		values := make([]any, len(w.app.env.CPU_NODE_INSTANCE_TYPES))
-		for i, v := range w.app.env.CPU_NODE_INSTANCE_TYPES {
-			values[i] = v
-		}
+
 		specTemplateSpec["affinity"] = map[string]any{
 			"nodeAffinity": map[string]any{
 				"requiredDuringSchedulingIgnoredDuringExecution": map[string]any{
@@ -444,7 +442,7 @@ fi
 								map[string]any{
 									"key":      "node.kubernetes.io/instance-type",
 									"operator": "In",
-									"values":   values,
+									"values":   strings.Split(w.app.env.CPU_NODE_INSTANCE_TYPES, ","),
 								},
 							},
 						},
