@@ -16,19 +16,21 @@ type application struct {
 }
 
 type Env struct {
-	KubeConfigPath          string `env:"WORKER_KUBE_CONFIG_PATH" envDefault:""`
-	KubeConfigMode          string `env:"WORKER_KUBE_CONFIG_MODE" envDefault:"cluster"`
-	POSTGRES_URL            string `env:"WORKER_POSTGRES_URL,required"`
-	MAX_CONCURRENT_WORKER   int    `env:"WORKER_MAX_CONCURRENT_WORKER,required"`
-	S3_ENDPOINT             string `env:"WORKER_S3_ENDPOINT,required"`
-	S3_REGION               string `env:"WORKER_S3_REGION,required"`
-	S3_ACCESS_KEY           string `env:"WORKER_S3_ACCESS_KEY,required"`
-	S3_SECRET_KEY           string `env:"WORKER_S3_SECRET_KEY,required"`
-	S3_TEMPLATE_BUCKET_NAME string `env:"WORKER_S3_TEMPLATE_BUCKET_NAME,required"`
-	STORAGE_CLASS_NAME      string `env:"WORKER_STORAGE_CLASS_NAME,required"`
-	CPU_NOTEBOOK_IMAGE      string `env:"WORKER_CPU_NOTEBOOK_IMAGE,required"`
-	GPU_NOTEBOOK_IMAGE      string `env:"WORKER_GPU_NOTEBOOK_IMAGE,required"`
-	INIT_CONTAINER_IMAGE    string `env:"WORKER_INIT_CONTAINER_IMAGE,required"`
+	KubeConfigPath          string   `env:"WORKER_KUBE_CONFIG_PATH" envDefault:""`
+	KubeConfigMode          string   `env:"WORKER_KUBE_CONFIG_MODE" envDefault:"cluster"`
+	POSTGRES_URL            string   `env:"WORKER_POSTGRES_URL,required"`
+	MAX_CONCURRENT_WORKER   int      `env:"WORKER_MAX_CONCURRENT_WORKER,required"`
+	S3_ENDPOINT             string   `env:"WORKER_S3_ENDPOINT,required"`
+	S3_REGION               string   `env:"WORKER_S3_REGION,required"`
+	S3_ACCESS_KEY           string   `env:"WORKER_S3_ACCESS_KEY,required"`
+	S3_SECRET_KEY           string   `env:"WORKER_S3_SECRET_KEY,required"`
+	S3_TEMPLATE_BUCKET_NAME string   `env:"WORKER_S3_TEMPLATE_BUCKET_NAME,required"`
+	STORAGE_CLASS_NAME      string   `env:"WORKER_STORAGE_CLASS_NAME,required"`
+	CPU_NOTEBOOK_IMAGE      string   `env:"WORKER_CPU_NOTEBOOK_IMAGE,required"`
+	GPU_NOTEBOOK_IMAGE      string   `env:"WORKER_GPU_NOTEBOOK_IMAGE,required"`
+	INIT_CONTAINER_IMAGE    string   `env:"WORKER_INIT_CONTAINER_IMAGE,required"`
+	GPU_NODE_INSTANCE_TYPE  string   `env:"WORKER_GPU_NODE_INSTANCE_TYPE" envDefault:"g4dn.xlarge"`
+	CPU_NODE_INSTANCE_TYPES []string `env:"WORKER_CPU_NODE_INSTANCE_TYPES" envDefault:"t3a.2xlarge,c5a.4xlarge"`
 }
 type Notebook struct {
 	ID            int64   `json:"id"`

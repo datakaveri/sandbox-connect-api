@@ -428,9 +428,13 @@ fi
 	// Add nodeSelector for CPU or GPU notebooks
 	if utils.CheckGPUResource(nb.GPUType, nb.GPURequest, nb.GPULimit) {
 		specTemplateSpec["nodeSelector"] = map[string]any{
-			"node.kubernetes.io/instance-type": "g4dn.xlarge",
+			"node.kubernetes.io/instance-type": w.app.env.GPU_NODE_INSTANCE_TYPE,
 		}
 	} else {
+		values := make([]any, len(w.app.env.CPU_NODE_INSTANCE_TYPES))
+		for i, v := range w.app.env.CPU_NODE_INSTANCE_TYPES {
+			values[i] = v
+		}
 		specTemplateSpec["affinity"] = map[string]any{
 			"nodeAffinity": map[string]any{
 				"requiredDuringSchedulingIgnoredDuringExecution": map[string]any{
@@ -440,7 +444,7 @@ fi
 								map[string]any{
 									"key":      "node.kubernetes.io/instance-type",
 									"operator": "In",
-									"values":   []any{"t3a.2xlarge", "c5a.4xlarge"},
+									"values":   values,
 								},
 							},
 						},

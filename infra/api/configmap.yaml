@@ -43,3 +43,7 @@ data:
   API_AAA_URL: "https://dx.tgdex.telangana.gov.in"
   API_OPENCOST_URL: "http://opencost.opencost:9003"
   API_KEYCLOAK_BILLING_CLIENT_ID: "frontend-client"
+  # only value we can put here
+  WORKER_GPU_NODE_INSTANCE_TYPE: g4dn.xlarge"
+  # multiple value we can put here
+  WORKER_CPU_NODE_INSTANCE_TYPES: t3a.2xlarge,c5a.4xlarge
