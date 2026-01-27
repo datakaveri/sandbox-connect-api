@@ -426,6 +426,14 @@ fi
 		"serviceAccountName": "default-editor",
 	}
 
+	if w.app.env.IMAGE_PULL_ENABLED && w.app.env.IMAGE_PULL_SECRET_NAME != "" {
+		specTemplateSpec["imagePullSecrets"] = []any{
+			map[string]any{
+				"name": w.app.env.IMAGE_PULL_SECRET_NAME,
+			},
+		}
+	}
+
 	// Add nodeSelector for CPU or GPU notebooks
 	if utils.CheckGPUResource(nb.GPUType, nb.GPURequest, nb.GPULimit) {
 		specTemplateSpec["nodeSelector"] = map[string]any{

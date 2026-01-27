@@ -31,6 +31,8 @@ type Env struct {
 	INIT_CONTAINER_IMAGE    string `env:"WORKER_INIT_CONTAINER_IMAGE,required"`
 	GPU_NODE_INSTANCE_TYPE  string `env:"WORKER_GPU_NODE_INSTANCE_TYPE,required"`
 	CPU_NODE_INSTANCE_TYPES string `env:"WORKER_CPU_NODE_INSTANCE_TYPES,required"`
+	IMAGE_PULL_ENABLED      bool   `env:"WORKER_IMAGE_PULL_ENABLED" envDefault:"false"`
+	IMAGE_PULL_SECRET_NAME  string `env:"WORKER_IMAGE_PULL_SECRET_NAME" envDefault:""`
 }
 type Notebook struct {
 	ID            int64   `json:"id"`
