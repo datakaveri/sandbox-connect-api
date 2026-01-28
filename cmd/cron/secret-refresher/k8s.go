@@ -52,7 +52,12 @@ func (sr *secretRefresher) createSecret(ctx context.Context, k8sClient *k8s.K8sC
 		return fmt.Errorf("failed to get ECR auth token: %w", err)
 	}
 
-	auth := base64.StdEncoding.EncodeToString([]byte("AWS:" + ecrAuthToken))
+	decodedToken, err := base64.StdEncoding.DecodeString(ecrAuthToken)
+	if err != nil {
+		return fmt.Errorf("failed to decode ECR auth token: %w", err)
+	}
+
+	auth := base64.StdEncoding.EncodeToString(decodedToken)
 
 	dockerConfig := DockerConfig{
 		Auths: map[string]Auth{
