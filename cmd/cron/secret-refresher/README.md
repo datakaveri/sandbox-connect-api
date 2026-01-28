@@ -84,5 +84,5 @@ kubectl get cronjob secret-creator -n sandbox
 ## Building
 
 ```bash
-docker build -t ghcr.io/datakaveri/tgdex-sandbox-connect-secret-refresher:latest -f infra/cron/secret-refresher/Dockerfile .
+docker build -t ghcr.io/datakaveri/sandbox-secret-refresher:1.0.0 -f infra/cron/secret-refresher/Dockerfile .
 ```
