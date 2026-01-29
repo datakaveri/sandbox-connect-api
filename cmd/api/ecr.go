@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
+
+	"sandbox-backend-service/pkg/k8s"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -13,7 +16,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"sandbox-backend-service/pkg/k8s"
 )
 
 func NewECRClient(ecrConfig ECRConfig) (*ECRClient, error) {
@@ -52,14 +54,22 @@ func (e *ECRClient) GetAuthorizationToken(ctx context.Context) (string, string, 
 		return "", "", fmt.Errorf("failed to decode ECR auth token: %w", err)
 	}
 
+	// The decoded token is in format "AWS:password"
+	// We need to split it to extract just the password
 	authToken := string(authTokenBytes)
+	parts := strings.SplitN(authToken, ":", 2)
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("invalid auth token format, expected 'username:password'")
+	}
+
+	password := parts[1]
 	proxyEndpoint := *authData.ProxyEndpoint
 
-	return authToken, proxyEndpoint, nil
+	return password, proxyEndpoint, nil
 }
 
 func (e *ECRClient) CreateOrUpdateSecret(ctx context.Context, logger *slog.Logger, k8sClient *k8s.K8sClient, namespace string) error {
-	authToken, proxyEndpoint, err := e.GetAuthorizationToken(ctx)
+	ecrAuthToken, proxyEndpoint, err := e.GetAuthorizationToken(ctx)
 	if err != nil {
 		logger.Error("failed to get ECR authorization token", "error", err)
 		return err
@@ -70,7 +80,7 @@ func (e *ECRClient) CreateOrUpdateSecret(ctx context.Context, logger *slog.Logge
 		registryURL = e.Config.ECRRegistryURL
 	}
 
-	logger.Debug("Creating ECR docker-registry secret", "registry_url", registryURL, "auth_token_length", len(authToken))
+	logger.Debug("Creating ECR docker-registry secret", "registry_url", registryURL, "auth_token_length", len(ecrAuthToken))
 
 	secretGVR := schema.GroupVersionResource{
 		Group:    "",
@@ -78,7 +88,7 @@ func (e *ECRClient) CreateOrUpdateSecret(ctx context.Context, logger *slog.Logge
 		Resource: "secrets",
 	}
 
-	dockerConfigJSON := createDockerConfigJSON(registryURL, authToken)
+	dockerConfigJSON := createDockerConfigJSON(registryURL, ecrAuthToken)
 
 	secret := &unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -119,13 +129,13 @@ func (e *ECRClient) CreateOrUpdateSecret(ctx context.Context, logger *slog.Logge
 	return nil
 }
 
-func createDockerConfigJSON(registryURL, authToken string) []byte {
+func createDockerConfigJSON(registryURL, password string) []byte {
 	dockerConfig := map[string]interface{}{
 		"auths": map[string]interface{}{
 			registryURL: map[string]string{
 				"username": "AWS",
-				"password": authToken,
-				"auth":     base64.StdEncoding.EncodeToString([]byte("AWS:" + authToken)),
+				"password": password,
+				"auth":     base64.StdEncoding.EncodeToString([]byte("AWS:" + password)),
 			},
 		},
 	}
