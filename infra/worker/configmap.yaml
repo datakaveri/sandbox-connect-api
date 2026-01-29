@@ -7,5 +7,5 @@ data:
   WORKER_CPU_NOTEBOOK_IMAGE: "108779579607.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:latest"
   WORKER_GPU_NOTEBOOK_IMAGE: "108779579607.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-gpu-notebook:latest"
   WORKER_INIT_CONTAINER_IMAGE: "108779579607.dkr.ecr.ap-south-1.amazonaws.com/tgdex/demo-notebook-file:latest"
-  WORKER_IMAGE_PULL_ENABLED: "true"
-  WORKER_IMAGE_PULL_SECRET_NAME: "ecr-registry-cred"
+  WORKER_IMAGE_PULL_ENABLED: "false"
+  WORKER_ECR_SECRET_NAME: "ecr-registry-cred"

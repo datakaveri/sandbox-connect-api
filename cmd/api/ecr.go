@@ -33,6 +33,32 @@ const (
 )
 
 func NewECRClient(ecrConfig ECRConfig) (*ECRClient, error) {
+	if !ecrConfig.CreateECRSecret {
+		return nil, nil
+	}
+
+	var missingVars []string
+
+	if ecrConfig.ECRRegion == "" {
+		missingVars = append(missingVars, "API_ECR_REGION")
+	}
+
+	if ecrConfig.ECRRegistryURL == "" {
+		missingVars = append(missingVars, "API_ECR_REGISTRY_URL")
+	}
+
+	if ecrConfig.AWSAccessKeyID == "" {
+		missingVars = append(missingVars, "API_AWS_ACCESS_KEY_ID")
+	}
+
+	if ecrConfig.AWSSecretKey == "" {
+		missingVars = append(missingVars, "API_AWS_SECRET_KEY")
+	}
+
+	if len(missingVars) > 0 {
+		return nil, fmt.Errorf("missing required environment variables when API_CREATE_ECR_SECRET is true: %v", missingVars)
+	}
+
 	ctx := context.Background()
 	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion(ecrConfig.ECRRegion),

@@ -32,6 +32,12 @@ func main() {
 		utils.LogErrorAndExit(logger, "failed to parse environment variables", "error", err)
 	}
 
+	if config.IMAGE_PULL_ENABLED {
+		if config.ECR_SECRET_NAME == "" {
+			utils.LogErrorAndExit(logger, "WORKER_ECR_SECRET_NAME is required when WORKER_IMAGE_PULL_ENABLED is true")
+		}
+	}
+
 	sigChan := make(chan os.Signal, 2)
 
 	signal.Notify(sigChan, os.Interrupt)

@@ -143,11 +143,13 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		logger.Info("profile created successfully", "user_id", userInfo.Sub, "email", userInfo.Email)
 	}
 
-	err = app.ecrClient.CreateOrUpdateSecret(ctx, logger, app.k8sClient, namespace)
-	if err != nil {
-		logger.Error("failed to update ECR secret before notebook creation", "error", err)
-		sendError(w, logger, http.StatusInternalServerError, "Internal Server Error")
-		return
+	if app.ecrClient != nil {
+		err = app.ecrClient.CreateOrUpdateSecret(ctx, logger, app.k8sClient, namespace)
+		if err != nil {
+			logger.Error("failed to update ECR secret before notebook creation", "error", err)
+			sendError(w, logger, http.StatusInternalServerError, "Internal Server Error")
+			return
+		}
 	}
 
 	tx, err := app.pgPool.Pool.BeginTx(ctx, pgx.TxOptions{})
@@ -413,11 +415,13 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 
 	logger = logger.With("method", "startNotebook", "namespace", namespace, "name", startReq.Name)
 
-	err = app.ecrClient.CreateOrUpdateSecret(ctx, logger, app.k8sClient, namespace)
-	if err != nil {
-		logger.Error("failed to update ECR secret before notebook start", "error", err)
-		sendError(w, logger, http.StatusInternalServerError, "Internal Server Error")
-		return
+	if app.ecrClient != nil {
+		err = app.ecrClient.CreateOrUpdateSecret(ctx, logger, app.k8sClient, namespace)
+		if err != nil {
+			logger.Error("failed to update ECR secret before notebook start", "error", err)
+			sendError(w, logger, http.StatusInternalServerError, "Internal Server Error")
+			return
+		}
 	}
 
 	tx, err := app.pgPool.Pool.BeginTx(ctx, pgx.TxOptions{})

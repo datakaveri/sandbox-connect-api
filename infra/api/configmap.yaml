@@ -41,6 +41,7 @@ data:
   API_DEFAULT_GPU_MEMORY_LIMIT: "14Gi"
   API_LOG_LEVEL: "debug"
   API_AAA_URL: "https://dx.tgdex.telangana.gov.in"
+  API_CREATE_ECR_SECRET: "false"
   API_ECR_REGION: "us-east-1"
   API_ECR_REGISTRY_URL: "<your-ecr-registry-url>"
   API_ECR_SECRET_NAME: "ecr-registry-cred"

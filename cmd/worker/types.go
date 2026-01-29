@@ -32,7 +32,7 @@ type Env struct {
 	GPU_NODE_INSTANCE_TYPE  string `env:"WORKER_GPU_NODE_INSTANCE_TYPE,required"`
 	CPU_NODE_INSTANCE_TYPES string `env:"WORKER_CPU_NODE_INSTANCE_TYPES,required"`
 	IMAGE_PULL_ENABLED      bool   `env:"WORKER_IMAGE_PULL_ENABLED" envDefault:"false"`
-	IMAGE_PULL_SECRET_NAME  string `env:"WORKER_IMAGE_PULL_SECRET_NAME" envDefault:""`
+	ECR_SECRET_NAME         string `env:"WORKER_ECR_SECRET_NAME"`
 }
 type Notebook struct {
 	ID            int64   `json:"id"`

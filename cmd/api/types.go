@@ -35,11 +35,12 @@ type ApiEnv struct {
 }
 
 type ECRConfig struct {
-	ECRRegion      string `env:"API_ECR_REGION,required"`
-	ECRRegistryURL string `env:"API_ECR_REGISTRY_URL,required"`
-	AWSAccessKeyID string `env:"API_AWS_ACCESS_KEY_ID,required"`
-	AWSSecretKey   string `env:"API_AWS_SECRET_KEY,required"`
-	SecretName     string `env:"API_ECR_SECRET_NAME" envDefault:"ecr-registry-cred"`
+	CreateECRSecret bool   `env:"API_CREATE_ECR_SECRET" envDefault:"false"`
+	ECRRegion       string `env:"API_ECR_REGION"`
+	ECRRegistryURL  string `env:"API_ECR_REGISTRY_URL"`
+	AWSAccessKeyID  string `env:"API_AWS_ACCESS_KEY_ID"`
+	AWSSecretKey    string `env:"API_AWS_SECRET_KEY"`
+	SecretName      string `env:"API_ECR_SECRET_NAME"`
 }
 
 type ECRClient struct {
