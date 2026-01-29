@@ -410,6 +410,16 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+
+	logger = logger.With("method", "startNotebook", "namespace", namespace, "name", startReq.Name)
+
+	err = app.ecrClient.CreateOrUpdateSecret(ctx, logger, app.k8sClient, namespace)
+	if err != nil {
+		logger.Error("failed to update ECR secret before notebook start", "error", err)
+		sendError(w, logger, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+
 	tx, err := app.pgPool.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		logger.Error("failed to start transaction", "error", err)
@@ -436,16 +446,6 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 			"error", err,
 			"notebook_name", startReq.Name)
 		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
-		return
-	}
-
-	logger = logger.With("method", "startNotebook", "namespace", namespace, "name", startReq.Name)
-
-	err = app.ecrClient.CreateOrUpdateSecret(ctx, logger, app.k8sClient, namespace)
-	if err != nil {
-		logger.Error("failed to update ECR secret before notebook start", "error", err)
-		tx.Rollback(ctx)
-		sendError(w, logger, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 
