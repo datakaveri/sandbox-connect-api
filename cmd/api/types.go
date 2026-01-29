@@ -32,6 +32,15 @@ type ApiEnv struct {
 	NotebookConfig    NotebookConfig
 }
 
+type ECRConfig struct {
+	ECRRegion       string `env:"API_ECR_REGION,required"`
+	ECRRegistryURL  string `env:"API_ECR_REGISTRY_URL,required"`
+	AWSAccessKeyID  string `env:"API_AWS_ACCESS_KEY_ID,required"`
+	AWSSecretKey    string `env:"API_AWS_SECRET_KEY,required"`
+	SecretName      string `env:"API_ECR_SECRET_NAME" envDefault:"ecr-registry-cred"`
+	TokenExpirySecs int    `env:"API_ECR_TOKEN_EXPIRY_SECS" envDefault:"3600"`
+}
+
 type application struct {
 	env         ApiEnv
 	k8sClient   *k8s.K8sClient
