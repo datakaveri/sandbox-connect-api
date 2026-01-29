@@ -41,9 +41,13 @@ data:
   API_DEFAULT_GPU_MEMORY_LIMIT: "14Gi"
   API_LOG_LEVEL: "debug"
   API_AAA_URL: "https://dx.tgdex.telangana.gov.in"
+  API_ECR_REGION: "us-east-1"
+  API_ECR_REGISTRY_URL: "<your-ecr-registry-url>"
+  API_ECR_SECRET_NAME: "ecr-registry-cred"
+  API_ECR_TOKEN_EXPIRY_SECS: "3600"
   API_OPENCOST_URL: "http://opencost.opencost:9003"
   API_KEYCLOAK_BILLING_CLIENT_ID: "frontend-client"
   # only value we can put here
-  WORKER_GPU_NODE_INSTANCE_TYPE: g4dn.xlarge"
+  WORKER_GPU_NODE_INSTANCE_TYPE: "g4dn.xlarge"
   # multiple value we can put here
-  WORKER_CPU_NODE_INSTANCE_TYPES: t3a.2xlarge,c5a.4xlarge
+  WORKER_CPU_NODE_INSTANCE_TYPES: "t3a.2xlarge,c5a.4xlarge"

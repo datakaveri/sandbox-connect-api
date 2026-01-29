@@ -70,11 +70,17 @@ func main() {
 	}
 	rateLimiter := NewIPRateLimiter(config.RateLimit, config.RateWindowSecs)
 
+	ecrClient, err := NewECRClient(config.ECRConfig)
+	if err != nil {
+		utils.LogErrorAndExit(logger, "failed to create ECR client", "error", err)
+	}
+
 	app := application{
 		pgPool:      pool,
 		k8sClient:   k8sClient,
 		env:         config,
 		rateLimiter: rateLimiter,
+		ecrClient:   ecrClient,
 	}
 
 	server := http.Server{

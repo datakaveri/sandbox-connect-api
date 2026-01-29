@@ -143,6 +143,13 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		logger.Info("profile created successfully", "user_id", userInfo.Sub, "email", userInfo.Email)
 	}
 
+	err = app.ecrClient.CreateOrUpdateSecret(ctx, logger, app.k8sClient, namespace)
+	if err != nil {
+		logger.Error("failed to update ECR secret before notebook creation", "error", err)
+		sendError(w, logger, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+
 	tx, err := app.pgPool.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		logger.Error("failed to start transaction", "error", err)
@@ -299,6 +306,7 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
 		return
 	}
+
 	logger.Info("notebook created successfully",
 		"notebook_id", notebookId,
 		"notebook_name", notebookReq.Name,
@@ -433,6 +441,14 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 
 	logger = logger.With("method", "startNotebook", "namespace", namespace, "name", startReq.Name)
 
+	err = app.ecrClient.CreateOrUpdateSecret(ctx, logger, app.k8sClient, namespace)
+	if err != nil {
+		logger.Error("failed to update ECR secret before notebook start", "error", err)
+		tx.Rollback(ctx)
+		sendError(w, logger, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+
 	rows, err := tx.Query(ctx, "SELECT id, name, gpu_type, gpu_request, gpu_limit, events[array_upper(events, 1)] as latest_event FROM notebooks WHERE user_id = $1", userInfo.Sub)
 	if err != nil {
 		logger.Error("failed to fetch notebooks for user", "error", err)
@@ -531,6 +547,7 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
 		return
 	}
+
 	sendResponse(w, logger, http.StatusOK, "Notebook started successfully")
 }
 

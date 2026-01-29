@@ -5,6 +5,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	"sandbox-backend-service/pkg/constants"
 	"sandbox-backend-service/pkg/db"
 	"sandbox-backend-service/pkg/k8s"
@@ -30,6 +31,7 @@ type ApiEnv struct {
 	ReadTimeoutSecs   int    `env:"API_READ_TIMEOUT_SECS"`
 	Version           string `env:"API_VERSION,required"`
 	NotebookConfig    NotebookConfig
+	ECRConfig         ECRConfig
 }
 
 type ECRConfig struct {
@@ -41,11 +43,17 @@ type ECRConfig struct {
 	TokenExpirySecs int    `env:"API_ECR_TOKEN_EXPIRY_SECS" envDefault:"3600"`
 }
 
+type ECRClient struct {
+	ECRClient *ecr.Client
+	Config    ECRConfig
+}
+
 type application struct {
 	env         ApiEnv
 	k8sClient   *k8s.K8sClient
 	pgPool      *db.PgPool
 	rateLimiter *IPRateLimiter
+	ecrClient   *ECRClient
 }
 type Resource struct {
 	Request float64 `json:"request" validate:"required,gt=0.1"`
