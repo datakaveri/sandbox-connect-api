@@ -44,7 +44,6 @@ data:
   API_ECR_REGION: "us-east-1"
   API_ECR_REGISTRY_URL: "<your-ecr-registry-url>"
   API_ECR_SECRET_NAME: "ecr-registry-cred"
-  API_ECR_TOKEN_EXPIRY_SECS: "3600"
   API_OPENCOST_URL: "http://opencost.opencost:9003"
   API_KEYCLOAK_BILLING_CLIENT_ID: "frontend-client"
   # only value we can put here
