@@ -16,14 +16,6 @@ import (
 	"sandbox-backend-service/pkg/k8s"
 )
 
-type DockerConfig struct {
-	Auths map[string]DockerAuthEntry `json:"auths"`
-}
-
-type DockerAuthEntry struct {
-	Auth string `json:"auth"`
-}
-
 func NewECRClient(ecrConfig ECRConfig) (*ECRClient, error) {
 	ctx := context.Background()
 	cfg, err := config.LoadDefaultConfig(ctx,
@@ -78,21 +70,7 @@ func (e *ECRClient) CreateOrUpdateSecret(ctx context.Context, logger *slog.Logge
 		registryURL = e.Config.ECRRegistryURL
 	}
 
-	dockerConfig := DockerConfig{
-		Auths: map[string]DockerAuthEntry{
-			registryURL: {
-				Auth: authToken,
-			},
-		},
-	}
-
-	dockerConfigJSON, err := json.Marshal(dockerConfig)
-	if err != nil {
-		logger.Error("failed to marshal docker config", "error", err)
-		return fmt.Errorf("failed to marshal docker config: %w", err)
-	}
-
-	dockerConfigJSONBase64 := base64.StdEncoding.EncodeToString(dockerConfigJSON)
+	logger.Debug("Creating ECR docker-registry secret", "registry_url", registryURL, "auth_token_length", len(authToken))
 
 	secretGVR := schema.GroupVersionResource{
 		Group:    "",
@@ -100,25 +78,27 @@ func (e *ECRClient) CreateOrUpdateSecret(ctx context.Context, logger *slog.Logge
 		Resource: "secrets",
 	}
 
+	dockerConfigJSON := createDockerConfigJSON(registryURL, authToken)
+
 	secret := &unstructured.Unstructured{
-		Object: map[string]any{
+		Object: map[string]interface{}{
 			"apiVersion": "v1",
 			"kind":       "Secret",
-			"metadata": map[string]any{
+			"metadata": map[string]interface{}{
 				"name":      e.Config.SecretName,
 				"namespace": namespace,
 			},
 			"type": "kubernetes.io/dockerconfigjson",
-			"data": map[string]any{
-				".dockerconfigjson": dockerConfigJSONBase64,
+			"data": map[string]interface{}{
+				".dockerconfigjson": dockerConfigJSON,
 			},
 		},
 	}
 
 	existingSecret, err := k8sClient.Dynamic.Resource(secretGVR).Namespace(namespace).Get(ctx, e.Config.SecretName, metav1.GetOptions{})
 	if err == nil {
-		existingSecret.Object["data"] = map[string]any{
-			".dockerconfigjson": dockerConfigJSONBase64,
+		existingSecret.Object["data"] = map[string]interface{}{
+			".dockerconfigjson": dockerConfigJSON,
 		}
 		_, err = k8sClient.Dynamic.Resource(secretGVR).Namespace(namespace).Update(ctx, existingSecret, metav1.UpdateOptions{})
 		if err != nil {
@@ -126,14 +106,29 @@ func (e *ECRClient) CreateOrUpdateSecret(ctx context.Context, logger *slog.Logge
 			return fmt.Errorf("failed to update ECR secret: %w", err)
 		}
 		logger.Info("successfully updated ECR secret", "namespace", namespace, "secret_name", e.Config.SecretName)
-	} else {
-		_, err = k8sClient.Dynamic.Resource(secretGVR).Namespace(namespace).Create(ctx, secret, metav1.CreateOptions{})
-		if err != nil {
-			logger.Error("failed to create ECR secret", "error", err, "namespace", namespace, "secret_name", e.Config.SecretName)
-			return fmt.Errorf("failed to create ECR secret: %w", err)
-		}
-		logger.Info("successfully created ECR secret", "namespace", namespace, "secret_name", e.Config.SecretName)
+		return nil
 	}
 
+	_, err = k8sClient.Dynamic.Resource(secretGVR).Namespace(namespace).Create(ctx, secret, metav1.CreateOptions{})
+	if err != nil {
+		logger.Error("failed to create ECR secret", "error", err, "namespace", namespace, "secret_name", e.Config.SecretName)
+		return fmt.Errorf("failed to create ECR secret: %w", err)
+	}
+
+	logger.Info("successfully created ECR secret", "namespace", namespace, "secret_name", e.Config.SecretName)
 	return nil
+}
+
+func createDockerConfigJSON(registryURL, authToken string) []byte {
+	dockerConfig := map[string]interface{}{
+		"auths": map[string]interface{}{
+			registryURL: map[string]string{
+				"username": "AWS",
+				"password": authToken,
+				"auth":     base64.StdEncoding.EncodeToString([]byte("AWS:" + authToken)),
+			},
+		},
+	}
+	configJSON, _ := json.Marshal(dockerConfig)
+	return configJSON
 }

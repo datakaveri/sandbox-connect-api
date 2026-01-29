@@ -40,7 +40,7 @@ spec:
         - configMapRef:
             name: api-config
         - secretRef:
-            name: api-keycloak-creds
+            name: api-creds
         env:
         - name: API_POSTGRES_URL
           valueFrom:
