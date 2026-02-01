@@ -45,9 +45,9 @@ git clone https://github.com/datakaveri/sandbox-connect-api.git
 cd sandbox-connect-api
 ```
 
-2. Copy `.env.api.example` to `.env` for the API server
+2. Copy `.env.all.example` to `.env` and configure all required variables
 ```bash
-cp .env.api.example .env
+cp .env.all.example .env
 ```
 
 4. Initialize the database
