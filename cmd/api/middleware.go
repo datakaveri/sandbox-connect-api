@@ -319,9 +319,8 @@ func isValidIP(ip string) bool {
 		return false
 	}
 
-	// Reject private/internal IPs that might be from proxies
-	// You might want to customize this based on your infrastructure
-	if parsedIP.IsLoopback() || parsedIP.IsLinkLocalUnicast() || parsedIP.IsLinkLocalMulticast() {
+	// Reject link-local addresses
+	if parsedIP.IsLinkLocalUnicast() || parsedIP.IsLinkLocalMulticast() {
 		return false
 	}
 
