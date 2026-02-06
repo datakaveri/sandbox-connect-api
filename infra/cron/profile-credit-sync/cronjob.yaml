@@ -40,41 +40,4 @@ spec:
               requests:
                 memory: "1Gi"
                 cpu: "500m"
-          restartPolicy: apiVersion: batch/v1
-kind: Job
-metadata:
-  name: profile-credit-sync
-  namespace: sandbox
-spec:
-  backoffLimit: 0
-  template:
-    metadata:
-      labels:
-        app: profile-credit-sync
-        type: cron
-    spec:
-      serviceAccountName: notebook-manager-sa
-      imagePullSecrets:
-        - name: mahaagx-registry-cred
-      containers:
-      - name: profile-credit-sync
-        image: ghcr.io/datakaveri/tgdex-sandbox-credit-sync-cron:tgdex-1.0.0
-        env:
-        - name: PROFILE_CREDIT_SYNC_POSTGRES_URL
-          valueFrom:
-            secretKeyRef:
-              name: database-creds
-              key: POSTGRES_URL
-        envFrom:
-        - configMapRef:
-            name: profile-credit-sync-config
-        - secretRef:
-            name: profile-credit-sync-keycloak-creds
-        resources:
-          limits:
-            memory: "4Gi"
-            cpu: "2"
-          requests:
-            memory: "1Gi"
-            cpu: "500m"
-      restartPolicy: Never 
+          restartPolicy: Never
