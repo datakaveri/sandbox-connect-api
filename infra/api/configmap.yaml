@@ -51,3 +51,9 @@ data:
   WORKER_GPU_NODE_INSTANCE_TYPE: "g4dn.xlarge"
   # multiple value we can put here
   WORKER_CPU_NODE_INSTANCE_TYPES: "t3a.2xlarge,c5a.4xlarge"
+  # RabbitMQ Configuration (Audit)
+  RABBITMQ_HOST: "<your-rabbitmq-host>"
+  RABBITMQ_PORT: "5672"
+  RABBITMQ_VHOST: "/"
+  RABBITMQ_EXCHANGE: "auditing"
+  RABBITMQ_ROUTING_KEY: "<your-routing-key>"
