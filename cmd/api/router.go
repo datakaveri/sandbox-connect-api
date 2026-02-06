@@ -35,8 +35,12 @@ func (app *application) router() http.Handler {
 	apiMux.HandleFunc("POST /v1/notebook/create", app.createNotebook)
 	apiMux.HandleFunc("PATCH /v1/notebook/start", app.startNotebook)
 
+	// Apply audit middleware (after auth, before handlers)
+	// Auth runs first → sets UserInfo in context → Audit wraps handlers to capture status code
+	auditHandler := app.auditMiddleware(apiMux)
+
 	// Apply auth middleware to all API routes
-	authHandler := app.authMiddleware(apiMux)
+	authHandler := app.authMiddleware(auditHandler)
 
 	// Mount the authenticated API handler to the main router
 	rootMux.Handle("/v1/", authHandler)

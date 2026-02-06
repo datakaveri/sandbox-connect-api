@@ -75,12 +75,24 @@ func main() {
 		utils.LogErrorAndExit(logger, "failed to create ECR client", "error", err)
 	}
 
+	// Initialize audit services (RabbitMQ + Audit)
+	// Auditing is optional — if RabbitMQ is not configured, auditing is silently disabled.
+	var auditService *AuditService
+	rabbitmqService, err := NewRabbitMQService(config.RabbitMQConfig)
+	if err != nil {
+		slog.Warn("Audit system disabled: RabbitMQ not configured", "error", err)
+	} else {
+		auditService = NewAuditService(rabbitmqService)
+		slog.Info("Audit system initialized successfully")
+	}
+
 	app := application{
-		pgPool:      pool,
-		k8sClient:   k8sClient,
-		env:         config,
-		rateLimiter: rateLimiter,
-		ecrClient:   ecrClient,
+		pgPool:       pool,
+		k8sClient:    k8sClient,
+		env:          config,
+		rateLimiter:  rateLimiter,
+		ecrClient:    ecrClient,
+		auditService: auditService,
 	}
 
 	server := http.Server{
@@ -118,6 +130,13 @@ func main() {
 		}
 
 		app.pgPool.Pool.Close()
+
+		// Gracefully close audit/RabbitMQ connection
+		if app.auditService != nil {
+			if err := app.auditService.Close(); err != nil {
+				slog.Warn("Error closing audit service", "error", err)
+			}
+		}
 
 		slog.Info("shutdown complete")
 	}

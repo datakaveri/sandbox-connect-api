@@ -18,6 +18,7 @@ require (
 
 require (
 	github.com/aws/aws-sdk-go-v2/service/ecr v1.55.1
+	github.com/rabbitmq/amqp091-go v1.10.0
 	github.com/swaggo/swag v1.16.4
 )
 

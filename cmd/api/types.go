@@ -32,6 +32,19 @@ type ApiEnv struct {
 	Version           string `env:"API_VERSION,required"`
 	NotebookConfig    NotebookConfig
 	ECRConfig         ECRConfig
+	RabbitMQConfig    RabbitMQConfig
+}
+
+// RabbitMQConfig holds the RabbitMQ connection configuration for audit message publishing.
+// All fields are optional — if not configured, auditing is silently disabled.
+type RabbitMQConfig struct {
+	Host       string `env:"RABBITMQ_HOST"`
+	Port       string `env:"RABBITMQ_PORT"`
+	Vhost      string `env:"RABBITMQ_VHOST"`
+	Username   string `env:"RABBITMQ_USERNAME"`
+	Password   string `env:"RABBITMQ_PASSWORD"`
+	Exchange   string `env:"RABBITMQ_EXCHANGE"`
+	RoutingKey string `env:"RABBITMQ_ROUTING_KEY"`
 }
 
 type ECRConfig struct {
@@ -49,11 +62,12 @@ type ECRClient struct {
 }
 
 type application struct {
-	env         ApiEnv
-	k8sClient   *k8s.K8sClient
-	pgPool      *db.PgPool
-	rateLimiter *IPRateLimiter
-	ecrClient   *ECRClient
+	env          ApiEnv
+	k8sClient    *k8s.K8sClient
+	pgPool       *db.PgPool
+	rateLimiter  *IPRateLimiter
+	ecrClient    *ECRClient
+	auditService *AuditService // nil if auditing is disabled
 }
 type Resource struct {
 	Request float64 `json:"request" validate:"required,gt=0.1"`

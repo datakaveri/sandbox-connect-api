@@ -104,6 +104,10 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		sendError(w, logger, http.StatusUnprocessableEntity, "Invalid Notebook Type")
 		return
 	}
+
+	// Set sandbox type for audit logging
+	SetAuditSandboxType(r, notebookReq.Type)
+
 	if notebookReq.Type == "gpu" && !contains(userInfo.Roles, "compute") {
 		sendError(w, logger, http.StatusForbidden, "Please upgrade your Role with Compute to access the GPU")
 		return
@@ -352,12 +356,14 @@ func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	var latestEvent constants.Events
+	var gpuType *string
+	var gpuRequest, gpuLimit *int
 	query := `
-		SELECT events[array_upper(events, 1)] as latest_event
+		SELECT events[array_upper(events, 1)] as latest_event, gpu_type, gpu_request, gpu_limit
 		FROM notebooks
 		WHERE name = $1 AND namespace = $2
 	`
-	err = app.pgPool.Pool.QueryRow(ctx, query, stopReq.Name, namespace).Scan(&latestEvent)
+	err = app.pgPool.Pool.QueryRow(ctx, query, stopReq.Name, namespace).Scan(&latestEvent, &gpuType, &gpuRequest, &gpuLimit)
 	if err != nil {
 		logger.Error("failed to find notebook", "error", err)
 		sendError(w, logger, http.StatusNotFound, "Notebook not found")
@@ -368,6 +374,13 @@ func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
 		logger.Error("cannot stop notebook that is not in applied state", "currentState", latestEvent)
 		sendError(w, logger, http.StatusBadRequest, "Cannot stop notebook that is not in applied state")
 		return
+	}
+
+	// Set sandbox type for audit logging
+	if utils.CheckGPUResource(gpuType, gpuRequest, gpuLimit) {
+		SetAuditSandboxType(r, "gpu")
+	} else {
+		SetAuditSandboxType(r, "cpu")
 	}
 
 	err = app.addStoppedAnnotationToNotebook(ctx, namespace, stopReq.Name)
@@ -513,6 +526,13 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 
 	isGPUResource := utils.CheckGPUResource(gpuType, gpuRequest, gpuLimit)
 
+	// Set sandbox type for audit logging
+	if isGPUResource {
+		SetAuditSandboxType(r, "gpu")
+	} else {
+		SetAuditSandboxType(r, "cpu")
+	}
+
 	runningCPU, runningGPU, err := app.CountEffectiveRunningNotebooks(ctx, dbNotebooks, namespace)
 	if err != nil {
 		logger.Error("failed to check running notebooks from k8s", "error", err)
@@ -588,13 +608,15 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 
 	logger = logger.With("method", "deleteNotebook", "namespace", namespace, "name", deleteReq.Name)
 	query := `
-		SELECT events[array_upper(events, 1)] as latest_event
+		SELECT events[array_upper(events, 1)] as latest_event, gpu_type, gpu_request, gpu_limit
 		FROM notebooks
 		WHERE name = $1 AND namespace = $2
 	`
 	var latestEvent constants.Events
+	var gpuType *string
+	var gpuRequest, gpuLimit *int
 	ctx := r.Context()
-	err = app.pgPool.Pool.QueryRow(ctx, query, deleteReq.Name, namespace).Scan(&latestEvent)
+	err = app.pgPool.Pool.QueryRow(ctx, query, deleteReq.Name, namespace).Scan(&latestEvent, &gpuType, &gpuRequest, &gpuLimit)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			logger.Error("notebook not found", "error", err)
@@ -604,6 +626,13 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 		logger.Error("failed to select notebook", "error", err)
 		sendError(w, logger, http.StatusInternalServerError, "Failed to delete notebook")
 		return
+	}
+
+	// Set sandbox type for audit logging
+	if utils.CheckGPUResource(gpuType, gpuRequest, gpuLimit) {
+		SetAuditSandboxType(r, "gpu")
+	} else {
+		SetAuditSandboxType(r, "cpu")
 	}
 
 	notebookFailed := checkNotebookFailed(latestEvent)
