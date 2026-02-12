@@ -251,34 +251,16 @@ func (ps *profileSync) executeProfileProcessing(userID string, token string, log
 		"last_sync_balance", freshProfile.LastSyncBalance,
 		"can_create_gpu_notebook", freshProfile.CanCreateGpuNotebook)
 
-	currentTime := time.Now()
-	timeSinceLastSync := currentTime.Sub(freshProfile.AaaAndOpenCostSyncedAt)
-
-	var cost float64
 	syncAtTime := time.Now()
+	start := freshProfile.AaaAndOpenCostSyncedAt
 
-	if timeSinceLastSync < 3*time.Minute {
-		logger.Info("last sync was less than 3 minutes ago, setting OpenCost to 0 but checking pending deductions",
-			"last_sync", freshProfile.AaaAndOpenCostSyncedAt,
-			"time_since_last_sync", timeSinceLastSync.String(),
-			"pending_deduction", freshProfile.PendingDeduction)
-		cost = 0
-	} else {
-		logger.Info("processing profile - sufficient time since last sync",
-			"last_sync", freshProfile.AaaAndOpenCostSyncedAt,
-			"time_since_last_sync", timeSinceLastSync.String())
-
-		start := freshProfile.AaaAndOpenCostSyncedAt
-
-		logger.Info("calculating cost from OpenCost with fresh profile data", "start_time", start, "end_time", syncAtTime)
-		var err error
-		cost, err = ps.getProfileCostFromOpenCost(start, syncAtTime, &freshProfile)
-		if err != nil {
-			logger.Error("failed to get profile cost from OpenCost", "error", err)
-			return fmt.Errorf("failed to get profile cost: %w", err)
-		}
-		logger.Info("cost calculated from OpenCost", "cost", cost)
+	logger.Info("calculating cost from OpenCost with fresh profile data", "start_time", start, "end_time", syncAtTime)
+	cost, err := ps.getProfileCostFromOpenCost(start, syncAtTime, &freshProfile)
+	if err != nil {
+		logger.Error("failed to get profile cost from OpenCost", "error", err)
+		return fmt.Errorf("failed to get profile cost: %w", err)
 	}
+	logger.Info("cost calculated from OpenCost", "cost", cost)
 
 	canCreateGpuNotebook := freshProfile.CanCreateGpuNotebook
 	pendingDeduction := freshProfile.PendingDeduction

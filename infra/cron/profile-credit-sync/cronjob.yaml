@@ -4,7 +4,7 @@ metadata:
   name: profile-credit-sync
   namespace: sandbox
 spec:
-  schedule: "*/15 * * * *"  
+  schedule: "*/1 * * * *"  
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3 
   failedJobsHistoryLimit: 3     
