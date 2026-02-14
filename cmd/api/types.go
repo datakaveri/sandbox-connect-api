@@ -38,13 +38,14 @@ type ApiEnv struct {
 // RabbitMQConfig holds the RabbitMQ connection configuration for audit message publishing.
 // All fields are optional — if not configured, auditing is silently disabled.
 type RabbitMQConfig struct {
-	Host       string `env:"RABBITMQ_HOST"`
-	Port       string `env:"RABBITMQ_PORT"`
-	Vhost      string `env:"RABBITMQ_VHOST"`
-	Username   string `env:"RABBITMQ_USERNAME"`
-	Password   string `env:"RABBITMQ_PASSWORD"`
-	Exchange   string `env:"RABBITMQ_EXCHANGE"`
-	RoutingKey string `env:"RABBITMQ_ROUTING_KEY"`
+	Host            string `env:"RABBITMQ_HOST"`
+	Port            string `env:"RABBITMQ_PORT"`
+	Vhost           string `env:"RABBITMQ_VHOST"`
+	Username        string `env:"RABBITMQ_USERNAME"`
+	Password        string `env:"RABBITMQ_PASSWORD"`
+	Exchange        string `env:"RABBITMQ_EXCHANGE"`
+	RoutingKey      string `env:"RABBITMQ_ROUTING_KEY"`
+	OnlyForMahaAgx  string `env:"RABBITMQ_ONLY_FOR_MAHA_AGX"`
 }
 
 type ECRConfig struct {

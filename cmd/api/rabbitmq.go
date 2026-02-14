@@ -93,9 +93,9 @@ func (s *RabbitMQService) connect() error {
 	encodedPassword := url.QueryEscape(s.config.Password)
 	encodedVhost := url.QueryEscape(s.config.Vhost)
 
-	// Choose protocol based on host (heuristic: iudx.io hosts use SSL)
+	// Choose protocol: amqps when host contains iudx.io or when onlyForMahaAgx=true
 	protocol := "amqp"
-	if strings.Contains(s.config.Host, "iudx.io") {
+	if s.config.OnlyForMahaAgx == "true" || strings.Contains(s.config.Host, "iudx.io") {
 		protocol = "amqps"
 	}
 
