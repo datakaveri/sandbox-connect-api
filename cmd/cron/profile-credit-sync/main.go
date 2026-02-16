@@ -505,8 +505,9 @@ func (ps *profileSync) costDeductionRequest(ctx context.Context, profileID strin
 	var payload map[string]interface{}
 
 	err := WithExternalApiRetry(ctx, logger, func() (constants.ShouldContinue, error) {
-		// Generate fresh timestamp for each retry attempt
-		requestTime = time.Now().Format("2006-01-02T15:04:05.000")
+		// Generate fresh timestamp for each retry attempt.
+		// OpenAPI spec: requested_at must match pattern ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$ (no milliseconds).
+		requestTime = time.Now().Format("2006-01-02T15:04:05")
 
 		// Format amount to preserve decimal places with 15 decimal precision
 		amountStr := fmt.Sprintf("%.15f", cost)
@@ -525,6 +526,8 @@ func (ps *profileSync) costDeductionRequest(ctx context.Context, profileID strin
 		if err != nil {
 			return constants.RetryStop, fmt.Errorf("failed to marshal deduction payload: %v", err)
 		}
+
+		logger.Debug("AAA deduct request", "url", deductionURL, "body", string(payloadBytes))
 
 		req, err := http.NewRequest("PUT", deductionURL, bytes.NewBuffer(payloadBytes))
 		if err != nil {
