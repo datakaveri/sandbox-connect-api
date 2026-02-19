@@ -260,7 +260,6 @@ func (ps *profileSync) executeProfileProcessing(userID string, token string, log
 		logger.Error("failed to get profile cost from OpenCost", "error", err)
 		return fmt.Errorf("failed to get profile cost: %w", err)
 	}
-	logger.Info("cost calculated from OpenCost", "cost", cost)
 
 	canCreateGpuNotebook := freshProfile.CanCreateGpuNotebook
 	pendingDeduction := freshProfile.PendingDeduction
@@ -430,7 +429,10 @@ func (ps *profileSync) getProfileCostFromOpenCost(lastSyncAt time.Time, endTime 
 	for _, dataMap := range costData.Data {
 		for _, data := range dataMap {
 			if data.Properties.Namespace == profile.UserID {
-				cost = normalizeValue(data.GPUCost)
+				gpuCost := normalizeValue(data.GPUCost)
+				cpuCost := normalizeValue(data.CPUCost)
+				cost = gpuCost + cpuCost
+				logger.Info("cost calculated from OpenCost", "gpu_cost", gpuCost, "cpu_cost", cpuCost, "total_cost", cost)
 				break
 			}
 		}
