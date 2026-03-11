@@ -9,3 +9,5 @@ data:
   WORKER_INIT_CONTAINER_IMAGE: "108779579607.dkr.ecr.ap-south-1.amazonaws.com/tgdex/demo-notebook-file:latest"
   WORKER_IMAGE_PULL_ENABLED: "false"
   WORKER_ECR_SECRET_NAME: "ecr-registry-cred"
+  WORKER_GPU_NODE_INSTANCE_TYPE: "g4dn.xlarge"
+  WORKER_CPU_NODE_INSTANCE_TYPES: "t3a.2xlarge,c5a.4xlarge"

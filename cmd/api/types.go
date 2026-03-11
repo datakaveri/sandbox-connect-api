@@ -101,6 +101,8 @@ type NotebookConfig struct {
 	GPUCPULimit      string `env:"API_DEFAULT_GPU_CPU_LIMIT,required"`
 	GPUCPURequest    string `env:"API_DEFAULT_GPU_CPU_REQUEST,required"`
 
+	GPUNodeInstanceTypes string `env:"API_GPU_NODE_INSTANCE_TYPES,required"`
+
 	KubeFlowURL              string `env:"API_KUBEFLOW_URL,required"`
 	DefaultNotebookListLimit int    `env:"API_NOTEBOOK_LIST_LIMIT"`
 
@@ -111,8 +113,9 @@ type NotebookConfig struct {
 }
 
 type NotebookRequest struct {
-	Name string `json:"name" validate:"required"`
-	Type string `json:"type" validate:"required"`
+	Name         string `json:"name" validate:"required"`
+	Type         string `json:"type" validate:"required"`
+	InstanceType string `json:"instanceType" validate:"omitempty"`
 }
 
 type NotebookStatus struct {
@@ -128,6 +131,7 @@ type NotebookStatus struct {
 	GPUType       *string            `json:"gpuType,omitempty"`
 	GPURequest    *int               `json:"gpuRequest,omitempty"`
 	GPULimit      *int               `json:"gpuLimit,omitempty"`
+	InstanceType  *string            `json:"instanceType,omitempty"`
 	TemplateName  *string            `json:"templateName,omitempty"`
 	Events        []constants.Events `json:"events"`
 	Status        NotebookState      `json:"status"`
@@ -158,6 +162,46 @@ const (
 	NotebookStateFailed   NotebookState = "failed"
 	NotebookStateOrphaned NotebookState = "orphaned"
 )
+
+// GPUInstanceType represents a single GPU instance type option with display metadata
+type GPUInstanceType struct {
+	InstanceType    string `json:"instanceType"`
+	DisplayName     string `json:"displayName"`
+	GPUMemory       string `json:"gpuMemory"`
+	Description     string `json:"description"`
+	SessionDuration string `json:"sessionDuration"`
+}
+
+// GPUInstanceTypesResponse represents the available GPU instance types with metadata
+type GPUInstanceTypesResponse struct {
+	InstanceTypes []GPUInstanceType `json:"instanceTypes"`
+}
+
+// GPUInstanceTypeMetadata is a static code-level mapping of instance type → display metadata.
+// To add a new GPU type, add its metadata here AND add it to the API_GPU_NODE_INSTANCE_TYPES env var.
+var GPUInstanceTypeMetadata = map[string]GPUInstanceType{
+	"g4dn.xlarge": {
+		InstanceType:    "g4dn.xlarge",
+		DisplayName:     "Basic",
+		GPUMemory:       "16 GB",
+		Description:     "16 GB NVIDIA T4 GPU",
+		SessionDuration: "4h Session",
+	},
+	"p4d.24xlarge": {
+		InstanceType:    "p4d.24xlarge",
+		DisplayName:     "Advance",
+		GPUMemory:       "40 GB",
+		Description:     "40 GB NVIDIA A100 GPU",
+		SessionDuration: "22h Session",
+	},
+	"p5.48xlarge": {
+		InstanceType:    "p5.48xlarge",
+		DisplayName:     "Pro",
+		GPUMemory:       "80 GB",
+		Description:     "80 GB NVIDIA H100 GPU",
+		SessionDuration: "22h Session",
+	},
+}
 
 type CreateProfileRequest struct {
 	UserID string `json:"userId" validate:"required,uuid"`

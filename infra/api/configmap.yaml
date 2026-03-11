@@ -39,6 +39,7 @@ data:
   API_DEFAULT_GPU_CPU_LIMIT: "3.9"
   API_DEFAULT_GPU_MEMORY_REQUEST: "12Gi"
   API_DEFAULT_GPU_MEMORY_LIMIT: "14Gi"
+  API_GPU_NODE_INSTANCE_TYPES: "g4dn.xlarge,p4d.24xlarge,p5.48xlarge"
   API_LOG_LEVEL: "debug"
   API_AAA_URL: "https://dx.tgdex.telangana.gov.in"
   API_CREATE_ECR_SECRET: "false"
@@ -47,10 +48,6 @@ data:
   API_ECR_SECRET_NAME: "ecr-registry-cred"
   API_OPENCOST_URL: "http://opencost.opencost:9003"
   API_KEYCLOAK_BILLING_CLIENT_ID: "frontend-client"
-  # only value we can put here
-  WORKER_GPU_NODE_INSTANCE_TYPE: "g4dn.xlarge"
-  # multiple value we can put here
-  WORKER_CPU_NODE_INSTANCE_TYPES: "t3a.2xlarge,c5a.4xlarge"
   # RabbitMQ Configuration (Audit)
   RABBITMQ_HOST: "<your-rabbitmq-host>"
   RABBITMQ_PORT: "5672"

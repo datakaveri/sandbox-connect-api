@@ -11,10 +11,8 @@ import (
 func (app *application) router() http.Handler {
 	rootMux := http.NewServeMux()
 
-	// Serve API documentation with ReDoc
-	/*
-		rootMux.HandleFunc("/v1/docs/", app.serveReDoc)
-	*/
+	// Serve API documentation with ReDoc (no auth required)
+	rootMux.HandleFunc("/v1/apis/", app.serveReDoc)
 
 	// Register health endpoint directly (not behind auth)
 	rootMux.HandleFunc("GET /v1/health", app.healthCheck)
@@ -27,6 +25,7 @@ func (app *application) router() http.Handler {
 	apiMux.HandleFunc("GET /v1/notebook/list", app.listNotebooks)
 	apiMux.HandleFunc("GET /v1/notebook/check-exists/{notebook_name}", app.checkNotebookExists)
 	apiMux.HandleFunc("GET /v1/notebook/status/{notebook_name}", app.checkNotebookStatus)
+	apiMux.HandleFunc("GET /v1/notebook/gpu-instance-types", app.listGPUInstanceTypes)
 
 	// Profile routes
 	apiMux.HandleFunc("POST /v1/profile/create", app.createProfile)
@@ -100,7 +99,7 @@ const redocTemplate = `<!DOCTYPE html>
 
 func (app *application) serveReDoc(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
-	path := strings.TrimPrefix(r.URL.Path, "/v1/docs/")
+	path := strings.TrimPrefix(r.URL.Path, "/v1/apis/")
 
 	if path == "" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

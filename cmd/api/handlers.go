@@ -8,6 +8,7 @@ import (
 	"sandbox-backend-service/pkg/constants"
 	"sandbox-backend-service/pkg/utils"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -103,6 +104,27 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 			"valid_types", "cpu,gpu")
 		sendError(w, logger, http.StatusUnprocessableEntity, "Invalid Notebook Type")
 		return
+	}
+
+	// Validate instanceType for GPU notebooks
+	if notebookReq.Type == "gpu" {
+		if notebookReq.InstanceType == "" {
+			logger.Error("instanceType is required for GPU notebooks")
+			sendError(w, logger, http.StatusUnprocessableEntity, "instanceType is required for GPU notebooks")
+			return
+		}
+		allowedTypes := strings.Split(app.env.NotebookConfig.GPUNodeInstanceTypes, ",")
+		for i, t := range allowedTypes {
+			allowedTypes[i] = strings.TrimSpace(t)
+		}
+		if !contains(allowedTypes, notebookReq.InstanceType) {
+			logger.Error("invalid GPU instance type",
+				"instanceType", notebookReq.InstanceType,
+				"allowed", allowedTypes)
+			sendError(w, logger, http.StatusUnprocessableEntity,
+				fmt.Sprintf("Invalid GPU instance type. Allowed types: %s", strings.Join(allowedTypes, ", ")))
+			return
+		}
 	}
 
 	// Set sandbox type for audit logging
@@ -274,14 +296,14 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 
 	var query string
 	if notebookReq.Type == "gpu" {
-		baseArgs = append(baseArgs, app.env.NotebookConfig.GPUStorageSize, app.env.NotebookConfig.GPUCPURequest, app.env.NotebookConfig.GPUCPULimit, app.env.NotebookConfig.GPUMemoryRequest, app.env.NotebookConfig.GPUMemoryLimit, app.env.NotebookConfig.GPUType, app.env.NotebookConfig.GPURequest, app.env.NotebookConfig.GPULimit)
+		baseArgs = append(baseArgs, app.env.NotebookConfig.GPUStorageSize, app.env.NotebookConfig.GPUCPURequest, app.env.NotebookConfig.GPUCPULimit, app.env.NotebookConfig.GPUMemoryRequest, app.env.NotebookConfig.GPUMemoryLimit, app.env.NotebookConfig.GPUType, app.env.NotebookConfig.GPURequest, app.env.NotebookConfig.GPULimit, notebookReq.InstanceType)
 		query = `
 			INSERT INTO notebooks (
 				user_id, name, namespace, pvc_name, storage_size, 
 				cpu_request, cpu_limit, memory_request, memory_limit,
-				gpu_type, gpu_request, gpu_limit
+				gpu_type, gpu_request, gpu_limit, instance_type
 			) VALUES (
-				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
 			) RETURNING id`
 	} else {
 		baseArgs = append(baseArgs, app.env.NotebookConfig.CPUStorageSize, app.env.NotebookConfig.CPURequest, app.env.NotebookConfig.CPULimit, app.env.NotebookConfig.MemoryRequest, app.env.NotebookConfig.MemoryLimit)
@@ -809,7 +831,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		query = fmt.Sprintf(`
 			SELECT id, name, namespace, storage_size, pvc_name,
 				cpu_request, cpu_limit, memory_request, memory_limit,
-				gpu_type, gpu_request, gpu_limit, template_name, events, created_at
+				gpu_type, gpu_request, gpu_limit, instance_type, template_name, events, created_at
 			FROM notebooks
 			WHERE namespace = $1 AND created_at >= $2 AND created_at <= $3
 			%s
@@ -825,7 +847,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		query = fmt.Sprintf(`
 			SELECT id, name, namespace, storage_size, pvc_name,
 				cpu_request, cpu_limit, memory_request, memory_limit,
-				gpu_type, gpu_request, gpu_limit, template_name, events, created_at
+				gpu_type, gpu_request, gpu_limit, instance_type, template_name, events, created_at
 			FROM notebooks
 			WHERE namespace = $1
 			%s
@@ -854,7 +876,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		scanErr := rows.Scan(
 			&nb.ID, &nb.Name, &nb.Namespace, &nb.StorageSize, &nb.PVCName,
 			&nb.CPURequest, &nb.CPULimit, &nb.MemoryRequest, &nb.MemoryLimit,
-			&nb.GPUType, &nb.GPURequest, &nb.GPULimit, &nb.TemplateName, &nb.Events, &nb.CreatedAt,
+			&nb.GPUType, &nb.GPURequest, &nb.GPULimit, &nb.InstanceType, &nb.TemplateName, &nb.Events, &nb.CreatedAt,
 		)
 		if scanErr != nil {
 			logger.Error("failed to scan notebook row", "error", scanErr)
@@ -1033,7 +1055,7 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 	query := `
 		SELECT id, name, namespace, storage_size, pvc_name, 
 			cpu_request, cpu_limit, memory_request, memory_limit,
-			gpu_type, gpu_request, gpu_limit, template_name, events, created_at
+			gpu_type, gpu_request, gpu_limit, instance_type, template_name, events, created_at
 		FROM notebooks
 		WHERE namespace= $1 and name = $2`
 
@@ -1050,6 +1072,7 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 		&status.GPUType,
 		&status.GPURequest,
 		&status.GPULimit,
+		&status.InstanceType,
 		&status.TemplateName,
 		&status.Events,
 		&status.CreatedAt,
@@ -1142,4 +1165,39 @@ func (app *application) createProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sendResponse(w, logger, http.StatusCreated, "The profile has been created successfully or already exists.")
+}
+
+// listGPUInstanceTypes godoc
+// @Summary      List available GPU instance types
+// @Description  Returns the list of available GPU node instance types with metadata for notebook creation
+// @Tags         notebook
+// @Produce      json
+// @Success      200  {object}  GPUInstanceTypesResponse
+// @Failure      401  {object}  Error401
+// @Failure      429  {object}  Error429
+// @Failure      500  {object}  Error500
+// @Security     BearerAuth
+// @Router       /v1/notebook/gpu-instance-types [get]
+func (app *application) listGPUInstanceTypes(w http.ResponseWriter, r *http.Request) {
+	logger := getLogger(r)
+	configuredTypes := strings.Split(app.env.NotebookConfig.GPUNodeInstanceTypes, ",")
+	var result []GPUInstanceType
+	for _, t := range configuredTypes {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			continue
+		}
+		if meta, exists := GPUInstanceTypeMetadata[t]; exists {
+			result = append(result, meta)
+		} else {
+			// Instance type is in config but has no metadata — return with just the instanceType
+			result = append(result, GPUInstanceType{
+				InstanceType: t,
+				DisplayName:  t,
+			})
+		}
+	}
+	sendResponseJson(w, logger, http.StatusOK, GPUInstanceTypesResponse{
+		InstanceTypes: result,
+	})
 }

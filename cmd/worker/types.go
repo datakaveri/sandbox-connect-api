@@ -47,6 +47,7 @@ type Notebook struct {
 	GPUType       *string `json:"gpu_type"`
 	GPURequest    *int    `json:"gpu_request"`
 	GPULimit      *int    `json:"gpu_limit"`
+	InstanceType  *string `json:"instance_type"`
 	TemplateName  *string `json:"template_name"`
 }
 type worker struct {

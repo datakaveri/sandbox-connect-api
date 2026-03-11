@@ -33,6 +33,38 @@ definitions:
     required:
     - name
     type: object
+  main.GPUInstanceType:
+    description: A single GPU instance type option with display metadata
+    properties:
+      instanceType:
+        description: AWS instance type identifier
+        example: g4dn.xlarge
+        type: string
+      displayName:
+        description: Display name for the card UI
+        example: Basic
+        type: string
+      gpuMemory:
+        description: GPU memory available
+        example: 16 GB
+        type: string
+      description:
+        description: Human-readable description of the GPU
+        example: 16 GB NVIDIA T4 GPU
+        type: string
+      sessionDuration:
+        description: Maximum session duration
+        example: 4h Session
+        type: string
+    type: object
+  main.GPUInstanceTypesResponse:
+    description: List of available GPU instance types with metadata
+    properties:
+      instanceTypes:
+        items:
+          $ref: '#/definitions/main.GPUInstanceType'
+        type: array
+    type: object
   main.Error400:
     description: Response for bad request errors
     properties:
@@ -137,6 +169,10 @@ definitions:
         minLength: 4
         type: string
       type:
+        description: Notebook type (cpu or gpu)
+        type: string
+      instanceType:
+        description: GPU instance type (required when type=gpu). Must match one of the types from GET /v1/notebook/gpu-instance-types
         type: string
     required:
     - name
@@ -168,12 +204,17 @@ definitions:
         items:
           $ref: '#/definitions/constants.Events'
         type: array
-      gpuCount:
+      gpuLimit:
+        type: integer
+      gpuRequest:
         type: integer
       gpuType:
         type: string
       id:
         type: integer
+      instanceType:
+        description: GPU instance type selected for the notebook (null for CPU notebooks)
+        type: string
       memoryLimit:
         type: string
       memoryRequest:
@@ -264,6 +305,33 @@ paths:
       security:
       - BearerAuth: []
       summary: Check if notebook exists
+      tags:
+      - notebook
+  /v1/notebook/gpu-instance-types:
+    get:
+      description: Returns the list of available GPU node instance types with display metadata for notebook creation
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.GPUInstanceTypesResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/main.Error401'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/main.Error429'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/main.Error500'
+      security:
+      - BearerAuth: []
+      summary: List available GPU instance types
       tags:
       - notebook
   /v1/notebook/create:

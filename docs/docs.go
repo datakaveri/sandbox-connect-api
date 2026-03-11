@@ -74,6 +74,50 @@ const docTemplate = `{
                         }
                     }
                 }
+                }
+            }
+        },
+        "/v1/notebook/gpu-instance-types": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the list of available GPU node instance types with display metadata for notebook creation",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notebook"
+                ],
+                "summary": "List available GPU instance types",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/main.GPUInstanceTypesResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error401"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error429"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error500"
+                        }
+                    }
+                }
             }
         },
         "/v1/notebook/create": {
@@ -591,6 +635,49 @@ const docTemplate = `{
                 }
             }
         },
+        "main.GPUInstanceType": {
+            "description": "A single GPU instance type option with display metadata",
+            "type": "object",
+            "properties": {
+                "instanceType": {
+                    "description": "AWS instance type identifier",
+                    "type": "string",
+                    "example": "g4dn.xlarge"
+                },
+                "displayName": {
+                    "description": "Display name for the card UI",
+                    "type": "string",
+                    "example": "Basic"
+                },
+                "gpuMemory": {
+                    "description": "GPU memory available",
+                    "type": "string",
+                    "example": "16 GB"
+                },
+                "description": {
+                    "description": "Human-readable description of the GPU",
+                    "type": "string",
+                    "example": "16 GB NVIDIA T4 GPU"
+                },
+                "sessionDuration": {
+                    "description": "Maximum session duration",
+                    "type": "string",
+                    "example": "4h Session"
+                }
+            }
+        },
+        "main.GPUInstanceTypesResponse": {
+            "description": "List of available GPU instance types with metadata",
+            "type": "object",
+            "properties": {
+                "instanceTypes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/main.GPUInstanceType"
+                    }
+                }
+            }
+        },
         "main.Error400": {
             "description": "Response for bad request errors",
             "type": "object",
@@ -738,6 +825,11 @@ const docTemplate = `{
                     "minLength": 4
                 },
                 "type": {
+                    "description": "Notebook type (cpu or gpu)",
+                    "type": "string"
+                },
+                "instanceType": {
+                    "description": "GPU instance type (required when type=gpu). Must match one of the types from GET /v1/notebook/gpu-instance-types",
                     "type": "string"
                 }
             }
@@ -777,7 +869,10 @@ const docTemplate = `{
                         "$ref": "#/definitions/constants.Events"
                     }
                 },
-                "gpuCount": {
+                "gpuLimit": {
+                    "type": "integer"
+                },
+                "gpuRequest": {
                     "type": "integer"
                 },
                 "gpuType": {
@@ -785,6 +880,10 @@ const docTemplate = `{
                 },
                 "id": {
                     "type": "integer"
+                },
+                "instanceType": {
+                    "description": "GPU instance type selected for the notebook (null for CPU notebooks)",
+                    "type": "string"
                 },
                 "memoryLimit": {
                     "type": "string"
