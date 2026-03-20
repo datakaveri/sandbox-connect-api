@@ -9,5 +9,9 @@
 /bin/
 /dist/
 
+# Compiled Go binaries
+/api
+/worker
+
 .env
 .env.test

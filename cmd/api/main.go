@@ -87,12 +87,13 @@ func main() {
 	}
 
 	app := application{
-		pgPool:       pool,
-		k8sClient:    k8sClient,
-		env:          config,
-		rateLimiter:  rateLimiter,
-		ecrClient:    ecrClient,
-		auditService: auditService,
+		pgPool:         pool,
+		k8sClient:      k8sClient,
+		env:            config,
+		rateLimiter:    rateLimiter,
+		ecrClient:      ecrClient,
+		registryConfig: config.RegistryConfig,
+		auditService:   auditService,
 	}
 
 	server := http.Server{

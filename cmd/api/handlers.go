@@ -167,6 +167,21 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		}
 
 		logger.Info("profile created successfully", "user_id", userInfo.Sub, "email", userInfo.Email)
+
+		// Attach docker registry secret to the newly created namespace so notebook
+		// pods can pull images from the private CBR on-prem registry.
+		if app.registryConfig.Enabled {
+			if err := app.waitForNamespace(ctx, logger, namespace); err != nil {
+				logger.Error("namespace not ready after profile creation", "error", err, "namespace", namespace)
+				sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+				return
+			}
+			if err := app.createStaticRegistrySecret(ctx, logger, namespace); err != nil {
+				logger.Error("failed to create registry secret for namespace", "error", err, "namespace", namespace)
+				sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+				return
+			}
+		}
 	}
 
 	if app.ecrClient != nil {
@@ -1147,6 +1162,21 @@ func (app *application) createProfile(w http.ResponseWriter, r *http.Request) {
 		logger.Warn("failed to create kubeflow profile", "error", err, "profileName", userId)
 		sendError(w, logger, http.StatusInternalServerError, "Failed to create Kubeflow Profile")
 		return
+	}
+
+	// Attach docker registry secret to the newly created namespace so notebook
+	// pods can pull images from the private CBR on-prem registry.
+	if app.registryConfig.Enabled {
+		if err := app.waitForNamespace(r.Context(), logger, userId); err != nil {
+			logger.Error("namespace not ready after profile creation", "error", err, "namespace", userId)
+			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+			return
+		}
+		if err := app.createStaticRegistrySecret(r.Context(), logger, userId); err != nil {
+			logger.Error("failed to create registry secret for namespace", "error", err, "namespace", userId)
+			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+			return
+		}
 	}
 
 	query := `

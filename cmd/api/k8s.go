@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sandbox-backend-service/pkg/constants"
 	"time"
@@ -12,6 +13,44 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
+
+// waitForNamespace polls until the given Kubernetes namespace exists.
+// Kubeflow creates the namespace asynchronously after receiving a Profile CR,
+// so we must wait before placing resources (e.g. Secrets) into it.
+// Polls every 2 seconds; times out after 60 seconds.
+func (app *application) waitForNamespace(ctx context.Context, logger *slog.Logger, namespace string) error {
+	nsGVR := schema.GroupVersionResource{
+		Group:    "",
+		Version:  "v1",
+		Resource: "namespaces",
+	}
+
+	const (
+		pollInterval = 2 * time.Second
+		pollTimeout  = 60 * time.Second
+	)
+
+	deadline := time.Now().Add(pollTimeout)
+	for {
+		_, err := app.k8sClient.Dynamic.Resource(nsGVR).Get(ctx, namespace, metav1.GetOptions{})
+		if err == nil {
+			logger.Info("namespace is ready", "namespace", namespace)
+			return nil
+		}
+		if !k8serrors.IsNotFound(err) {
+			return fmt.Errorf("error checking namespace %q: %w", namespace, err)
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out after %v waiting for namespace %q to be created by Kubeflow", pollTimeout, namespace)
+		}
+		logger.Info("waiting for namespace to be created by Kubeflow", "namespace", namespace)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(pollInterval):
+		}
+	}
+}
 
 func (app *application) addStoppedAnnotationToNotebook(ctx context.Context, namespace, notebookName string) error {
 	notebookGVR := schema.GroupVersionResource{

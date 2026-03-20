@@ -32,6 +32,7 @@ type ApiEnv struct {
 	Version           string `env:"API_VERSION,required"`
 	NotebookConfig    NotebookConfig
 	ECRConfig         ECRConfig
+	RegistryConfig    RegistryConfig
 	RabbitMQConfig    RabbitMQConfig
 }
 
@@ -57,18 +58,29 @@ type ECRConfig struct {
 	SecretName      string `env:"API_ECR_SECRET_NAME"`
 }
 
+// RegistryConfig holds configuration for a static (non-rotating) private Docker registry.
+// Used for the CBR on-premise registry where credentials are long-lived.
+type RegistryConfig struct {
+	Enabled    bool   `env:"API_REGISTRY_SECRET_ENABLED" envDefault:"false"`
+	URL        string `env:"API_REGISTRY_URL"`
+	Username   string `env:"API_REGISTRY_USERNAME"`
+	Password   string `env:"API_REGISTRY_PASSWORD"`
+	SecretName string `env:"API_REGISTRY_SECRET_NAME" envDefault:"registry-cred"`
+}
+
 type ECRClient struct {
 	ECRClient *ecr.Client
 	Config    ECRConfig
 }
 
 type application struct {
-	env          ApiEnv
-	k8sClient    *k8s.K8sClient
-	pgPool       *db.PgPool
-	rateLimiter  *IPRateLimiter
-	ecrClient    *ECRClient
-	auditService *AuditService // nil if auditing is disabled
+	env            ApiEnv
+	k8sClient      *k8s.K8sClient
+	pgPool         *db.PgPool
+	rateLimiter    *IPRateLimiter
+	ecrClient      *ECRClient
+	registryConfig RegistryConfig
+	auditService   *AuditService // nil if auditing is disabled
 }
 type Resource struct {
 	Request float64 `json:"request" validate:"required,gt=0.1"`

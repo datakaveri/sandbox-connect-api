@@ -46,6 +46,10 @@ data:
   API_ECR_REGION: "us-east-1"
   API_ECR_REGISTRY_URL: "<your-ecr-registry-url>"
   API_ECR_SECRET_NAME: "ecr-registry-cred"
+  # CBR on-prem private registry — creates a docker registry secret in each user namespace
+  API_REGISTRY_SECRET_ENABLED: "true"
+  API_REGISTRY_URL: "registry.analytics.cbr-iisc.ac.in"
+  API_REGISTRY_SECRET_NAME: "registry-cred"
   API_OPENCOST_URL: "http://opencost.opencost:9003"
   API_KEYCLOAK_BILLING_CLIENT_ID: "frontend-client"
   # RabbitMQ Configuration (Audit)
