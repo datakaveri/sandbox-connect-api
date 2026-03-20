@@ -168,19 +168,20 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 
 		logger.Info("profile created successfully", "user_id", userInfo.Sub, "email", userInfo.Email)
 
-		// Attach registry secret to the newly created namespace so notebook pods can
-		// pull images from the configured private registry (ECR or static).
 		if app.registrySecret.SecretType != "none" {
 			if err := app.waitForNamespace(ctx, logger, namespace); err != nil {
 				logger.Error("namespace not ready after profile creation", "error", err, "namespace", namespace)
 				sendError(w, logger, http.StatusInternalServerError, "Internal server error")
 				return
 			}
-			if err := app.ensureRegistrySecret(ctx, logger, namespace); err != nil {
-				logger.Error("failed to create registry secret for namespace", "error", err, "namespace", namespace)
-				sendError(w, logger, http.StatusInternalServerError, "Internal server error")
-				return
-			}
+		}
+	}
+
+	if app.registrySecret.SecretType != "none" {
+		if err := app.ensureRegistrySecret(ctx, logger, namespace); err != nil {
+			logger.Error("failed to ensure registry secret for namespace", "error", err, "namespace", namespace)
+			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+			return
 		}
 	}
 
