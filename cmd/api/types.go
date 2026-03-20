@@ -30,10 +30,9 @@ type ApiEnv struct {
 	WriteTimeoutSecs  int    `env:"API_WRITE_TIMEOUT_SECS"`
 	ReadTimeoutSecs   int    `env:"API_READ_TIMEOUT_SECS"`
 	Version           string `env:"API_VERSION,required"`
-	NotebookConfig    NotebookConfig
-	ECRConfig         ECRConfig
-	RegistryConfig    RegistryConfig
-	RabbitMQConfig    RabbitMQConfig
+	NotebookConfig       NotebookConfig
+	RegistrySecretConfig RegistrySecretConfig
+	RabbitMQConfig       RabbitMQConfig
 }
 
 // RabbitMQConfig holds the RabbitMQ connection configuration for audit message publishing.
@@ -49,28 +48,30 @@ type RabbitMQConfig struct {
 	OnlyForMahaAgx  string `env:"RABBITMQ_ONLY_FOR_MAHA_AGX"`
 }
 
-type ECRConfig struct {
-	CreateECRSecret bool   `env:"API_CREATE_ECR_SECRET" envDefault:"false"`
-	ECRRegion       string `env:"API_ECR_REGION"`
-	ECRRegistryURL  string `env:"API_ECR_REGISTRY_URL"`
-	AWSAccessKeyID  string `env:"API_AWS_ACCESS_KEY_ID"`
-	AWSSecretKey    string `env:"API_AWS_SECRET_KEY"`
-	SecretName      string `env:"API_ECR_SECRET_NAME"`
-}
-
-// RegistryConfig holds configuration for a static (non-rotating) private Docker registry.
-// Used for the CBR on-premise registry where credentials are long-lived.
-type RegistryConfig struct {
-	Enabled    bool   `env:"API_REGISTRY_SECRET_ENABLED" envDefault:"false"`
-	URL        string `env:"API_REGISTRY_URL"`
-	Username   string `env:"API_REGISTRY_USERNAME"`
-	Password   string `env:"API_REGISTRY_PASSWORD"`
+// RegistrySecretConfig is the single, generic registry-secret configuration.
+// Set API_REGISTRY_SECRET_TYPE to control which flow is active:
+//
+//	"ecr"              — AWS ECR with rotating 12-hour tokens
+//	"private-registry" — static username/password (e.g. CBR on-prem)
+//	"none" (default)   — no registry secret is created
+type RegistrySecretConfig struct {
+	SecretType string `env:"API_REGISTRY_SECRET_TYPE" envDefault:"none"`
 	SecretName string `env:"API_REGISTRY_SECRET_NAME" envDefault:"registry-cred"`
+	URL        string `env:"API_REGISTRY_URL"`
+
+	// Credentials for "private-registry" type
+	Username string `env:"API_REGISTRY_USERNAME"`
+	Password string `env:"API_REGISTRY_PASSWORD"`
+
+	// Credentials for "ecr" type
+	ECRRegion      string `env:"API_REGISTRY_ECR_REGION"`
+	AWSAccessKeyID string `env:"API_REGISTRY_AWS_ACCESS_KEY_ID"`
+	AWSSecretKey   string `env:"API_REGISTRY_AWS_SECRET_KEY"`
 }
 
 type ECRClient struct {
 	ECRClient *ecr.Client
-	Config    ECRConfig
+	Config    RegistrySecretConfig
 }
 
 type application struct {
@@ -78,8 +79,8 @@ type application struct {
 	k8sClient      *k8s.K8sClient
 	pgPool         *db.PgPool
 	rateLimiter    *IPRateLimiter
-	ecrClient      *ECRClient
-	registryConfig RegistryConfig
+	ecrClient      *ECRClient // non-nil only when SecretType == "ecr"
+	registrySecret RegistrySecretConfig
 	auditService   *AuditService // nil if auditing is disabled
 }
 type Resource struct {

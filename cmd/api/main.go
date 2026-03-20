@@ -70,7 +70,7 @@ func main() {
 	}
 	rateLimiter := NewIPRateLimiter(config.RateLimit, config.RateWindowSecs)
 
-	ecrClient, err := NewECRClient(config.ECRConfig)
+	ecrClient, err := NewECRClient(config.RegistrySecretConfig)
 	if err != nil {
 		utils.LogErrorAndExit(logger, "failed to create ECR client", "error", err)
 	}
@@ -92,7 +92,7 @@ func main() {
 		env:            config,
 		rateLimiter:    rateLimiter,
 		ecrClient:      ecrClient,
-		registryConfig: config.RegistryConfig,
+		registrySecret: config.RegistrySecretConfig,
 		auditService:   auditService,
 	}
 

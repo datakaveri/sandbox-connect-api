@@ -32,47 +32,47 @@ const (
 	TokenMetadataAnnotation = "ecr-token-metadata"
 )
 
-func NewECRClient(ecrConfig ECRConfig) (*ECRClient, error) {
-	if !ecrConfig.CreateECRSecret {
+func NewECRClient(cfg RegistrySecretConfig) (*ECRClient, error) {
+	if cfg.SecretType != "ecr" {
 		return nil, nil
 	}
 
 	var missingVars []string
 
-	if ecrConfig.ECRRegion == "" {
-		missingVars = append(missingVars, "API_ECR_REGION")
+	if cfg.ECRRegion == "" {
+		missingVars = append(missingVars, "API_REGISTRY_ECR_REGION")
 	}
 
-	if ecrConfig.ECRRegistryURL == "" {
-		missingVars = append(missingVars, "API_ECR_REGISTRY_URL")
+	if cfg.URL == "" {
+		missingVars = append(missingVars, "API_REGISTRY_URL")
 	}
 
-	if ecrConfig.AWSAccessKeyID == "" {
-		missingVars = append(missingVars, "API_AWS_ACCESS_KEY_ID")
+	if cfg.AWSAccessKeyID == "" {
+		missingVars = append(missingVars, "API_REGISTRY_AWS_ACCESS_KEY_ID")
 	}
 
-	if ecrConfig.AWSSecretKey == "" {
-		missingVars = append(missingVars, "API_AWS_SECRET_KEY")
+	if cfg.AWSSecretKey == "" {
+		missingVars = append(missingVars, "API_REGISTRY_AWS_SECRET_KEY")
 	}
 
 	if len(missingVars) > 0 {
-		return nil, fmt.Errorf("missing required environment variables when API_CREATE_ECR_SECRET is true: %v", missingVars)
+		return nil, fmt.Errorf("missing required environment variables when API_REGISTRY_SECRET_TYPE is ecr: %v", missingVars)
 	}
 
 	ctx := context.Background()
-	cfg, err := config.LoadDefaultConfig(ctx,
-		config.WithRegion(ecrConfig.ECRRegion),
-		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(ecrConfig.AWSAccessKeyID, ecrConfig.AWSSecretKey, "")),
+	awsCfg, err := config.LoadDefaultConfig(ctx,
+		config.WithRegion(cfg.ECRRegion),
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(cfg.AWSAccessKeyID, cfg.AWSSecretKey, "")),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load AWS config: %w", err)
 	}
 
-	client := ecr.NewFromConfig(cfg)
+	client := ecr.NewFromConfig(awsCfg)
 
 	return &ECRClient{
 		ECRClient: client,
-		Config:    ecrConfig,
+		Config:    cfg,
 	}, nil
 }
 
@@ -189,8 +189,8 @@ func (e *ECRClient) CreateOrUpdateSecret(ctx context.Context, logger *slog.Logge
 	}
 
 	registryURL := proxyEndpoint
-	if e.Config.ECRRegistryURL != "" {
-		registryURL = e.Config.ECRRegistryURL
+	if e.Config.URL != "" {
+		registryURL = e.Config.URL
 	}
 
 	logger.Debug("Creating/Updating ECR docker-registry secret",

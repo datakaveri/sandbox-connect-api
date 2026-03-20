@@ -42,14 +42,19 @@ data:
   API_GPU_NODE_INSTANCE_TYPES: "g4dn.xlarge,p4d.24xlarge,p5.48xlarge"
   API_LOG_LEVEL: "debug"
   API_AAA_URL: "https://dx.tgdex.telangana.gov.in"
-  API_CREATE_ECR_SECRET: "false"
-  API_ECR_REGION: "us-east-1"
-  API_ECR_REGISTRY_URL: "<your-ecr-registry-url>"
-  API_ECR_SECRET_NAME: "ecr-registry-cred"
-  # CBR on-prem private registry — creates a docker registry secret in each user namespace
-  API_REGISTRY_SECRET_ENABLED: "true"
+  # Registry secret configuration
+  # Set API_REGISTRY_SECRET_TYPE to one of: ecr | private-registry | none
+  #
+  # --- For CBR on-prem private registry ---
+  API_REGISTRY_SECRET_TYPE: "private-registry"
   API_REGISTRY_URL: "registry.analytics.cbr-iisc.ac.in"
   API_REGISTRY_SECRET_NAME: "registry-cred"
+  #
+  # --- For AWS ECR (uncomment and set type to "ecr" if needed) ---
+  # API_REGISTRY_SECRET_TYPE: "ecr"
+  # API_REGISTRY_URL: "<your-ecr-registry-url>"
+  # API_REGISTRY_SECRET_NAME: "ecr-registry-cred"
+  # API_REGISTRY_ECR_REGION: "us-east-1"
   API_OPENCOST_URL: "http://opencost.opencost:9003"
   API_KEYCLOAK_BILLING_CLIENT_ID: "frontend-client"
   # RabbitMQ Configuration (Audit)
