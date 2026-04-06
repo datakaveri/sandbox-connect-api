@@ -25,13 +25,21 @@ func (app *application) router() http.Handler {
 	apiMux.HandleFunc("GET /v1/notebook/list", app.listNotebooks)
 	apiMux.HandleFunc("GET /v1/notebook/check-exists/{notebook_name}", app.checkNotebookExists)
 	apiMux.HandleFunc("GET /v1/notebook/status/{notebook_name}", app.checkNotebookStatus)
+	apiMux.HandleFunc("GET /v1/notebook/instance-types", app.listGPUInstanceTypes)
 	apiMux.HandleFunc("GET /v1/notebook/gpu-instance-types", app.listGPUInstanceTypes)
+	apiMux.HandleFunc("GET /v1/categories", app.listGPUCategories)
+	apiMux.HandleFunc("POST /v1/bookings", app.createGPUBooking)
+	apiMux.HandleFunc("GET /v1/bookings", app.listGPUBookings)
+	apiMux.HandleFunc("PATCH /v1/bookings/{id}/cancel", app.cancelGPUBooking)
+	apiMux.HandleFunc("PATCH /v1/bookings/{id}/reset", app.resetGPUBooking)
+	apiMux.HandleFunc("PATCH /v1/bookings/{id}/terminate", app.terminateGPUBooking)
+	apiMux.HandleFunc("GET /v1/slots/available", app.listGPUAvailableSlots)
+	apiMux.HandleFunc("GET /v1/slots/calendar", app.listGPUCalendarSlots)
 
 	// Profile routes
 	apiMux.HandleFunc("POST /v1/profile/create", app.createProfile)
 
 	// Register notebook routes directly
-	apiMux.HandleFunc("POST /v1/notebook/create", app.createNotebook)
 	apiMux.HandleFunc("PATCH /v1/notebook/start", app.startNotebook)
 
 	// Apply audit middleware (after auth, before handlers)

@@ -9,7 +9,7 @@ import (
 // auditedEndpoints maps "METHOD /path" to a human-readable action name.
 // Only these endpoints produce audit messages, and only on 2xx responses.
 var auditedEndpoints = map[string]string{
-	"POST /v1/notebook/create":  "Create",
+	"POST /v1/bookings":       "Create",
 	"PATCH /v1/notebook/start":  "Start",
 	"PATCH /v1/notebook/stop":   "Stop",
 	"DELETE /v1/notebook/delete": "Delete",

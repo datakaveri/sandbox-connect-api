@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"sandbox-backend-service/pkg/constants"
+	"sandbox-backend-service/pkg/gpuconfig"
 	"sandbox-backend-service/pkg/utils"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -56,297 +58,6 @@ func (app *application) checkNotebookExists(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	sendResponseJson(w, logger, http.StatusOK, map[string]bool{"exists": exists})
-}
-
-// createNotebook godoc
-// @Summary      Create notebook
-// @Description  Creates a new notebook for the user
-// @Tags         notebook
-// @Accept       json
-// @Produce      json
-// @Param        notebook  body  NotebookRequest  true  "Notebook Create Request"
-// @Success      201  {object}  SwaggerMessageResponse
-// @Failure      422  {object}  Error422
-// @Failure      403  {object}  Error403
-// @Failure      429  {object}  Error429
-// @Failure      401  {object}  Error401
-// @Failure      500  {object}  Error500
-// @Failure      409  {object}  Error409
-// @Security     BearerAuth
-// @Router       /v1/notebook/create [post]
-func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
-	logger := getLogger(r)
-	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
-	if !ok {
-		logger.Error("user info not found in context")
-		sendResponse(w, logger, http.StatusUnauthorized, "Unauthorized")
-		return
-	}
-	namespace := userInfo.Sub
-
-	notebookReq, err := utils.DecodeAndValidate[NotebookRequest](r.Body, logger)
-	if err != nil {
-		logger.Error("can't parse the body", "Error", err.Error())
-		sendError(w, logger, http.StatusUnprocessableEntity, "Invalid body")
-		return
-	}
-	if errorMessage, gotError := getErrorMessageForNotebookName(notebookReq.Name); gotError {
-		logger.Error("invalid notebook name",
-			"notebook_name", notebookReq.Name,
-			"validation_error", errorMessage)
-		sendError(w, logger, http.StatusUnprocessableEntity, errorMessage)
-		return
-	}
-	if notebookReq.Type != "cpu" && notebookReq.Type != "gpu" {
-		logger.Error("invalid notebook type",
-			"notebook_name", notebookReq.Name,
-			"notebook_type", notebookReq.Type,
-			"valid_types", "cpu,gpu")
-		sendError(w, logger, http.StatusUnprocessableEntity, "Invalid Notebook Type")
-		return
-	}
-
-	// Validate instanceType for GPU notebooks
-	if notebookReq.Type == "gpu" {
-		if notebookReq.InstanceType == "" {
-			logger.Error("instanceType is required for GPU notebooks")
-			sendError(w, logger, http.StatusUnprocessableEntity, "instanceType is required for GPU notebooks")
-			return
-		}
-		allowedTypes := strings.Split(app.env.NotebookConfig.GPUNodeInstanceTypes, ",")
-		for i, t := range allowedTypes {
-			allowedTypes[i] = strings.TrimSpace(t)
-		}
-		if !contains(allowedTypes, notebookReq.InstanceType) {
-			logger.Error("invalid GPU instance type",
-				"instanceType", notebookReq.InstanceType,
-				"allowed", allowedTypes)
-			sendError(w, logger, http.StatusUnprocessableEntity,
-				fmt.Sprintf("Invalid GPU instance type. Allowed types: %s", strings.Join(allowedTypes, ", ")))
-			return
-		}
-	}
-
-	// Set sandbox type for audit logging
-	SetAuditSandboxType(r, notebookReq.Type)
-
-	if notebookReq.Type == "gpu" && !contains(userInfo.Roles, "compute") {
-		sendError(w, logger, http.StatusForbidden, "Please upgrade your Role with Compute to access the GPU")
-		return
-	}
-
-	ctx := r.Context()
-
-	var profileExists bool
-	checkProfileQuery := `SELECT EXISTS(SELECT 1 FROM profiles WHERE user_id = $1)`
-	err = app.pgPool.Pool.QueryRow(ctx, checkProfileQuery, userInfo.Sub).Scan(&profileExists)
-	if err != nil {
-		logger.Error("failed to check if profile exists", "error", err)
-		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
-		return
-	}
-
-	if !profileExists {
-		logger.Info("profile doesn't exist, creating profile automatically", "user_id", userInfo.Sub, "email", userInfo.Email)
-		err = app.createKubeflowProfile(ctx, logger, userInfo.Sub, userInfo.Email)
-		if err != nil && !errors.IsAlreadyExists(err) {
-			logger.Error("failed to create kubeflow profile", "error", err, "user_id", userInfo.Sub)
-			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
-			return
-		}
-		createProfileQuery := `
-			INSERT INTO profiles (user_id, email)
-			VALUES ($1, $2)
-			ON CONFLICT (user_id) DO NOTHING
-		`
-		_, err = app.pgPool.Pool.Exec(ctx, createProfileQuery, userInfo.Sub, userInfo.Email)
-		if err != nil {
-			logger.Error("failed to create profile in database", "error", err)
-			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
-			return
-		}
-
-		logger.Info("profile created successfully", "user_id", userInfo.Sub, "email", userInfo.Email)
-
-		if app.registrySecret.SecretType != "none" {
-			if err := app.waitForNamespace(ctx, logger, namespace); err != nil {
-				logger.Error("namespace not ready after profile creation", "error", err, "namespace", namespace)
-				sendError(w, logger, http.StatusInternalServerError, "Internal server error")
-				return
-			}
-		}
-	}
-
-	if app.registrySecret.SecretType != "none" {
-		if err := app.ensureRegistrySecret(ctx, logger, namespace); err != nil {
-			logger.Error("failed to ensure registry secret for namespace", "error", err, "namespace", namespace)
-			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
-			return
-		}
-	}
-
-	tx, err := app.pgPool.Pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		logger.Error("failed to start transaction", "error", err)
-		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
-		return
-	}
-	defer tx.Rollback(ctx)
-
-	// Lock profile for concurrency control
-	var profileID int64
-	var canCreateGpuNotebook bool
-	lockQuery := `SELECT id, can_create_gpu_notebook FROM profiles WHERE user_id = $1 FOR UPDATE NOWAIT`
-	err = tx.QueryRow(ctx, lockQuery, userInfo.Sub).Scan(&profileID, &canCreateGpuNotebook)
-	if err != nil {
-		if pgErr, ok := err.(*pgconn.PgError); ok && pgErr.Code == "55P03" {
-			logger.Warn("profile is locked by another operation",
-				"notebook_name", notebookReq.Name,
-				"notebook_type", notebookReq.Type,
-				"lock_error_code", pgErr.Code)
-			sendError(w, logger, http.StatusTooManyRequests, "Another operation is in progress for your account, please try again shortly.")
-			return
-		}
-		logger.Error("failed to lock profile row",
-			"error", err,
-			"notebook_name", notebookReq.Name,
-			"notebook_type", notebookReq.Type)
-		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
-		return
-	}
-
-	if notebookReq.Type == "gpu" && !canCreateGpuNotebook {
-		logger.Warn("user credit limit exceeded for GPU notebooks", "notebook_name", notebookReq.Name)
-		sendError(w, logger, http.StatusForbidden, "Credit limit exceeded. You cannot create GPU notebooks.")
-		return
-	}
-
-	rows, err := tx.Query(ctx, "SELECT name, gpu_type, gpu_request, gpu_limit, events[array_upper(events, 1)] as latest_event FROM notebooks WHERE user_id = $1", userInfo.Sub)
-	if err != nil {
-		logger.Error("failed to fetch notebooks for user", "error", err)
-		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
-		return
-	}
-	defer rows.Close()
-
-	dbNotebooks := []DBNotebookInfo{}
-	for rows.Next() {
-		var name string
-		var gpuType *string
-		var gpuRequest *int
-		var gpuLimit *int
-		var latestEvent constants.Events
-		if err := rows.Scan(&name, &gpuType, &gpuRequest, &gpuLimit, &latestEvent); err != nil {
-			logger.Error("failed to scan notebook row", "error", err)
-			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
-			return
-		}
-		nbType := "cpu"
-		if utils.CheckGPUResource(gpuType, gpuRequest, gpuLimit) {
-			nbType = "gpu"
-		}
-		dbNotebooks = append(dbNotebooks, DBNotebookInfo{
-			Name:        name,
-			Type:        nbType,
-			LatestEvent: latestEvent,
-		})
-	}
-	if err := rows.Err(); err != nil {
-		logger.Error("error iterating notebook rows", "error", err)
-		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
-		return
-	}
-	totalCPU, totalGPU, err := app.getSuccessfullyCreatedNotebookCounts(ctx, dbNotebooks, namespace)
-	if err != nil {
-		logger.Error("failed to get successfully created notebook counts", "error", err)
-		sendError(w, logger, http.StatusInternalServerError, "Failed to get successfully created notebook counts")
-		return
-	}
-	runningCPU, runningGPU, err := app.CountEffectiveRunningNotebooks(ctx, dbNotebooks, namespace)
-	if err != nil {
-		logger.Error("failed to check running notebooks from k8s", "error", err)
-		sendError(w, logger, http.StatusInternalServerError, "Failed to check running notebooks")
-		return
-	}
-	if runningCPU >= app.env.NotebookConfig.MaxRunningCPU && notebookReq.Type == "cpu" {
-		errorMsg := fmt.Sprintf("Cannot create CPU notebook: running CPU notebook limit exceeded (%d/%d running). Please stop an existing CPU notebook before creating a new one.", runningCPU, app.env.NotebookConfig.MaxRunningCPU)
-		sendError(w, logger, http.StatusBadRequest, errorMsg)
-		return
-	}
-	if runningGPU >= app.env.NotebookConfig.MaxRunningGPU && notebookReq.Type == "gpu" {
-		errorMsg := fmt.Sprintf("Cannot create GPU notebook: running GPU notebook limit exceeded (%d/%d running). Please stop an existing GPU notebook before creating a new one.", runningGPU, app.env.NotebookConfig.MaxRunningGPU)
-		sendError(w, logger, http.StatusBadRequest, errorMsg)
-		return
-	}
-	if totalCPU+totalGPU >= app.env.NotebookConfig.MaxTotalCPU+app.env.NotebookConfig.MaxTotalGPU {
-		errorMsg := fmt.Sprintf("Cannot create notebook: total notebook limit exceeded (%d/%d total notebooks). Please delete some existing notebooks before creating new ones.", totalCPU+totalGPU, app.env.NotebookConfig.MaxTotalCPU+app.env.NotebookConfig.MaxTotalGPU)
-		sendError(w, logger, http.StatusBadRequest, errorMsg)
-		return
-	}
-	if notebookReq.Type == "cpu" && totalCPU >= app.env.NotebookConfig.MaxTotalCPU {
-		errorMsg := fmt.Sprintf("Cannot create CPU notebook: CPU notebook limit exceeded (%d/%d CPU notebooks). Please delete some existing CPU notebooks before creating new ones.", totalCPU, app.env.NotebookConfig.MaxTotalCPU)
-		sendError(w, logger, http.StatusBadRequest, errorMsg)
-		return
-	}
-	if notebookReq.Type == "gpu" && totalGPU >= app.env.NotebookConfig.MaxTotalGPU {
-		errorMsg := fmt.Sprintf("Cannot create GPU notebook: GPU notebook limit exceeded (%d/%d GPU notebooks). Please delete some existing GPU notebooks before creating new ones.", totalGPU, app.env.NotebookConfig.MaxTotalGPU)
-		sendError(w, logger, http.StatusBadRequest, errorMsg)
-		return
-	}
-
-	baseArgs := []any{
-		userInfo.Sub,
-		notebookReq.Name,
-		namespace,
-		notebookReq.Name + "-pvc",
-	}
-
-	var query string
-	if notebookReq.Type == "gpu" {
-		baseArgs = append(baseArgs, app.env.NotebookConfig.GPUStorageSize, app.env.NotebookConfig.GPUCPURequest, app.env.NotebookConfig.GPUCPULimit, app.env.NotebookConfig.GPUMemoryRequest, app.env.NotebookConfig.GPUMemoryLimit, app.env.NotebookConfig.GPUType, app.env.NotebookConfig.GPURequest, app.env.NotebookConfig.GPULimit, notebookReq.InstanceType)
-		query = `
-			INSERT INTO notebooks (
-				user_id, name, namespace, pvc_name, storage_size, 
-				cpu_request, cpu_limit, memory_request, memory_limit,
-				gpu_type, gpu_request, gpu_limit, instance_type
-			) VALUES (
-				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
-			) RETURNING id`
-	} else {
-		baseArgs = append(baseArgs, app.env.NotebookConfig.CPUStorageSize, app.env.NotebookConfig.CPURequest, app.env.NotebookConfig.CPULimit, app.env.NotebookConfig.MemoryRequest, app.env.NotebookConfig.MemoryLimit)
-		query = `
-		INSERT INTO notebooks (
-			user_id, name, namespace, pvc_name, storage_size, 
-			cpu_request, cpu_limit, memory_request, memory_limit
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9
-		) RETURNING id`
-	}
-	var notebookId int64
-	err = tx.QueryRow(ctx, query, baseArgs...).Scan(&notebookId)
-	if err != nil {
-		if pgErr, isPgError := err.(*pgconn.PgError); isPgError && pgErr.Code == "23505" {
-			logger.Warn("notebook already exists", "name", notebookReq.Name)
-			sendError(w, logger, http.StatusConflict, "Notebook with this name already exists")
-			return
-		}
-		logger.Error("failed to create notebook in database", "error", err)
-		sendError(w, logger, http.StatusInternalServerError, "Failed to create notebook")
-		return
-	}
-
-	err = tx.Commit(ctx)
-	if err != nil {
-		logger.Error("failed to commit transaction", "error", err)
-		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
-		return
-	}
-
-	logger.Info("notebook created successfully",
-		"notebook_id", notebookId,
-		"notebook_name", notebookReq.Name,
-		"notebook_type", notebookReq.Type)
-	sendResponse(w, logger, http.StatusCreated, "Notebook creation is in process")
 }
 
 // stopNotebook godoc
@@ -614,6 +325,7 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 // @Failure      429  {object}  Error429
 // @Failure      401  {object}  Error401
 // @Failure      404  {object}  Error404
+// @Failure      409  {object}  Error409
 // @Failure      422  {object}  Error422
 // @Failure      500  {object}  Error500
 // @Security     BearerAuth
@@ -636,15 +348,18 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 
 	logger = logger.With("method", "deleteNotebook", "namespace", namespace, "name", deleteReq.Name)
 	query := `
-		SELECT events[array_upper(events, 1)] as latest_event, gpu_type, gpu_request, gpu_limit
+		SELECT id, booking_id, events[array_upper(events, 1)] as latest_event, gpu_type, gpu_request, gpu_limit
 		FROM notebooks
 		WHERE name = $1 AND namespace = $2
 	`
+	var notebookRowID int64
+	var notebookBookingID *int64
 	var latestEvent constants.Events
 	var gpuType *string
 	var gpuRequest, gpuLimit *int
 	ctx := r.Context()
-	err = app.pgPool.Pool.QueryRow(ctx, query, deleteReq.Name, namespace).Scan(&latestEvent, &gpuType, &gpuRequest, &gpuLimit)
+	err = app.pgPool.Pool.QueryRow(ctx, query, deleteReq.Name, namespace).Scan(
+		&notebookRowID, &notebookBookingID, &latestEvent, &gpuType, &gpuRequest, &gpuLimit)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			logger.Error("notebook not found", "error", err)
@@ -653,6 +368,30 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 		}
 		logger.Error("failed to select notebook", "error", err)
 		sendError(w, logger, http.StatusInternalServerError, "Failed to delete notebook")
+		return
+	}
+
+	var blockingBookingID int64
+	err = app.pgPool.Pool.QueryRow(ctx, `
+		SELECT id FROM bookings
+		WHERE user_id = $1
+		  AND status IN ('scheduled', 'ready', 'active', 'shutting_down')
+		  AND (
+		    ($2::bigint IS NOT NULL AND id = $2)
+		    OR notebook_id = $3
+		  )
+		LIMIT 1
+	`, userInfo.Sub, notebookBookingID, notebookRowID).Scan(&blockingBookingID)
+	if err != nil && err != pgx.ErrNoRows {
+		logger.Error("failed to check booking link for notebook delete", "error", err)
+		sendError(w, logger, http.StatusInternalServerError, "Failed to delete notebook")
+		return
+	}
+	if err == nil {
+		msg := fmt.Sprintf(
+			"Notebook is linked to booking %d. Use PATCH /v1/bookings/%d/cancel while scheduled, or PATCH /v1/bookings/%d/terminate when ready, active, or shutting down.",
+			blockingBookingID, blockingBookingID, blockingBookingID)
+		sendError(w, logger, http.StatusConflict, msg)
 		return
 	}
 
@@ -690,9 +429,8 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 		}
 		err = app.deletePVCFromK8s(ctx, logger, namespace, deleteReq.Name+"-pvc")
 		if errors.IsNotFound(err) {
-			if notebookAlreadyDeleted {
-				logger.Warn("notebook already deleted from k8s", "error", err)
-			}
+			logger.Warn("pvc not found in Kubernetes", "error", err, "pvc_name", deleteReq.Name+"-pvc")
+			err = nil
 		}
 		if err != nil {
 			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
@@ -837,7 +575,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		query = fmt.Sprintf(`
 			SELECT id, name, namespace, storage_size, pvc_name,
 				cpu_request, cpu_limit, memory_request, memory_limit,
-				gpu_type, gpu_request, gpu_limit, instance_type, template_name, events, created_at
+				gpu_type, gpu_request, gpu_limit, instance_type, template_name, events, created_at, booking_id
 			FROM notebooks
 			WHERE namespace = $1 AND created_at >= $2 AND created_at <= $3
 			%s
@@ -853,7 +591,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		query = fmt.Sprintf(`
 			SELECT id, name, namespace, storage_size, pvc_name,
 				cpu_request, cpu_limit, memory_request, memory_limit,
-				gpu_type, gpu_request, gpu_limit, instance_type, template_name, events, created_at
+				gpu_type, gpu_request, gpu_limit, instance_type, template_name, events, created_at, booking_id
 			FROM notebooks
 			WHERE namespace = $1
 			%s
@@ -877,23 +615,95 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	notebooks := []NotebookStatus{}
+	notebookBookingIDByNotebookID := map[int64]int64{}
 	for rows.Next() {
 		var nb NotebookStatus
+		var bookingID *int64
 		scanErr := rows.Scan(
 			&nb.ID, &nb.Name, &nb.Namespace, &nb.StorageSize, &nb.PVCName,
 			&nb.CPURequest, &nb.CPULimit, &nb.MemoryRequest, &nb.MemoryLimit,
-			&nb.GPUType, &nb.GPURequest, &nb.GPULimit, &nb.InstanceType, &nb.TemplateName, &nb.Events, &nb.CreatedAt,
+			&nb.GPUType, &nb.GPURequest, &nb.GPULimit, &nb.InstanceType, &nb.TemplateName, &nb.Events, &nb.CreatedAt, &bookingID,
 		)
 		if scanErr != nil {
 			logger.Error("failed to scan notebook row", "error", scanErr)
 			continue
 		}
 		notebooks = append(notebooks, nb)
+		if bookingID != nil {
+			notebookBookingIDByNotebookID[nb.ID] = *bookingID
+		}
 	}
 	if rowsErr := rows.Err(); rowsErr != nil {
 		logger.Error("error iterating notebook rows", "error", rowsErr)
 		sendError(w, logger, http.StatusInternalServerError, "Failed to fetch notebooks")
 		return
+	}
+
+	bookingByNotebookID := map[int64]*NotebookBooking{}
+	if len(notebookBookingIDByNotebookID) > 0 {
+		notebookIDs := make([]int64, 0, len(notebookBookingIDByNotebookID))
+		for notebookID := range notebookBookingIDByNotebookID {
+			notebookIDs = append(notebookIDs, notebookID)
+		}
+		bookingRows, err := app.pgPool.Pool.Query(
+			ctx,
+			`SELECT notebook_id, id, status, category_name, slot_key, slot_date, slot_start, slot_end
+			 FROM bookings
+			 WHERE notebook_id = ANY($1::bigint[])`,
+			notebookIDs,
+		)
+		if err != nil {
+			logger.Error("failed to query linked gpu bookings", "error", err)
+			sendError(w, logger, http.StatusInternalServerError, "Failed to fetch notebooks")
+			return
+		}
+		defer bookingRows.Close()
+
+		profile := app.env.NotebookConfig.SlotConfigProfile
+		for bookingRows.Next() {
+			var notebookID int64
+			var bookingID int64
+			var status string
+			var categoryName string
+			var slotKey string
+			var slotDate time.Time
+			var slotStart time.Time
+			var slotEnd time.Time
+			if err := bookingRows.Scan(&notebookID, &bookingID, &status, &categoryName, &slotKey, &slotDate, &slotStart, &slotEnd); err != nil {
+				logger.Error("failed to scan gpu booking row", "error", err)
+				sendError(w, logger, http.StatusInternalServerError, "Failed to fetch notebooks")
+				return
+			}
+			displayName := categoryName
+			gpuMemory := ""
+			resourceType := ""
+			duration := fmt.Sprintf("%.0f Hours", slotEnd.Sub(slotStart).Hours())
+			if c, ok := gpuconfig.GetGPUCategory(profile, categoryName); ok {
+				displayName = c.DisplayName
+				gpuMemory = c.GPUMemory
+				resourceType = c.ResourceType
+			}
+			if s, ok := gpuconfig.GetGPUSlotTemplate(profile, categoryName, slotKey); ok {
+				duration = s.Label
+			}
+			bookingByNotebookID[notebookID] = &NotebookBooking{
+				ID:          bookingID,
+				Status:      status,
+				Category:    categoryName,
+				ResourceType: resourceType,
+				DisplayName: displayName,
+				GPUMemory:   gpuMemory,
+				SlotDate:    slotDate.Format("2006-01-02"),
+				SlotStart:   slotStart.Format(time.RFC3339),
+				SlotEnd:     slotEnd.Format(time.RFC3339),
+				Duration:    duration,
+			}
+		}
+		if err := bookingRows.Err(); err != nil {
+			logger.Error("error iterating gpu booking rows", "error", err)
+			sendError(w, logger, http.StatusInternalServerError, "Failed to fetch notebooks")
+			return
+		}
 	}
 	type k8sResult struct {
 		index     int
@@ -1002,6 +812,9 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		if nb.Status == NotebookStateRunning {
 			nb.URL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, nb.Namespace, nb.Name)
 		}
+		if booking, ok := bookingByNotebookID[nb.ID]; ok {
+			nb.Booking = booking
+		}
 		notebooks[i] = nb
 	}
 
@@ -1058,10 +871,11 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 	logger = logger.With("method", "checkNotebookStatus", "namespace", namespace, "name", notebookName)
 	ctx := r.Context()
 	var status NotebookStatus
+	var bookingID *int64
 	query := `
 		SELECT id, name, namespace, storage_size, pvc_name, 
 			cpu_request, cpu_limit, memory_request, memory_limit,
-			gpu_type, gpu_request, gpu_limit, instance_type, template_name, events, created_at
+			gpu_type, gpu_request, gpu_limit, instance_type, template_name, events, created_at, booking_id
 		FROM notebooks
 		WHERE namespace= $1 and name = $2`
 
@@ -1082,6 +896,7 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 		&status.TemplateName,
 		&status.Events,
 		&status.CreatedAt,
+		&bookingID,
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -1115,6 +930,44 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 
 	if status.Status == NotebookStateRunning {
 		status.URL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, status.Namespace, status.Name)
+	}
+
+	if bookingID != nil {
+		profile := app.env.NotebookConfig.SlotConfigProfile
+		var booking NotebookBooking
+		var slotKey, categoryName string
+		var slotDate, slotStart, slotEnd time.Time
+		err := app.pgPool.Pool.QueryRow(
+			ctx,
+			`SELECT id, status, category_name, slot_key, slot_date, slot_start, slot_end
+			 FROM bookings
+			 WHERE id = $1`,
+			*bookingID,
+		).Scan(&booking.ID, &booking.Status, &categoryName, &slotKey, &slotDate, &slotStart, &slotEnd)
+		if err == nil {
+			displayName := categoryName
+			gpuMemory := ""
+			resourceType := ""
+			duration := fmt.Sprintf("%.0f Hours", slotEnd.Sub(slotStart).Hours())
+			if c, ok := gpuconfig.GetGPUCategory(profile, categoryName); ok {
+				displayName = c.DisplayName
+				gpuMemory = c.GPUMemory
+				resourceType = c.ResourceType
+			}
+			if s, ok := gpuconfig.GetGPUSlotTemplate(profile, categoryName, slotKey); ok {
+				duration = s.Label
+			}
+
+			booking.Category = categoryName
+			booking.ResourceType = resourceType
+			booking.DisplayName = displayName
+			booking.GPUMemory = gpuMemory
+			booking.SlotDate = slotDate.Format("2006-01-02")
+			booking.SlotStart = slotStart.Format(time.RFC3339)
+			booking.SlotEnd = slotEnd.Format(time.RFC3339)
+			booking.Duration = duration
+			status.Booking = &booking
+		}
 	}
 
 	sendResponseJson(w, logger, http.StatusOK, status)
@@ -1189,36 +1042,102 @@ func (app *application) createProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 // listGPUInstanceTypes godoc
-// @Summary      List available GPU instance types
-// @Description  Returns the list of available GPU node instance types with metadata for notebook creation
-// @Tags         notebook
+// @Summary      List instance types for GPU bookings
+// @Description  Returns instance types from API_GPU_NODE_INSTANCE_TYPES with display metadata (for GPU-backed booking categories). Legacy path GET /v1/notebook/gpu-instance-types is also served.
+// @Tags         bookings
 // @Produce      json
-// @Success      200  {object}  GPUInstanceTypesResponse
+// @Success      200  {object}  NotebookInstanceTypesResponse
 // @Failure      401  {object}  Error401
 // @Failure      429  {object}  Error429
 // @Failure      500  {object}  Error500
 // @Security     BearerAuth
-// @Router       /v1/notebook/gpu-instance-types [get]
+// @Router       /v1/notebook/instance-types [get]
 func (app *application) listGPUInstanceTypes(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
 	configuredTypes := strings.Split(app.env.NotebookConfig.GPUNodeInstanceTypes, ",")
-	var result []GPUInstanceType
+	var result []NotebookInstanceType
 	for _, t := range configuredTypes {
 		t = strings.TrimSpace(t)
 		if t == "" {
 			continue
 		}
-		if meta, exists := GPUInstanceTypeMetadata[t]; exists {
+		if meta, exists := NotebookInstanceTypeMetadata[t]; exists {
 			result = append(result, meta)
 		} else {
 			// Instance type is in config but has no metadata — return with just the instanceType
-			result = append(result, GPUInstanceType{
+			result = append(result, NotebookInstanceType{
 				InstanceType: t,
 				DisplayName:  t,
 			})
 		}
 	}
-	sendResponseJson(w, logger, http.StatusOK, GPUInstanceTypesResponse{
+	sendResponseJson(w, logger, http.StatusOK, NotebookInstanceTypesResponse{
 		InstanceTypes: result,
 	})
+}
+
+// listGPUCategories godoc
+// @Summary      List booking categories and slot templates
+// @Description  Returns configured CPU and GPU categories and their slot templates from code (API_GPU_SLOT_CONFIG_PROFILE)
+// @Tags         bookings
+// @Produce      json
+// @Success      200  {object}  CategoriesResponse
+// @Failure      401  {object}  Error401
+// @Failure      429  {object}  Error429
+// @Failure      500  {object}  Error500
+// @Security     BearerAuth
+// @Router       /v1/categories [get]
+func (app *application) listGPUCategories(w http.ResponseWriter, r *http.Request) {
+	logger := getLogger(r)
+	profile := app.env.NotebookConfig.SlotConfigProfile
+	cfg, ok := gpuconfig.GPUSlotConfigs[profile]
+	if !ok {
+		logger.Error("slot config profile not found", "profile", profile)
+		sendError(w, logger, http.StatusInternalServerError, "Slot configuration is invalid")
+		return
+	}
+
+	categories := make([]CategoryResponse, 0, len(cfg.Categories))
+	orderedCategories := make([]gpuconfig.GPUCategory, len(cfg.Categories))
+	copy(orderedCategories, cfg.Categories)
+	sort.Slice(orderedCategories, func(i, j int) bool {
+		if orderedCategories[i].SortOrder == orderedCategories[j].SortOrder {
+			return orderedCategories[i].Name < orderedCategories[j].Name
+		}
+		return orderedCategories[i].SortOrder < orderedCategories[j].SortOrder
+	})
+
+	for _, c := range orderedCategories {
+		slots := make([]SlotTemplateResponse, 0, len(c.Slots))
+		for _, s := range c.Slots {
+			slots = append(slots, SlotTemplateResponse{
+				Key:           s.Key,
+				Label:         s.Label,
+				StartTime:     s.StartTime,
+				EndTime:       s.EndTime,
+				DurationHours: s.DurationHours,
+				SpansMidnight: s.SpansMidnight,
+			})
+		}
+		categories = append(categories, CategoryResponse{
+			Name:                    c.Name,
+			DisplayName:             c.DisplayName,
+			Description:             c.Description,
+			ResourceType:            c.ResourceType,
+			RequiresCredits:         c.RequiresCredits,
+			InstanceType:            c.InstanceType,
+			GPUMemory:               c.GPUMemory,
+			MaxActiveBookings:       c.MaxActiveBookings,
+			MaxBookingsPerWeek:      c.MaxBookingsPerWeek,
+			AdvanceBookingDays:      c.AdvanceBookingDays,
+			MinAdvanceBookingDays:   c.MinAdvanceBookingDays,
+			NoShowGraceMins:         c.NoShowGraceMins,
+			MaxConcurrentUsers:      c.MaxConcurrentUsers,
+			PreShutdownWarningMins:  c.PreShutdownWarningMins,
+			ShutdownGracePeriodMins: c.ShutdownGracePeriodMins,
+			Slots:                   slots,
+		})
+	}
+
+	sendResponseJson(w, logger, http.StatusOK, CategoriesResponse{Categories: categories})
 }

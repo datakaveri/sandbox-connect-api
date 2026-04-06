@@ -69,9 +69,11 @@ go run ./cmd/worker/
 
 ### Notebook Endpoints
 
+CPU/GPU sandboxes are **created via bookings** (`POST /v1/bookings`); the worker provisions the notebook at the scheduled time. Direct `POST /v1/notebook/create` is not supported.
+
 | Endpoint | Method | Description | Success Response |
 |----------|--------|-------------|------------------|
-| `/notebook/create` | POST | Create a new notebook  | 201 Created |
+| `/v1/bookings` | POST | Create a CPU/GPU slot booking (notebook name + category + slot) | 201 Created |
 | `/notebook/stop` | PATCH | Stop a running notebook  | 200 OK |
 | `/notebook/start` | PATCH | Start a stopped notebook  | 200 OK |
 | `/notebook/delete` | DELETE | Delete a notebook  | 200 OK |

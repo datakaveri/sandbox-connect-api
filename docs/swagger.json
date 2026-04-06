@@ -8,13 +8,378 @@
     ],
     "swagger": "2.0",
     "info": {
-        "description": "API for managing notebooks and profiles",
+        "description": "API for sandbox notebooks (lifecycle via bookings) and profiles. Create CPU/GPU notebooks with POST /v1/bookings; worker provisions resources at slot time.",
         "title": "Sandbox Connect API",
         "contact": {},
         "version": "1.0"
     },
     "basePath": "/",
     "paths": {
+        "/v1/bookings": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Lists CPU and GPU slot bookings for the current user with optional status filter and pagination",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bookings"
+                ],
+                "summary": "List user bookings",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Comma-separated status filter",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Max rows (default 10, max 50)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Pagination offset",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.BookingsListResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error401"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error429"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error500"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a CPU or GPU booking from code-defined categories and slot templates (API_GPU_SLOT_CONFIG_PROFILE)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bookings"
+                ],
+                "summary": "Create slot booking",
+                "parameters": [
+                    {
+                        "description": "Booking request",
+                        "name": "booking",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.CreateBookingRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.CreateBookingResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error400"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error403"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error404"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error409"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error422"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error429"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error500"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/bookings/{id}/cancel": {
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Cancels a scheduled booking for the current user (scheduled only; use terminate for ready/active)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bookings"
+                ],
+                "summary": "Cancel scheduled booking",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Booking ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.SwaggerMessageResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error400"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error401"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error404"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error429"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error500"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/bookings/{id}/reset": {
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Marks a booking as cancelled/expired and best-effort deletes any linked notebook/PVC.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bookings"
+                ],
+                "summary": "Reset stuck booking",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Booking ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.SwaggerMessageResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error400"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error401"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error404"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error500"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/bookings/{id}/terminate": {
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Marks a ready, active, or shutting_down booking completed and best-effort deletes the linked notebook/PVC. Use cancel for scheduled only.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bookings"
+                ],
+                "summary": "End booking session early",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Booking ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.SwaggerMessageResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error400"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error401"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error404"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error500"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/categories": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns configured CPU and GPU categories and their slot templates from code (API_GPU_SLOT_CONFIG_PROFILE)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bookings"
+                ],
+                "summary": "List booking categories and slot templates",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.CategoriesResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error401"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error429"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error500"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/notebook/check-exists/{notebook_name}": {
             "get": {
                 "security": [
@@ -43,149 +408,31 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.SwaggerExistsResponse"
+                            "$ref": "#/definitions/cmd_api.SwaggerExistsResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/main.Error400"
+                            "$ref": "#/definitions/cmd_api.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/main.Error429"
+                            "$ref": "#/definitions/cmd_api.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/notebook/gpu-instance-types": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns the list of available GPU node instance types with display metadata for notebook creation",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "notebook"
-                ],
-                "summary": "List available GPU instance types",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/main.GPUInstanceTypesResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/main.Error401"
-                        }
-                    },
-                    "429": {
-                        "description": "Too Many Requests",
-                        "schema": {
-                            "$ref": "#/definitions/main.Error429"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/main.Error500"
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/notebook/create": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Creates a new notebook for the user",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "notebook"
-                ],
-                "summary": "Create notebook",
-                "parameters": [
-                    {
-                        "description": "Notebook Create Request",
-                        "name": "notebook",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/main.NotebookRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/main.SwaggerMessageResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/main.Error401"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/main.Error403"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict",
-                        "schema": {
-                            "$ref": "#/definitions/main.Error409"
-                        }
-                    },
-                    "422": {
-                        "description": "Unprocessable Entity",
-                        "schema": {
-                            "$ref": "#/definitions/main.Error422"
-                        }
-                    },
-                    "429": {
-                        "description": "Too Many Requests",
-                        "schema": {
-                            "$ref": "#/definitions/main.Error429"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     }
                 }
@@ -216,7 +463,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/main.DeleteNotebookRequest"
+                            "$ref": "#/definitions/cmd_api.DeleteNotebookRequest"
                         }
                     }
                 ],
@@ -224,37 +471,86 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.SwaggerMessageResponse"
+                            "$ref": "#/definitions/cmd_api.SwaggerMessageResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/main.Error404"
+                            "$ref": "#/definitions/cmd_api.Error404"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error409"
                         }
                     },
                     "422": {
                         "description": "Unprocessable Entity",
                         "schema": {
-                            "$ref": "#/definitions/main.Error422"
+                            "$ref": "#/definitions/cmd_api.Error422"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/main.Error429"
+                            "$ref": "#/definitions/cmd_api.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/notebook/instance-types": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns instance types from API_GPU_NODE_INSTANCE_TYPES with display metadata (for GPU-backed booking categories). Legacy path GET /v1/notebook/gpu-instance-types is also served.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bookings"
+                ],
+                "summary": "List instance types for GPU bookings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.NotebookInstanceTypesResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error401"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error429"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     }
                 }
@@ -305,31 +601,31 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.NotebookListResponse"
+                            "$ref": "#/definitions/cmd_api.NotebookListResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/main.Error400"
+                            "$ref": "#/definitions/cmd_api.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/main.Error429"
+                            "$ref": "#/definitions/cmd_api.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     }
                 }
@@ -360,7 +656,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/main.StartNotebookRequest"
+                            "$ref": "#/definitions/cmd_api.StartNotebookRequest"
                         }
                     }
                 ],
@@ -368,37 +664,37 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.SwaggerMessageResponse"
+                            "$ref": "#/definitions/cmd_api.SwaggerMessageResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/main.Error404"
+                            "$ref": "#/definitions/cmd_api.Error404"
                         }
                     },
                     "422": {
                         "description": "Unprocessable Entity",
                         "schema": {
-                            "$ref": "#/definitions/main.Error422"
+                            "$ref": "#/definitions/cmd_api.Error422"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/main.Error429"
+                            "$ref": "#/definitions/cmd_api.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     }
                 }
@@ -432,31 +728,31 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.NotebookStatus"
+                            "$ref": "#/definitions/cmd_api.NotebookStatus"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/main.Error404"
+                            "$ref": "#/definitions/cmd_api.Error404"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/main.Error429"
+                            "$ref": "#/definitions/cmd_api.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     }
                 }
@@ -487,7 +783,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/main.StopNotebookRequest"
+                            "$ref": "#/definitions/cmd_api.StopNotebookRequest"
                         }
                     }
                 ],
@@ -495,43 +791,43 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.SwaggerMessageResponse"
+                            "$ref": "#/definitions/cmd_api.SwaggerMessageResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/main.Error400"
+                            "$ref": "#/definitions/cmd_api.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/main.Error404"
+                            "$ref": "#/definitions/cmd_api.Error404"
                         }
                     },
                     "422": {
                         "description": "Unprocessable Entity",
                         "schema": {
-                            "$ref": "#/definitions/main.Error422"
+                            "$ref": "#/definitions/cmd_api.Error422"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/main.Error429"
+                            "$ref": "#/definitions/cmd_api.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     }
                 }
@@ -559,31 +855,161 @@
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/main.SwaggerMessageResponse"
+                            "$ref": "#/definitions/cmd_api.SwaggerMessageResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "422": {
                         "description": "Unprocessable Entity",
                         "schema": {
-                            "$ref": "#/definitions/main.Error422"
+                            "$ref": "#/definitions/cmd_api.Error422"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/main.Error429"
+                            "$ref": "#/definitions/cmd_api.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/slots/available": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns slot-level availability for a category on a given date",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bookings"
+                ],
+                "summary": "List available slots for date/category",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Category name (CPU or GPU)",
+                        "name": "category",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Date in YYYY-MM-DD (IST)",
+                        "name": "date",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.AvailableSlotsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error400"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error401"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error429"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error500"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/slots/calendar": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns day-level availability totals for a category/month",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bookings"
+                ],
+                "summary": "List monthly availability summary",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Category name (CPU or GPU)",
+                        "name": "category",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Month in YYYY-MM",
+                        "name": "month",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.CalendarResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error400"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error401"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error429"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     }
                 }
@@ -591,7 +1017,630 @@
         }
     },
     "definitions": {
-        "constants.Events": {
+        "cmd_api.AvailableSlot": {
+            "type": "object",
+            "properties": {
+                "availability": {
+                    "type": "string"
+                },
+                "availableSlots": {
+                    "type": "integer"
+                },
+                "bookedSlots": {
+                    "type": "integer"
+                },
+                "endTime": {
+                    "type": "string"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "startTime": {
+                    "type": "string"
+                },
+                "totalSlots": {
+                    "type": "integer"
+                }
+            }
+        },
+        "cmd_api.AvailableSlotsResponse": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string"
+                },
+                "date": {
+                    "type": "string"
+                },
+                "resourceType": {
+                    "type": "string"
+                },
+                "slots": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/cmd_api.AvailableSlot"
+                    }
+                }
+            }
+        },
+        "cmd_api.BookingListItem": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "displayName": {
+                    "type": "string"
+                },
+                "duration": {
+                    "type": "string"
+                },
+                "gpuMemory": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "notebookName": {
+                    "type": "string"
+                },
+                "resourceType": {
+                    "type": "string"
+                },
+                "slotDate": {
+                    "type": "string"
+                },
+                "slotEnd": {
+                    "type": "string"
+                },
+                "slotStart": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "cmd_api.BookingsListResponse": {
+            "type": "object",
+            "properties": {
+                "bookings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/cmd_api.BookingListItem"
+                    }
+                },
+                "nextOffset": {
+                    "type": "integer"
+                }
+            }
+        },
+        "cmd_api.CalendarDay": {
+            "type": "object",
+            "properties": {
+                "date": {
+                    "type": "string"
+                },
+                "hasAvailability": {
+                    "type": "boolean"
+                },
+                "slotsAvailable": {
+                    "type": "integer"
+                },
+                "slotsTotal": {
+                    "type": "integer"
+                }
+            }
+        },
+        "cmd_api.CalendarResponse": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string"
+                },
+                "days": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/cmd_api.CalendarDay"
+                    }
+                },
+                "month": {
+                    "type": "string"
+                },
+                "resourceType": {
+                    "type": "string"
+                }
+            }
+        },
+        "cmd_api.CategoriesResponse": {
+            "type": "object",
+            "properties": {
+                "categories": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/cmd_api.CategoryResponse"
+                    }
+                }
+            }
+        },
+        "cmd_api.CategoryResponse": {
+            "type": "object",
+            "properties": {
+                "advanceBookingDays": {
+                    "type": "integer"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "displayName": {
+                    "type": "string"
+                },
+                "gpuMemory": {
+                    "type": "string"
+                },
+                "instanceType": {
+                    "type": "string"
+                },
+                "maxActiveBookings": {
+                    "type": "integer"
+                },
+                "maxBookingsPerWeek": {
+                    "type": "integer"
+                },
+                "maxConcurrentUsers": {
+                    "type": "integer"
+                },
+                "minAdvanceBookingDays": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "noShowGraceMins": {
+                    "type": "integer"
+                },
+                "preShutdownWarningMins": {
+                    "type": "integer"
+                },
+                "requiresCredits": {
+                    "type": "boolean"
+                },
+                "resourceType": {
+                    "type": "string"
+                },
+                "shutdownGracePeriodMins": {
+                    "type": "integer"
+                },
+                "slots": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/cmd_api.SlotTemplateResponse"
+                    }
+                }
+            }
+        },
+        "cmd_api.CreateBookingRequest": {
+            "type": "object",
+            "required": [
+                "category",
+                "notebookName",
+                "slotDate",
+                "slotKey"
+            ],
+            "properties": {
+                "category": {
+                    "type": "string"
+                },
+                "notebookName": {
+                    "type": "string"
+                },
+                "slotDate": {
+                    "type": "string"
+                },
+                "slotKey": {
+                    "type": "string"
+                }
+            }
+        },
+        "cmd_api.CreateBookingResponse": {
+            "type": "object",
+            "properties": {
+                "bookingId": {
+                    "type": "integer"
+                },
+                "notebookName": {
+                    "type": "string"
+                },
+                "resourceType": {
+                    "type": "string"
+                },
+                "slotDate": {
+                    "type": "string"
+                },
+                "slotEnd": {
+                    "type": "string"
+                },
+                "slotStart": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "cmd_api.DeleteNotebookRequest": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "maxLength": 50,
+                    "minLength": 4
+                }
+            }
+        },
+        "cmd_api.Error400": {
+            "description": "Response for bad request errors",
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "description": "Error message",
+                    "type": "string",
+                    "example": "string"
+                },
+                "type": {
+                    "type": "string",
+                    "example": "error"
+                }
+            }
+        },
+        "cmd_api.Error401": {
+            "description": "Response for authentication errors",
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "description": "Error message",
+                    "type": "string",
+                    "example": "string"
+                },
+                "type": {
+                    "type": "string",
+                    "example": "error"
+                }
+            }
+        },
+        "cmd_api.Error403": {
+            "description": "Response for permission errors",
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "description": "Error message",
+                    "type": "string",
+                    "example": "string"
+                },
+                "type": {
+                    "type": "string",
+                    "example": "error"
+                }
+            }
+        },
+        "cmd_api.Error404": {
+            "description": "Response for resource not found errors",
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "description": "Error message",
+                    "type": "string",
+                    "example": "string"
+                },
+                "type": {
+                    "type": "string",
+                    "example": "error"
+                }
+            }
+        },
+        "cmd_api.Error409": {
+            "description": "Response for resource conflict errors",
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "description": "Error message",
+                    "type": "string",
+                    "example": "string"
+                },
+                "type": {
+                    "type": "string",
+                    "example": "error"
+                }
+            }
+        },
+        "cmd_api.Error422": {
+            "description": "Response for invalid request body errors",
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "description": "Error message",
+                    "type": "string",
+                    "example": "string"
+                },
+                "type": {
+                    "type": "string",
+                    "example": "error"
+                }
+            }
+        },
+        "cmd_api.Error429": {
+            "description": "Response for rate limiting errors",
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "description": "Error message",
+                    "type": "string",
+                    "example": "string"
+                },
+                "type": {
+                    "type": "string",
+                    "example": "error"
+                }
+            }
+        },
+        "cmd_api.Error500": {
+            "description": "Response for internal server errors",
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "description": "Error message",
+                    "type": "string",
+                    "example": "string"
+                },
+                "type": {
+                    "type": "string",
+                    "example": "error"
+                }
+            }
+        },
+        "cmd_api.NotebookBooking": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string"
+                },
+                "displayName": {
+                    "type": "string"
+                },
+                "duration": {
+                    "type": "string"
+                },
+                "gpuMemory": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "resourceType": {
+                    "type": "string"
+                },
+                "slotDate": {
+                    "type": "string"
+                },
+                "slotEnd": {
+                    "type": "string"
+                },
+                "slotStart": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "cmd_api.NotebookInstanceType": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "displayName": {
+                    "type": "string"
+                },
+                "gpuMemory": {
+                    "type": "string"
+                },
+                "instanceType": {
+                    "type": "string"
+                },
+                "sessionDuration": {
+                    "type": "string"
+                }
+            }
+        },
+        "cmd_api.NotebookInstanceTypesResponse": {
+            "type": "object",
+            "properties": {
+                "instanceTypes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/cmd_api.NotebookInstanceType"
+                    }
+                }
+            }
+        },
+        "cmd_api.NotebookListResponse": {
+            "type": "object",
+            "properties": {
+                "next_offset": {
+                    "type": "integer"
+                },
+                "notebooks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/cmd_api.NotebookStatus"
+                    }
+                }
+            }
+        },
+        "cmd_api.NotebookState": {
+            "type": "string",
+            "enum": [
+                "opening",
+                "running",
+                "stopped",
+                "failed",
+                "orphaned"
+            ],
+            "x-enum-varnames": [
+                "NotebookStateOpening",
+                "NotebookStateRunning",
+                "NotebookStateStopped",
+                "NotebookStateFailed",
+                "NotebookStateOrphaned"
+            ]
+        },
+        "cmd_api.NotebookStatus": {
+            "type": "object",
+            "properties": {
+                "booking": {
+                    "$ref": "#/definitions/cmd_api.NotebookBooking"
+                },
+                "cpuLimit": {
+                    "type": "number"
+                },
+                "cpuRequest": {
+                    "type": "number"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sandbox-backend-service_pkg_constants.Events"
+                    }
+                },
+                "gpuLimit": {
+                    "type": "integer"
+                },
+                "gpuRequest": {
+                    "type": "integer"
+                },
+                "gpuType": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "instanceType": {
+                    "type": "string"
+                },
+                "memoryLimit": {
+                    "type": "string"
+                },
+                "memoryRequest": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "namespace": {
+                    "type": "string"
+                },
+                "notebookUrl": {
+                    "type": "string"
+                },
+                "pvcName": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/cmd_api.NotebookState"
+                },
+                "storageSize": {
+                    "type": "string"
+                },
+                "templateName": {
+                    "type": "string"
+                }
+            }
+        },
+        "cmd_api.SlotTemplateResponse": {
+            "type": "object",
+            "properties": {
+                "durationHours": {
+                    "type": "number"
+                },
+                "endTime": {
+                    "type": "string"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "spansMidnight": {
+                    "type": "boolean"
+                },
+                "startTime": {
+                    "type": "string"
+                }
+            }
+        },
+        "cmd_api.StartNotebookRequest": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "maxLength": 50,
+                    "minLength": 4
+                }
+            }
+        },
+        "cmd_api.StopNotebookRequest": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "maxLength": 50,
+                    "minLength": 4
+                }
+            }
+        },
+        "cmd_api.SwaggerExistsResponse": {
+            "description": "Response structure for check-exists endpoint",
+            "type": "object",
+            "properties": {
+                "exists": {
+                    "description": "Whether the resource exists",
+                    "type": "boolean",
+                    "example": true
+                }
+            }
+        },
+        "cmd_api.SwaggerMessageResponse": {
+            "description": "Standard success response structure with a message",
+            "type": "object",
+            "properties": {
+                "message": {
+                    "description": "Success message",
+                    "type": "string",
+                    "example": "string"
+                }
+            }
+        },
+        "sandbox-backend-service_pkg_constants.Events": {
             "type": "string",
             "enum": [
                 "picked",
@@ -619,340 +1668,6 @@
                 "StatusNotebookApplied",
                 "StatusNotebookApplyFailed"
             ]
-        },
-        "main.DeleteNotebookRequest": {
-            "type": "object",
-            "required": [
-                "name"
-            ],
-            "properties": {
-                "name": {
-                    "type": "string"
-                }
-            }
-        },
-        "main.GPUInstanceType": {
-            "description": "A single GPU instance type option with display metadata",
-            "type": "object",
-            "properties": {
-                "instanceType": {
-                    "description": "AWS instance type identifier",
-                    "type": "string",
-                    "example": "g4dn.xlarge"
-                },
-                "displayName": {
-                    "description": "Display name for the card UI",
-                    "type": "string",
-                    "example": "Basic"
-                },
-                "gpuMemory": {
-                    "description": "GPU memory available",
-                    "type": "string",
-                    "example": "16 GB"
-                },
-                "description": {
-                    "description": "Human-readable description of the GPU",
-                    "type": "string",
-                    "example": "16 GB NVIDIA T4 GPU"
-                },
-                "sessionDuration": {
-                    "description": "Maximum session duration",
-                    "type": "string",
-                    "example": "4h Session"
-                }
-            }
-        },
-        "main.GPUInstanceTypesResponse": {
-            "description": "List of available GPU instance types with metadata",
-            "type": "object",
-            "properties": {
-                "instanceTypes": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/main.GPUInstanceType"
-                    }
-                }
-            }
-        },
-        "main.Error400": {
-            "description": "Response for bad request errors",
-            "type": "object",
-            "properties": {
-                "detail": {
-                    "description": "Error message",
-                    "type": "string",
-                    "example": "string"
-                },
-                "type": {
-                    "type": "string",
-                    "example": "error"
-                }
-            }
-        },
-        "main.Error401": {
-            "description": "Response for authentication errors",
-            "type": "object",
-            "properties": {
-                "detail": {
-                    "description": "Error message",
-                    "type": "string",
-                    "example": "string"
-                },
-                "type": {
-                    "type": "string",
-                    "example": "error"
-                }
-            }
-        },
-        "main.Error403": {
-            "description": "Response for permission errors",
-            "type": "object",
-            "properties": {
-                "detail": {
-                    "description": "Error message",
-                    "type": "string",
-                    "example": "string"
-                },
-                "type": {
-                    "type": "string",
-                    "example": "error"
-                }
-            }
-        },
-        "main.Error404": {
-            "description": "Response for resource not found errors",
-            "type": "object",
-            "properties": {
-                "detail": {
-                    "description": "Error message",
-                    "type": "string",
-                    "example": "string"
-                },
-                "type": {
-                    "type": "string",
-                    "example": "error"
-                }
-            }
-        },
-        "main.Error409": {
-            "description": "Response for resource conflict errors",
-            "type": "object",
-            "properties": {
-                "detail": {
-                    "description": "Error message",
-                    "type": "string",
-                    "example": "string"
-                },
-                "type": {
-                    "type": "string",
-                    "example": "error"
-                }
-            }
-        },
-        "main.Error422": {
-            "description": "Response for invalid request body errors",
-            "type": "object",
-            "properties": {
-                "detail": {
-                    "description": "Error message",
-                    "type": "string",
-                    "example": "string"
-                },
-                "type": {
-                    "type": "string",
-                    "example": "error"
-                }
-            }
-        },
-        "main.Error429": {
-            "description": "Response for rate limiting errors",
-            "type": "object",
-            "properties": {
-                "detail": {
-                    "description": "Error message",
-                    "type": "string",
-                    "example": "string"
-                },
-                "type": {
-                    "type": "string",
-                    "example": "error"
-                }
-            }
-        },
-        "main.Error500": {
-            "description": "Response for internal server errors",
-            "type": "object",
-            "properties": {
-                "detail": {
-                    "description": "Error message",
-                    "type": "string",
-                    "example": "string"
-                },
-                "type": {
-                    "type": "string",
-                    "example": "error"
-                }
-            }
-        },
-        "main.NotebookListResponse": {
-            "type": "object",
-            "properties": {
-                "next_offset": {
-                    "type": "integer"
-                },
-                "notebooks": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/main.NotebookStatus"
-                    }
-                }
-            }
-        },
-        "main.NotebookRequest": {
-            "type": "object",
-            "required": [
-                "name",
-                "type"
-            ],
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "maxLength": 50,
-                    "minLength": 4
-                },
-                "type": {
-                    "description": "Notebook type (cpu or gpu)",
-                    "type": "string"
-                },
-                "instanceType": {
-                    "description": "GPU instance type (required when type=gpu). Must match one of the types from GET /v1/notebook/gpu-instance-types",
-                    "type": "string"
-                }
-            }
-        },
-        "main.NotebookState": {
-            "type": "string",
-            "enum": [
-                "opening",
-                "running",
-                "stopped",
-                "failed",
-                "orphaned"
-            ],
-            "x-enum-varnames": [
-                "NotebookStateOpening",
-                "NotebookStateRunning",
-                "NotebookStateStopped",
-                "NotebookStateFailed",
-                "NotebookStateOrphaned"
-            ]
-        },
-        "main.NotebookStatus": {
-            "type": "object",
-            "properties": {
-                "cpuLimit": {
-                    "type": "number"
-                },
-                "cpuRequest": {
-                    "type": "number"
-                },
-                "createdAt": {
-                    "type": "string"
-                },
-                "events": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/constants.Events"
-                    }
-                },
-                "gpuLimit": {
-                    "type": "integer"
-                },
-                "gpuRequest": {
-                    "type": "integer"
-                },
-                "gpuType": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "integer"
-                },
-                "instanceType": {
-                    "description": "GPU instance type selected for the notebook (null for CPU notebooks)",
-                    "type": "string"
-                },
-                "memoryLimit": {
-                    "type": "string"
-                },
-                "memoryRequest": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "namespace": {
-                    "type": "string"
-                },
-                "notebookUrl": {
-                    "type": "string"
-                },
-                "pvcName": {
-                    "type": "string"
-                },
-                "status": {
-                    "$ref": "#/definitions/main.NotebookState"
-                },
-                "storageSize": {
-                    "type": "string"
-                },
-                "templateName": {
-                    "type": "string"
-                }
-            }
-        },
-        "main.StartNotebookRequest": {
-            "type": "object",
-            "required": [
-                "name"
-            ],
-            "properties": {
-                "name": {
-                    "type": "string"
-                }
-            }
-        },
-        "main.StopNotebookRequest": {
-            "type": "object",
-            "required": [
-                "name"
-            ],
-            "properties": {
-                "name": {
-                    "type": "string"
-                }
-            }
-        },
-        "main.SwaggerExistsResponse": {
-            "description": "Response structure for check-exists endpoint",
-            "type": "object",
-            "properties": {
-                "exists": {
-                    "description": "Whether the resource exists",
-                    "type": "boolean",
-                    "example": true
-                }
-            }
-        },
-        "main.SwaggerMessageResponse": {
-            "description": "Standard success response structure with a message",
-            "type": "object",
-            "properties": {
-                "message": {
-                    "description": "Success message",
-                    "type": "string",
-                    "example": "string"
-                }
-            }
         }
     },
     "securityDefinitions": {

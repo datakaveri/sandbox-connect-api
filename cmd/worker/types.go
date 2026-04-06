@@ -29,7 +29,11 @@ type Env struct {
 	CPU_NOTEBOOK_IMAGE      string `env:"WORKER_CPU_NOTEBOOK_IMAGE,required"`
 	GPU_NOTEBOOK_IMAGE      string `env:"WORKER_GPU_NOTEBOOK_IMAGE,required"`
 	INIT_CONTAINER_IMAGE    string `env:"WORKER_INIT_CONTAINER_IMAGE,required"`
-	GPU_NODE_INSTANCE_TYPE  string `env:"WORKER_GPU_NODE_INSTANCE_TYPE,required"`
+	// GPU_NODE_INSTANCE_TYPE is kept for backward compatibility. Prefer WORKER_GPU_NODE_INSTANCE_TYPES.
+	GPU_NODE_INSTANCE_TYPE string `env:"WORKER_GPU_NODE_INSTANCE_TYPE" envDefault:""`
+	// GPU_NODE_INSTANCE_TYPES is a comma-separated list of allowed GPU node instance types.
+	// Worker uses it only as a fallback when notebook.instance_type is not set in DB.
+	GPU_NODE_INSTANCE_TYPES string `env:"WORKER_GPU_NODE_INSTANCE_TYPES" envDefault:""`
 	CPU_NODE_INSTANCE_TYPES string `env:"WORKER_CPU_NODE_INSTANCE_TYPES,required"`
 	IMAGE_PULL_ENABLED      bool   `env:"WORKER_IMAGE_PULL_ENABLED" envDefault:"false"`
 	ECR_SECRET_NAME         string `env:"WORKER_ECR_SECRET_NAME"`

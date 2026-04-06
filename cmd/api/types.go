@@ -12,24 +12,24 @@ import (
 )
 
 type ApiEnv struct {
-	Address           string `env:"API_ADDRESS,required"`
-	KubeConfigPath    string `env:"API_KUBE_CONFIG_PATH" envDefault:""`
-	KubeConfigMode    string `env:"API_KUBE_CONFIG_MODE" envDefault:"cluster"`
-	POSTGRES_URL      string `env:"API_POSTGRES_URL,required"`
-	KeycloakURL       string `env:"API_KEYCLOAK_URL,required"`
-	KeycloakRealm     string `env:"API_KEYCLOAK_REALM,required"`
-	KeycloakClientID  string `env:"API_KEYCLOAK_CLIENT_ID,required"`
-	KeycloakPublicKey string `env:"API_KEYCLOAK_PUBLIC_KEY,required"`
-	CORS_ORIGINS      string `env:"API_CORS_ORIGINS"`
-	KYCEnabled        bool   `env:"API_KYC_ENABLED,required"`
-	RateLimit         int    `env:"API_RATE_LIMIT"`
-	RateWindowSecs    int    `env:"API_RATE_WINDOW_SECS"`
-	TimeoutInSecs     int    `env:"API_TIMEOUT_SECS"`
-	IdleTimeoutSecs   int    `env:"API_IDLE_TIMEOUT_SECS"`
-	MaxBodySizeInMB   int    `env:"API_MAX_BODY_SIZE_IN_MB"`
-	WriteTimeoutSecs  int    `env:"API_WRITE_TIMEOUT_SECS"`
-	ReadTimeoutSecs   int    `env:"API_READ_TIMEOUT_SECS"`
-	Version           string `env:"API_VERSION,required"`
+	Address              string `env:"API_ADDRESS,required"`
+	KubeConfigPath       string `env:"API_KUBE_CONFIG_PATH" envDefault:""`
+	KubeConfigMode       string `env:"API_KUBE_CONFIG_MODE" envDefault:"cluster"`
+	POSTGRES_URL         string `env:"API_POSTGRES_URL,required"`
+	KeycloakURL          string `env:"API_KEYCLOAK_URL,required"`
+	KeycloakRealm        string `env:"API_KEYCLOAK_REALM,required"`
+	KeycloakClientID     string `env:"API_KEYCLOAK_CLIENT_ID,required"`
+	KeycloakPublicKey    string `env:"API_KEYCLOAK_PUBLIC_KEY,required"`
+	CORS_ORIGINS         string `env:"API_CORS_ORIGINS"`
+	KYCEnabled           bool   `env:"API_KYC_ENABLED,required"`
+	RateLimit            int    `env:"API_RATE_LIMIT"`
+	RateWindowSecs       int    `env:"API_RATE_WINDOW_SECS"`
+	TimeoutInSecs        int    `env:"API_TIMEOUT_SECS"`
+	IdleTimeoutSecs      int    `env:"API_IDLE_TIMEOUT_SECS"`
+	MaxBodySizeInMB      int    `env:"API_MAX_BODY_SIZE_IN_MB"`
+	WriteTimeoutSecs     int    `env:"API_WRITE_TIMEOUT_SECS"`
+	ReadTimeoutSecs      int    `env:"API_READ_TIMEOUT_SECS"`
+	Version              string `env:"API_VERSION,required"`
 	NotebookConfig       NotebookConfig
 	RegistrySecretConfig RegistrySecretConfig
 	RabbitMQConfig       RabbitMQConfig
@@ -38,14 +38,14 @@ type ApiEnv struct {
 // RabbitMQConfig holds the RabbitMQ connection configuration for audit message publishing.
 // All fields are optional — if not configured, auditing is silently disabled.
 type RabbitMQConfig struct {
-	Host            string `env:"RABBITMQ_HOST"`
-	Port            string `env:"RABBITMQ_PORT"`
-	Vhost           string `env:"RABBITMQ_VHOST"`
-	Username        string `env:"RABBITMQ_USERNAME"`
-	Password        string `env:"RABBITMQ_PASSWORD"`
-	Exchange        string `env:"RABBITMQ_EXCHANGE"`
-	RoutingKey      string `env:"RABBITMQ_ROUTING_KEY"`
-	OnlyForMahaAgx  string `env:"RABBITMQ_ONLY_FOR_MAHA_AGX"`
+	Host           string `env:"RABBITMQ_HOST"`
+	Port           string `env:"RABBITMQ_PORT"`
+	Vhost          string `env:"RABBITMQ_VHOST"`
+	Username       string `env:"RABBITMQ_USERNAME"`
+	Password       string `env:"RABBITMQ_PASSWORD"`
+	Exchange       string `env:"RABBITMQ_EXCHANGE"`
+	RoutingKey     string `env:"RABBITMQ_ROUTING_KEY"`
+	OnlyForMahaAgx string `env:"RABBITMQ_ONLY_FOR_MAHA_AGX"`
 }
 
 // RegistrySecretConfig is the single, generic registry-secret configuration.
@@ -115,6 +115,12 @@ type NotebookConfig struct {
 	GPUCPURequest    string `env:"API_DEFAULT_GPU_CPU_REQUEST,required"`
 
 	GPUNodeInstanceTypes string `env:"API_GPU_NODE_INSTANCE_TYPES,required"`
+	// SLOT_CONFIG_PROFILE selects which code-defined slot/category configuration
+	// is active at deployment time.
+	SlotConfigProfile string `env:"SLOT_CONFIG_PROFILE" envDefault:""`
+
+	// Backward compatible fallback (older deployments used API_GPU_SLOT_CONFIG_PROFILE).
+	LegacyGPUSlotConfigProfile string `env:"API_GPU_SLOT_CONFIG_PROFILE" envDefault:""`
 
 	KubeFlowURL              string `env:"API_KUBEFLOW_URL,required"`
 	DefaultNotebookListLimit int    `env:"API_NOTEBOOK_LIST_LIMIT"`
@@ -123,12 +129,6 @@ type NotebookConfig struct {
 	MaxRunningGPU int `env:"API_MAX_RUNNING_GPU"`
 	MaxTotalCPU   int `env:"API_MAX_TOTAL_CPU"`
 	MaxTotalGPU   int `env:"API_MAX_TOTAL_GPU"`
-}
-
-type NotebookRequest struct {
-	Name         string `json:"name" validate:"required"`
-	Type         string `json:"type" validate:"required"`
-	InstanceType string `json:"instanceType" validate:"omitempty"`
 }
 
 type NotebookStatus struct {
@@ -149,7 +149,21 @@ type NotebookStatus struct {
 	Events        []constants.Events `json:"events"`
 	Status        NotebookState      `json:"status"`
 	URL           string             `json:"notebookUrl,omitempty"`
+	Booking       *NotebookBooking   `json:"booking,omitempty"`
 	CreatedAt     time.Time          `json:"createdAt"`
+}
+
+type NotebookBooking struct {
+	ID          int64  `json:"id"`
+	Status      string `json:"status"`
+	Category    string `json:"category"`
+	ResourceType string `json:"resourceType"`
+	DisplayName string `json:"displayName"`
+	GPUMemory   string `json:"gpuMemory"`
+	SlotDate    string `json:"slotDate"`
+	SlotStart   string `json:"slotStart"`
+	SlotEnd     string `json:"slotEnd"`
+	Duration    string `json:"duration"`
 }
 type NotebookListResponse struct {
 	Notebooks  []NotebookStatus `json:"notebooks"`
@@ -176,8 +190,8 @@ const (
 	NotebookStateOrphaned NotebookState = "orphaned"
 )
 
-// GPUInstanceType represents a single GPU instance type option with display metadata
-type GPUInstanceType struct {
+// NotebookInstanceType is a selectable cloud instance type for GPU-backed notebooks (display metadata).
+type NotebookInstanceType struct {
 	InstanceType    string `json:"instanceType"`
 	DisplayName     string `json:"displayName"`
 	GPUMemory       string `json:"gpuMemory"`
@@ -185,14 +199,114 @@ type GPUInstanceType struct {
 	SessionDuration string `json:"sessionDuration"`
 }
 
-// GPUInstanceTypesResponse represents the available GPU instance types with metadata
-type GPUInstanceTypesResponse struct {
-	InstanceTypes []GPUInstanceType `json:"instanceTypes"`
+// NotebookInstanceTypesResponse lists instance types from API_GPU_NODE_INSTANCE_TYPES with metadata.
+type NotebookInstanceTypesResponse struct {
+	InstanceTypes []NotebookInstanceType `json:"instanceTypes"`
 }
 
-// GPUInstanceTypeMetadata is a static code-level mapping of instance type → display metadata.
-// To add a new GPU type, add its metadata here AND add it to the API_GPU_NODE_INSTANCE_TYPES env var.
-var GPUInstanceTypeMetadata = map[string]GPUInstanceType{
+type SlotTemplateResponse struct {
+	Key           string  `json:"key"`
+	Label         string  `json:"label"`
+	StartTime     string  `json:"startTime"`
+	EndTime       string  `json:"endTime"`
+	DurationHours float64 `json:"durationHours"`
+	SpansMidnight bool    `json:"spansMidnight"`
+}
+
+type CategoryResponse struct {
+	Name                    string                 `json:"name"`
+	DisplayName             string                 `json:"displayName"`
+	Description             string                 `json:"description"`
+	ResourceType            string                 `json:"resourceType"`
+	RequiresCredits         bool                   `json:"requiresCredits"`
+	InstanceType            string                 `json:"instanceType"`
+	GPUMemory               string                 `json:"gpuMemory"`
+	MaxActiveBookings       int                    `json:"maxActiveBookings"`
+	MaxBookingsPerWeek      int                    `json:"maxBookingsPerWeek"`
+	AdvanceBookingDays      int                    `json:"advanceBookingDays"`
+	MinAdvanceBookingDays   int                    `json:"minAdvanceBookingDays"`
+	NoShowGraceMins         int                    `json:"noShowGraceMins"`
+	MaxConcurrentUsers      int                    `json:"maxConcurrentUsers"`
+	PreShutdownWarningMins  int                    `json:"preShutdownWarningMins"`
+	ShutdownGracePeriodMins int                    `json:"shutdownGracePeriodMins"`
+	Slots                   []SlotTemplateResponse `json:"slots"`
+}
+
+type CategoriesResponse struct {
+	Categories []CategoryResponse `json:"categories"`
+}
+
+type CreateBookingRequest struct {
+	NotebookName string `json:"notebookName" validate:"required"`
+	Category     string `json:"category" validate:"required"`
+	SlotKey      string `json:"slotKey" validate:"required"`
+	SlotDate     string `json:"slotDate" validate:"required"`
+}
+
+type CreateBookingResponse struct {
+	BookingID    int64  `json:"bookingId"`
+	Status       string `json:"status"`
+	SlotDate     string `json:"slotDate"`
+	SlotStart    string `json:"slotStart"`
+	SlotEnd      string `json:"slotEnd"`
+	NotebookName string `json:"notebookName"`
+	ResourceType string `json:"resourceType"`
+}
+
+type BookingListItem struct {
+	ID           int64  `json:"id"`
+	NotebookName string `json:"notebookName"`
+	Category     string `json:"category"`
+	ResourceType string `json:"resourceType"`
+	DisplayName  string `json:"displayName"`
+	GPUMemory    string `json:"gpuMemory"`
+	Status       string `json:"status"`
+	SlotDate     string `json:"slotDate"`
+	SlotStart    string `json:"slotStart"`
+	SlotEnd      string `json:"slotEnd"`
+	Duration     string `json:"duration"`
+	CreatedAt    string `json:"createdAt"`
+}
+
+type BookingsListResponse struct {
+	Bookings   []BookingListItem `json:"bookings"`
+	NextOffset int               `json:"nextOffset"`
+}
+
+type AvailableSlot struct {
+	Key            string `json:"key"`
+	Label          string `json:"label"`
+	StartTime      string `json:"startTime"`
+	EndTime        string `json:"endTime"`
+	TotalSlots     int    `json:"totalSlots"`
+	BookedSlots    int    `json:"bookedSlots"`
+	AvailableSlots int    `json:"availableSlots"`
+	Availability   string `json:"availability"`
+}
+
+type AvailableSlotsResponse struct {
+	Date         string          `json:"date"`
+	Category     string          `json:"category"`
+	ResourceType string          `json:"resourceType"`
+	Slots        []AvailableSlot `json:"slots"`
+}
+
+type CalendarDay struct {
+	Date            string `json:"date"`
+	HasAvailability bool   `json:"hasAvailability"`
+	SlotsAvailable  int    `json:"slotsAvailable"`
+	SlotsTotal      int    `json:"slotsTotal"`
+}
+
+type CalendarResponse struct {
+	Month        string        `json:"month"`
+	Category     string        `json:"category"`
+	ResourceType string        `json:"resourceType"`
+	Days         []CalendarDay `json:"days"`
+}
+
+// NotebookInstanceTypeMetadata maps instance type → display metadata for GPU SKUs in API_GPU_NODE_INSTANCE_TYPES.
+var NotebookInstanceTypeMetadata = map[string]NotebookInstanceType{
 	"g4dn.xlarge": {
 		InstanceType:    "g4dn.xlarge",
 		DisplayName:     "Basic",

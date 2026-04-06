@@ -437,14 +437,38 @@ fi
 	// Add nodeSelector for CPU or GPU notebooks
 	if utils.CheckGPUResource(nb.GPUType, nb.GPURequest, nb.GPULimit) {
 		// Use the user-selected instance type from DB, fallback to env default
-		gpuInstanceType := w.app.env.GPU_NODE_INSTANCE_TYPE
-		if nb.InstanceType != nil && *nb.InstanceType != "" {
-			gpuInstanceType = *nb.InstanceType
+		gpuInstanceType := ""
+		if nb.InstanceType != nil && strings.TrimSpace(*nb.InstanceType) != "" {
+			gpuInstanceType = strings.TrimSpace(*nb.InstanceType)
+		} else if strings.TrimSpace(w.app.env.GPU_NODE_INSTANCE_TYPES) != "" {
+			parts := strings.Split(w.app.env.GPU_NODE_INSTANCE_TYPES, ",")
+			for _, p := range parts {
+				p = strings.TrimSpace(p)
+				if p != "" {
+					gpuInstanceType = p
+					break
+				}
+			}
+		} else if strings.TrimSpace(w.app.env.GPU_NODE_INSTANCE_TYPE) != "" {
+			gpuInstanceType = strings.TrimSpace(w.app.env.GPU_NODE_INSTANCE_TYPE)
+		}
+		if gpuInstanceType == "" {
+			return fmt.Errorf("no GPU node instance type configured: set notebook.instance_type in DB or configure WORKER_GPU_NODE_INSTANCE_TYPES (or legacy WORKER_GPU_NODE_INSTANCE_TYPE)")
 		}
 		specTemplateSpec["nodeSelector"] = map[string]any{
 			"node.kubernetes.io/instance-type": gpuInstanceType,
 		}
 	} else {
+		cpuInstanceTypes := make([]string, 0)
+		for _, p := range strings.Split(w.app.env.CPU_NODE_INSTANCE_TYPES, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				cpuInstanceTypes = append(cpuInstanceTypes, p)
+			}
+		}
+		if len(cpuInstanceTypes) == 0 {
+			return fmt.Errorf("no CPU node instance types configured: set WORKER_CPU_NODE_INSTANCE_TYPES with at least one instance type")
+		}
 
 		specTemplateSpec["affinity"] = map[string]any{
 			"nodeAffinity": map[string]any{
@@ -455,7 +479,7 @@ fi
 								map[string]any{
 									"key":      "node.kubernetes.io/instance-type",
 									"operator": "In",
-									"values":   strings.Split(w.app.env.CPU_NODE_INSTANCE_TYPES, ","),
+									"values":   cpuInstanceTypes,
 								},
 							},
 						},

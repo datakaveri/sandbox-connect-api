@@ -58,6 +58,29 @@ CREATE TABLE IF NOT EXISTS failed_aaa_requests (
     resolved_at TIMESTAMP
 );
 
+CREATE TABLE bookings (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID NOT NULL,
+    category_name VARCHAR(50) NOT NULL,
+    resource_type VARCHAR(10) NOT NULL,
+    slot_key VARCHAR(50) NOT NULL,
+    notebook_name VARCHAR(255) NOT NULL,
+    slot_date DATE NOT NULL,
+    slot_start TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+    slot_end TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'scheduled',
+    notebook_id BIGINT REFERENCES notebooks(id) ON DELETE SET NULL,
+    session_started_at TIMESTAMP WITHOUT TIME ZONE,
+    session_ended_at TIMESTAMP WITHOUT TIME ZONE,
+    cleanup_completed_at TIMESTAMP WITHOUT TIME ZONE,
+    shutdown_warning_sent_at TIMESTAMP WITHOUT TIME ZONE,
+    created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+ALTER TABLE notebooks
+    ADD COLUMN booking_id BIGINT REFERENCES bookings(id) ON DELETE SET NULL;
+
 CREATE OR REPLACE FUNCTION update_modified_column()   
 RETURNS TRIGGER AS $$
 BEGIN
@@ -75,7 +98,25 @@ CREATE TRIGGER update_profile_costs_modtime
 BEFORE UPDATE ON profiles 
 FOR EACH ROW EXECUTE PROCEDURE update_modified_column();
 
+CREATE TRIGGER update_bookings_modtime
+BEFORE UPDATE ON bookings
+FOR EACH ROW EXECUTE PROCEDURE update_modified_column();
+
 CREATE INDEX idx_notebooks_user_id ON notebooks(user_id);
 CREATE INDEX idx_notebooks_namespace ON notebooks(namespace);    
 CREATE INDEX idx_notebooks_created_at ON notebooks(created_at); 
 CREATE INDEX idx_notebooks_picked_at_null ON notebooks(picked_at) WHERE picked_at IS NULL;
+CREATE INDEX idx_notebooks_booking_id ON notebooks(booking_id);
+CREATE INDEX idx_bookings_user_id ON bookings(user_id);
+CREATE INDEX idx_bookings_status ON bookings(status);
+CREATE INDEX idx_bookings_slot_date ON bookings(slot_date);
+CREATE INDEX idx_bookings_slot_start ON bookings(slot_start);
+CREATE INDEX idx_bookings_category_status ON bookings(category_name, status);
+CREATE INDEX idx_bookings_lifecycle ON bookings(status, slot_start, slot_end);
+CREATE INDEX idx_bookings_shutdown ON bookings(status, slot_end, shutdown_warning_sent_at);
+CREATE UNIQUE INDEX idx_bookings_unique_user_slot_active
+    ON bookings(user_id, slot_key, slot_date)
+    WHERE status IN ('scheduled', 'ready', 'active', 'shutting_down');
+CREATE UNIQUE INDEX idx_bookings_unique_user_notebook_name_active
+    ON bookings(user_id, notebook_name)
+    WHERE status IN ('scheduled', 'ready', 'active', 'shutting_down');

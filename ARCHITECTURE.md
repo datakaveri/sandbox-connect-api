@@ -77,7 +77,8 @@ The REST API server handles all client-facing operations. Key features:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/v1/notebook/create` | POST | Create a new notebook |
+| `/v1/bookings` | POST | Create a CPU/GPU slot booking (notebook provisioned via worker / lifecycle) |
+| `/v1/bookings` | GET | List the current user's bookings |
 | `/v1/notebook/start` | PATCH | Start a stopped notebook |
 | `/v1/notebook/stop` | PATCH | Stop a running notebook |
 | `/v1/notebook/delete` | DELETE | Delete a notebook |
@@ -155,18 +156,9 @@ Runs every 15 minutes to synchronize user credit usage. Responsibilities:
 
 ## Notebook Lifecycle
 
-### Phase 1: API Request
+### Phase 1: Booking API (create path)
 
-When a client sends `POST /v1/notebook/create`, the API handler performs:
-
-1. **Authenticate** — Validate JWT token, extract user ID and namespace
-2. **Validate input** — Check notebook name (4–50 chars, lowercase alphanumeric + hyphens), type (`cpu` or `gpu`), GPU access permissions
-3. **Profile setup** — Auto-create Kubeflow Profile CRD and DB profile if the user is new
-4. **ECR secret update** — Refresh the ECR image pull secret in the user's namespace (if enabled)
-5. **Concurrency lock** — Begin a DB transaction and lock the user's profile row with `FOR UPDATE NOWAIT` (returns HTTP 429 if lock is held)
-6. **Enforce resource limits** — Query DB + Kubernetes for running/total CPU/GPU notebook counts; reject if limits are exceeded
-7. **Insert record** — Write a notebook row to the `notebooks` table with initial event `['scheduled']`
-8. **Return 201** — Respond immediately with "Notebook creation is in process"
+There is no `POST /v1/notebook/create`. Clients use **`POST /v1/bookings`** with category, slot, and notebook name. The API validates the slot configuration, enforces booking rules, inserts `bookings` (and related `notebooks` metadata as implemented), ensures namespace/registry setup where configured, and returns booking details. **Worker** and **slot-lifecycle** jobs then drive PVC/Notebook CR creation at the appropriate time for the category (CPU or GPU).
 
 ### Phase 2: Worker Processing
 

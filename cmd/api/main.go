@@ -1,6 +1,6 @@
 // @title           Sandbox Connect API
 // @version         1.0
-// @description     API for managing notebooks and profiles
+// @description     API for sandbox notebooks (lifecycle via bookings) and profiles. Create CPU/GPU notebooks with POST /v1/bookings; worker provisions resources at slot time.
 // @BasePath        /
 // @schemes         http https
 // @produce         json
@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/signal"
 	"sandbox-backend-service/pkg/db"
+	"sandbox-backend-service/pkg/gpuconfig"
 	"sandbox-backend-service/pkg/k8s"
 	"sandbox-backend-service/pkg/utils"
 	"syscall"
@@ -59,6 +60,18 @@ func main() {
 	var config ApiEnv
 	if err := env.Parse(&config); err != nil {
 		utils.LogErrorAndExit(logger, "failed to parse environment variables", "error", err)
+	}
+
+	// Backward compatibility: if SLOT_CONFIG_PROFILE isn't set, fall back to API_GPU_SLOT_CONFIG_PROFILE.
+	if config.NotebookConfig.SlotConfigProfile == "" {
+		config.NotebookConfig.SlotConfigProfile = config.NotebookConfig.LegacyGPUSlotConfigProfile
+	}
+	if config.NotebookConfig.SlotConfigProfile == "" {
+		config.NotebookConfig.SlotConfigProfile = "production"
+	}
+
+	if err := gpuconfig.ValidateGPUSlotConfigProfile(config.NotebookConfig.SlotConfigProfile); err != nil {
+		utils.LogErrorAndExit(logger, "invalid GPU slot config profile", "error", err)
 	}
 	k8sClient, err := k8s.NewK8sClient(config.KubeConfigMode, config.KubeConfigPath)
 	if err != nil {

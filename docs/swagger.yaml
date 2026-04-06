@@ -1,6 +1,430 @@
 basePath: /
 definitions:
-  constants.Events:
+  cmd_api.AvailableSlot:
+    properties:
+      availability:
+        type: string
+      availableSlots:
+        type: integer
+      bookedSlots:
+        type: integer
+      endTime:
+        type: string
+      key:
+        type: string
+      label:
+        type: string
+      startTime:
+        type: string
+      totalSlots:
+        type: integer
+    type: object
+  cmd_api.AvailableSlotsResponse:
+    properties:
+      category:
+        type: string
+      date:
+        type: string
+      resourceType:
+        type: string
+      slots:
+        items:
+          $ref: '#/definitions/cmd_api.AvailableSlot'
+        type: array
+    type: object
+  cmd_api.BookingListItem:
+    properties:
+      category:
+        type: string
+      createdAt:
+        type: string
+      displayName:
+        type: string
+      duration:
+        type: string
+      gpuMemory:
+        type: string
+      id:
+        type: integer
+      notebookName:
+        type: string
+      resourceType:
+        type: string
+      slotDate:
+        type: string
+      slotEnd:
+        type: string
+      slotStart:
+        type: string
+      status:
+        type: string
+    type: object
+  cmd_api.BookingsListResponse:
+    properties:
+      bookings:
+        items:
+          $ref: '#/definitions/cmd_api.BookingListItem'
+        type: array
+      nextOffset:
+        type: integer
+    type: object
+  cmd_api.CalendarDay:
+    properties:
+      date:
+        type: string
+      hasAvailability:
+        type: boolean
+      slotsAvailable:
+        type: integer
+      slotsTotal:
+        type: integer
+    type: object
+  cmd_api.CalendarResponse:
+    properties:
+      category:
+        type: string
+      days:
+        items:
+          $ref: '#/definitions/cmd_api.CalendarDay'
+        type: array
+      month:
+        type: string
+      resourceType:
+        type: string
+    type: object
+  cmd_api.CategoriesResponse:
+    properties:
+      categories:
+        items:
+          $ref: '#/definitions/cmd_api.CategoryResponse'
+        type: array
+    type: object
+  cmd_api.CategoryResponse:
+    properties:
+      advanceBookingDays:
+        type: integer
+      description:
+        type: string
+      displayName:
+        type: string
+      gpuMemory:
+        type: string
+      instanceType:
+        type: string
+      maxActiveBookings:
+        type: integer
+      maxBookingsPerWeek:
+        type: integer
+      maxConcurrentUsers:
+        type: integer
+      minAdvanceBookingDays:
+        type: integer
+      name:
+        type: string
+      noShowGraceMins:
+        type: integer
+      preShutdownWarningMins:
+        type: integer
+      requiresCredits:
+        type: boolean
+      resourceType:
+        type: string
+      shutdownGracePeriodMins:
+        type: integer
+      slots:
+        items:
+          $ref: '#/definitions/cmd_api.SlotTemplateResponse'
+        type: array
+    type: object
+  cmd_api.CreateBookingRequest:
+    properties:
+      category:
+        type: string
+      notebookName:
+        type: string
+      slotDate:
+        type: string
+      slotKey:
+        type: string
+    required:
+    - category
+    - notebookName
+    - slotDate
+    - slotKey
+    type: object
+  cmd_api.CreateBookingResponse:
+    properties:
+      bookingId:
+        type: integer
+      notebookName:
+        type: string
+      resourceType:
+        type: string
+      slotDate:
+        type: string
+      slotEnd:
+        type: string
+      slotStart:
+        type: string
+      status:
+        type: string
+    type: object
+  cmd_api.DeleteNotebookRequest:
+    properties:
+      name:
+        maxLength: 50
+        minLength: 4
+        type: string
+    required:
+    - name
+    type: object
+  cmd_api.Error400:
+    description: Response for bad request errors
+    properties:
+      detail:
+        description: Error message
+        example: string
+        type: string
+      type:
+        example: error
+        type: string
+    type: object
+  cmd_api.Error401:
+    description: Response for authentication errors
+    properties:
+      detail:
+        description: Error message
+        example: string
+        type: string
+      type:
+        example: error
+        type: string
+    type: object
+  cmd_api.Error403:
+    description: Response for permission errors
+    properties:
+      detail:
+        description: Error message
+        example: string
+        type: string
+      type:
+        example: error
+        type: string
+    type: object
+  cmd_api.Error404:
+    description: Response for resource not found errors
+    properties:
+      detail:
+        description: Error message
+        example: string
+        type: string
+      type:
+        example: error
+        type: string
+    type: object
+  cmd_api.Error409:
+    description: Response for resource conflict errors
+    properties:
+      detail:
+        description: Error message
+        example: string
+        type: string
+      type:
+        example: error
+        type: string
+    type: object
+  cmd_api.Error422:
+    description: Response for invalid request body errors
+    properties:
+      detail:
+        description: Error message
+        example: string
+        type: string
+      type:
+        example: error
+        type: string
+    type: object
+  cmd_api.Error429:
+    description: Response for rate limiting errors
+    properties:
+      detail:
+        description: Error message
+        example: string
+        type: string
+      type:
+        example: error
+        type: string
+    type: object
+  cmd_api.Error500:
+    description: Response for internal server errors
+    properties:
+      detail:
+        description: Error message
+        example: string
+        type: string
+      type:
+        example: error
+        type: string
+    type: object
+  cmd_api.NotebookBooking:
+    properties:
+      category:
+        type: string
+      displayName:
+        type: string
+      duration:
+        type: string
+      gpuMemory:
+        type: string
+      id:
+        type: integer
+      resourceType:
+        type: string
+      slotDate:
+        type: string
+      slotEnd:
+        type: string
+      slotStart:
+        type: string
+      status:
+        type: string
+    type: object
+  cmd_api.NotebookInstanceType:
+    properties:
+      description:
+        type: string
+      displayName:
+        type: string
+      gpuMemory:
+        type: string
+      instanceType:
+        type: string
+      sessionDuration:
+        type: string
+    type: object
+  cmd_api.NotebookInstanceTypesResponse:
+    properties:
+      instanceTypes:
+        items:
+          $ref: '#/definitions/cmd_api.NotebookInstanceType'
+        type: array
+    type: object
+  cmd_api.NotebookListResponse:
+    properties:
+      next_offset:
+        type: integer
+      notebooks:
+        items:
+          $ref: '#/definitions/cmd_api.NotebookStatus'
+        type: array
+    type: object
+  cmd_api.NotebookState:
+    enum:
+    - opening
+    - running
+    - stopped
+    - failed
+    - orphaned
+    type: string
+    x-enum-varnames:
+    - NotebookStateOpening
+    - NotebookStateRunning
+    - NotebookStateStopped
+    - NotebookStateFailed
+    - NotebookStateOrphaned
+  cmd_api.NotebookStatus:
+    properties:
+      booking:
+        $ref: '#/definitions/cmd_api.NotebookBooking'
+      cpuLimit:
+        type: number
+      cpuRequest:
+        type: number
+      createdAt:
+        type: string
+      events:
+        items:
+          $ref: '#/definitions/sandbox-backend-service_pkg_constants.Events'
+        type: array
+      gpuLimit:
+        type: integer
+      gpuRequest:
+        type: integer
+      gpuType:
+        type: string
+      id:
+        type: integer
+      instanceType:
+        type: string
+      memoryLimit:
+        type: string
+      memoryRequest:
+        type: string
+      name:
+        type: string
+      namespace:
+        type: string
+      notebookUrl:
+        type: string
+      pvcName:
+        type: string
+      status:
+        $ref: '#/definitions/cmd_api.NotebookState'
+      storageSize:
+        type: string
+      templateName:
+        type: string
+    type: object
+  cmd_api.SlotTemplateResponse:
+    properties:
+      durationHours:
+        type: number
+      endTime:
+        type: string
+      key:
+        type: string
+      label:
+        type: string
+      spansMidnight:
+        type: boolean
+      startTime:
+        type: string
+    type: object
+  cmd_api.StartNotebookRequest:
+    properties:
+      name:
+        maxLength: 50
+        minLength: 4
+        type: string
+    required:
+    - name
+    type: object
+  cmd_api.StopNotebookRequest:
+    properties:
+      name:
+        maxLength: 50
+        minLength: 4
+        type: string
+    required:
+    - name
+    type: object
+  cmd_api.SwaggerExistsResponse:
+    description: Response structure for check-exists endpoint
+    properties:
+      exists:
+        description: Whether the resource exists
+        example: true
+        type: boolean
+    type: object
+  cmd_api.SwaggerMessageResponse:
+    description: Standard success response structure with a message
+    properties:
+      message:
+        description: Success message
+        example: string
+        type: string
+    type: object
+  sandbox-backend-service_pkg_constants.Events:
     enum:
     - picked
     - pvc-applied
@@ -26,250 +450,253 @@ definitions:
     - StatusPVCUploadFailed
     - StatusNotebookApplied
     - StatusNotebookApplyFailed
-  main.DeleteNotebookRequest:
-    properties:
-      name:
-        type: string
-    required:
-    - name
-    type: object
-  main.GPUInstanceType:
-    description: A single GPU instance type option with display metadata
-    properties:
-      instanceType:
-        description: AWS instance type identifier
-        example: g4dn.xlarge
-        type: string
-      displayName:
-        description: Display name for the card UI
-        example: Basic
-        type: string
-      gpuMemory:
-        description: GPU memory available
-        example: 16 GB
-        type: string
-      description:
-        description: Human-readable description of the GPU
-        example: 16 GB NVIDIA T4 GPU
-        type: string
-      sessionDuration:
-        description: Maximum session duration
-        example: 4h Session
-        type: string
-    type: object
-  main.GPUInstanceTypesResponse:
-    description: List of available GPU instance types with metadata
-    properties:
-      instanceTypes:
-        items:
-          $ref: '#/definitions/main.GPUInstanceType'
-        type: array
-    type: object
-  main.Error400:
-    description: Response for bad request errors
-    properties:
-      detail:
-        description: Error message
-        example: string
-        type: string
-      type:
-        example: error
-        type: string
-    type: object
-  main.Error401:
-    description: Response for authentication errors
-    properties:
-      detail:
-        description: Error message
-        example: string
-        type: string
-      type:
-        example: error
-        type: string
-    type: object
-  main.Error403:
-    description: Response for permission errors
-    properties:
-      detail:
-        description: Error message
-        example: string
-        type: string
-      type:
-        example: error
-        type: string
-    type: object
-  main.Error404:
-    description: Response for resource not found errors
-    properties:
-      detail:
-        description: Error message
-        example: string
-        type: string
-      type:
-        example: error
-        type: string
-    type: object
-  main.Error409:
-    description: Response for resource conflict errors
-    properties:
-      detail:
-        description: Error message
-        example: string
-        type: string
-      type:
-        example: error
-        type: string
-    type: object
-  main.Error422:
-    description: Response for invalid request body errors
-    properties:
-      detail:
-        description: Error message
-        example: string
-        type: string
-      type:
-        example: error
-        type: string
-    type: object
-  main.Error429:
-    description: Response for rate limiting errors
-    properties:
-      detail:
-        description: Error message
-        example: string
-        type: string
-      type:
-        example: error
-        type: string
-    type: object
-  main.Error500:
-    description: Response for internal server errors
-    properties:
-      detail:
-        description: Error message
-        example: string
-        type: string
-      type:
-        example: error
-        type: string
-    type: object
-  main.NotebookListResponse:
-    properties:
-      next_offset:
-        type: integer
-      notebooks:
-        items:
-          $ref: '#/definitions/main.NotebookStatus'
-        type: array
-    type: object
-  main.NotebookRequest:
-    properties:
-      name:
-        maxLength: 50
-        minLength: 4
-        type: string
-      type:
-        description: Notebook type (cpu or gpu)
-        type: string
-      instanceType:
-        description: GPU instance type (required when type=gpu). Must match one of the types from GET /v1/notebook/gpu-instance-types
-        type: string
-    required:
-    - name
-    - type
-    type: object
-  main.NotebookState:
-    enum:
-    - opening
-    - running
-    - stopped
-    - failed
-    - orphaned
-    type: string
-    x-enum-varnames:
-    - NotebookStateOpening
-    - NotebookStateRunning
-    - NotebookStateStopped
-    - NotebookStateFailed
-    - NotebookStateOrphaned
-  main.NotebookStatus:
-    properties:
-      cpuLimit:
-        type: number
-      cpuRequest:
-        type: number
-      createdAt:
-        type: string
-      events:
-        items:
-          $ref: '#/definitions/constants.Events'
-        type: array
-      gpuLimit:
-        type: integer
-      gpuRequest:
-        type: integer
-      gpuType:
-        type: string
-      id:
-        type: integer
-      instanceType:
-        description: GPU instance type selected for the notebook (null for CPU notebooks)
-        type: string
-      memoryLimit:
-        type: string
-      memoryRequest:
-        type: string
-      name:
-        type: string
-      namespace:
-        type: string
-      notebookUrl:
-        type: string
-      pvcName:
-        type: string
-      status:
-        $ref: '#/definitions/main.NotebookState'
-      storageSize:
-        type: string
-      templateName:
-        type: string
-    type: object
-  main.StartNotebookRequest:
-    properties:
-      name:
-        type: string
-    required:
-    - name
-    type: object
-  main.StopNotebookRequest:
-    properties:
-      name:
-        type: string
-    required:
-    - name
-    type: object
-  main.SwaggerExistsResponse:
-    description: Response structure for check-exists endpoint
-    properties:
-      exists:
-        description: Whether the resource exists
-        example: true
-        type: boolean
-    type: object
-  main.SwaggerMessageResponse:
-    description: Standard success response structure with a message
-    properties:
-      message:
-        description: Success message
-        example: string
-        type: string
-    type: object
 info:
   contact: {}
-  description: API for managing notebooks and profiles
+  description: API for sandbox notebooks (lifecycle via bookings) and profiles. Create
+    CPU/GPU notebooks with POST /v1/bookings; worker provisions resources at slot
+    time.
   title: Sandbox Connect API
   version: "1.0"
 paths:
+  /v1/bookings:
+    get:
+      description: Lists CPU and GPU slot bookings for the current user with optional
+        status filter and pagination
+      parameters:
+      - description: Comma-separated status filter
+        in: query
+        name: status
+        type: string
+      - description: Max rows (default 10, max 50)
+        in: query
+        name: limit
+        type: integer
+      - description: Pagination offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/cmd_api.BookingsListResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/cmd_api.Error401'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/cmd_api.Error429'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/cmd_api.Error500'
+      security:
+      - BearerAuth: []
+      summary: List user bookings
+      tags:
+      - bookings
+    post:
+      consumes:
+      - application/json
+      description: Creates a CPU or GPU booking from code-defined categories and slot
+        templates (API_GPU_SLOT_CONFIG_PROFILE)
+      parameters:
+      - description: Booking request
+        in: body
+        name: booking
+        required: true
+        schema:
+          $ref: '#/definitions/cmd_api.CreateBookingRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/cmd_api.CreateBookingResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/cmd_api.Error400'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/cmd_api.Error403'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/cmd_api.Error404'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/cmd_api.Error409'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/cmd_api.Error422'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/cmd_api.Error429'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/cmd_api.Error500'
+      security:
+      - BearerAuth: []
+      summary: Create slot booking
+      tags:
+      - bookings
+  /v1/bookings/{id}/cancel:
+    patch:
+      description: Cancels a scheduled booking for the current user (scheduled only;
+        use terminate for ready/active)
+      parameters:
+      - description: Booking ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/cmd_api.SwaggerMessageResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/cmd_api.Error400'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/cmd_api.Error401'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/cmd_api.Error404'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/cmd_api.Error429'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/cmd_api.Error500'
+      security:
+      - BearerAuth: []
+      summary: Cancel scheduled booking
+      tags:
+      - bookings
+  /v1/bookings/{id}/reset:
+    patch:
+      description: Marks a booking as cancelled/expired and best-effort deletes any
+        linked notebook/PVC.
+      parameters:
+      - description: Booking ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/cmd_api.SwaggerMessageResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/cmd_api.Error400'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/cmd_api.Error401'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/cmd_api.Error404'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/cmd_api.Error500'
+      security:
+      - BearerAuth: []
+      summary: Reset stuck booking
+      tags:
+      - bookings
+  /v1/bookings/{id}/terminate:
+    patch:
+      description: Marks a ready, active, or shutting_down booking completed and best-effort
+        deletes the linked notebook/PVC. Use cancel for scheduled only.
+      parameters:
+      - description: Booking ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/cmd_api.SwaggerMessageResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/cmd_api.Error400'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/cmd_api.Error401'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/cmd_api.Error404'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/cmd_api.Error500'
+      security:
+      - BearerAuth: []
+      summary: End booking session early
+      tags:
+      - bookings
+  /v1/categories:
+    get:
+      description: Returns configured CPU and GPU categories and their slot templates
+        from code (API_GPU_SLOT_CONFIG_PROFILE)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/cmd_api.CategoriesResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/cmd_api.Error401'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/cmd_api.Error429'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/cmd_api.Error500'
+      security:
+      - BearerAuth: []
+      summary: List booking categories and slot templates
+      tags:
+      - bookings
   /v1/notebook/check-exists/{notebook_name}:
     get:
       description: Checks if a notebook with the given name exists
@@ -285,101 +712,26 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/main.SwaggerExistsResponse'
+            $ref: '#/definitions/cmd_api.SwaggerExistsResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/main.Error400'
+            $ref: '#/definitions/cmd_api.Error400'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/main.Error401'
+            $ref: '#/definitions/cmd_api.Error401'
         "429":
           description: Too Many Requests
           schema:
-            $ref: '#/definitions/main.Error429'
+            $ref: '#/definitions/cmd_api.Error429'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/main.Error500'
+            $ref: '#/definitions/cmd_api.Error500'
       security:
       - BearerAuth: []
       summary: Check if notebook exists
-      tags:
-      - notebook
-  /v1/notebook/gpu-instance-types:
-    get:
-      description: Returns the list of available GPU node instance types with display metadata for notebook creation
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/main.GPUInstanceTypesResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/main.Error401'
-        "429":
-          description: Too Many Requests
-          schema:
-            $ref: '#/definitions/main.Error429'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/main.Error500'
-      security:
-      - BearerAuth: []
-      summary: List available GPU instance types
-      tags:
-      - notebook
-  /v1/notebook/create:
-    post:
-      consumes:
-      - application/json
-      description: Creates a new notebook for the user
-      parameters:
-      - description: Notebook Create Request
-        in: body
-        name: notebook
-        required: true
-        schema:
-          $ref: '#/definitions/main.NotebookRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/main.SwaggerMessageResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/main.Error401'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/main.Error403'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/main.Error409'
-        "422":
-          description: Unprocessable Entity
-          schema:
-            $ref: '#/definitions/main.Error422'
-        "429":
-          description: Too Many Requests
-          schema:
-            $ref: '#/definitions/main.Error429'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/main.Error500'
-      security:
-      - BearerAuth: []
-      summary: Create notebook
       tags:
       - notebook
   /v1/notebook/delete:
@@ -393,39 +745,72 @@ paths:
         name: notebook_name
         required: true
         schema:
-          $ref: '#/definitions/main.DeleteNotebookRequest'
+          $ref: '#/definitions/cmd_api.DeleteNotebookRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/main.SwaggerMessageResponse'
+            $ref: '#/definitions/cmd_api.SwaggerMessageResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/main.Error401'
+            $ref: '#/definitions/cmd_api.Error401'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/main.Error404'
+            $ref: '#/definitions/cmd_api.Error404'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/cmd_api.Error409'
         "422":
           description: Unprocessable Entity
           schema:
-            $ref: '#/definitions/main.Error422'
+            $ref: '#/definitions/cmd_api.Error422'
         "429":
           description: Too Many Requests
           schema:
-            $ref: '#/definitions/main.Error429'
+            $ref: '#/definitions/cmd_api.Error429'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/main.Error500'
+            $ref: '#/definitions/cmd_api.Error500'
       security:
       - BearerAuth: []
       summary: Delete notebook
       tags:
       - notebook
+  /v1/notebook/instance-types:
+    get:
+      description: Returns instance types from API_GPU_NODE_INSTANCE_TYPES with display
+        metadata (for GPU-backed booking categories). Legacy path GET /v1/notebook/gpu-instance-types
+        is also served.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/cmd_api.NotebookInstanceTypesResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/cmd_api.Error401'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/cmd_api.Error429'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/cmd_api.Error500'
+      security:
+      - BearerAuth: []
+      summary: List instance types for GPU bookings
+      tags:
+      - bookings
   /v1/notebook/list:
     get:
       description: Lists all notebooks for the user
@@ -452,23 +837,23 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/main.NotebookListResponse'
+            $ref: '#/definitions/cmd_api.NotebookListResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/main.Error400'
+            $ref: '#/definitions/cmd_api.Error400'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/main.Error401'
+            $ref: '#/definitions/cmd_api.Error401'
         "429":
           description: Too Many Requests
           schema:
-            $ref: '#/definitions/main.Error429'
+            $ref: '#/definitions/cmd_api.Error429'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/main.Error500'
+            $ref: '#/definitions/cmd_api.Error500'
       security:
       - BearerAuth: []
       summary: List notebooks
@@ -485,34 +870,34 @@ paths:
         name: notebook_name
         required: true
         schema:
-          $ref: '#/definitions/main.StartNotebookRequest'
+          $ref: '#/definitions/cmd_api.StartNotebookRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/main.SwaggerMessageResponse'
+            $ref: '#/definitions/cmd_api.SwaggerMessageResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/main.Error401'
+            $ref: '#/definitions/cmd_api.Error401'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/main.Error404'
+            $ref: '#/definitions/cmd_api.Error404'
         "422":
           description: Unprocessable Entity
           schema:
-            $ref: '#/definitions/main.Error422'
+            $ref: '#/definitions/cmd_api.Error422'
         "429":
           description: Too Many Requests
           schema:
-            $ref: '#/definitions/main.Error429'
+            $ref: '#/definitions/cmd_api.Error429'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/main.Error500'
+            $ref: '#/definitions/cmd_api.Error500'
       security:
       - BearerAuth: []
       summary: Start notebook
@@ -533,23 +918,23 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/main.NotebookStatus'
+            $ref: '#/definitions/cmd_api.NotebookStatus'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/main.Error401'
+            $ref: '#/definitions/cmd_api.Error401'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/main.Error404'
+            $ref: '#/definitions/cmd_api.Error404'
         "429":
           description: Too Many Requests
           schema:
-            $ref: '#/definitions/main.Error429'
+            $ref: '#/definitions/cmd_api.Error429'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/main.Error500'
+            $ref: '#/definitions/cmd_api.Error500'
       security:
       - BearerAuth: []
       summary: Get notebook status
@@ -566,38 +951,38 @@ paths:
         name: notebook_name
         required: true
         schema:
-          $ref: '#/definitions/main.StopNotebookRequest'
+          $ref: '#/definitions/cmd_api.StopNotebookRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/main.SwaggerMessageResponse'
+            $ref: '#/definitions/cmd_api.SwaggerMessageResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/main.Error400'
+            $ref: '#/definitions/cmd_api.Error400'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/main.Error401'
+            $ref: '#/definitions/cmd_api.Error401'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/main.Error404'
+            $ref: '#/definitions/cmd_api.Error404'
         "422":
           description: Unprocessable Entity
           schema:
-            $ref: '#/definitions/main.Error422'
+            $ref: '#/definitions/cmd_api.Error422'
         "429":
           description: Too Many Requests
           schema:
-            $ref: '#/definitions/main.Error429'
+            $ref: '#/definitions/cmd_api.Error429'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/main.Error500'
+            $ref: '#/definitions/cmd_api.Error500'
       security:
       - BearerAuth: []
       summary: Stop notebook
@@ -614,28 +999,112 @@ paths:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/main.SwaggerMessageResponse'
+            $ref: '#/definitions/cmd_api.SwaggerMessageResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/main.Error401'
+            $ref: '#/definitions/cmd_api.Error401'
         "422":
           description: Unprocessable Entity
           schema:
-            $ref: '#/definitions/main.Error422'
+            $ref: '#/definitions/cmd_api.Error422'
         "429":
           description: Too Many Requests
           schema:
-            $ref: '#/definitions/main.Error429'
+            $ref: '#/definitions/cmd_api.Error429'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/main.Error500'
+            $ref: '#/definitions/cmd_api.Error500'
       security:
       - BearerAuth: []
       summary: Create Kubeflow profile
       tags:
       - profile
+  /v1/slots/available:
+    get:
+      description: Returns slot-level availability for a category on a given date
+      parameters:
+      - description: Category name (CPU or GPU)
+        in: query
+        name: category
+        required: true
+        type: string
+      - description: Date in YYYY-MM-DD (IST)
+        in: query
+        name: date
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/cmd_api.AvailableSlotsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/cmd_api.Error400'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/cmd_api.Error401'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/cmd_api.Error429'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/cmd_api.Error500'
+      security:
+      - BearerAuth: []
+      summary: List available slots for date/category
+      tags:
+      - bookings
+  /v1/slots/calendar:
+    get:
+      description: Returns day-level availability totals for a category/month
+      parameters:
+      - description: Category name (CPU or GPU)
+        in: query
+        name: category
+        required: true
+        type: string
+      - description: Month in YYYY-MM
+        in: query
+        name: month
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/cmd_api.CalendarResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/cmd_api.Error400'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/cmd_api.Error401'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/cmd_api.Error429'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/cmd_api.Error500'
+      security:
+      - BearerAuth: []
+      summary: List monthly availability summary
+      tags:
+      - bookings
 produces:
 - application/json
 schemes:
