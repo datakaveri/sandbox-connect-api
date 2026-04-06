@@ -337,6 +337,14 @@ func (w *worker) CreateNotebook() error {
 		}
 	}
 
+	// Override with the per-notebook image if one was specified at creation time.
+	// The image is pulled from ECR using the imagePullSecret already provisioned
+	// in the namespace; no additional pull step is required here.
+	if nb.ImageName != nil && *nb.ImageName != "" {
+		logger.Info("using custom image from notebook request", "image", *nb.ImageName)
+		imageName = *nb.ImageName
+	}
+
 	// Build the notebook spec
 	specTemplateSpec := map[string]any{
 		"initContainers": []any{

@@ -27,7 +27,7 @@ func FetchAndMarkNotebook(pg *db.PgPool, logger *slog.Logger, originalCtx contex
 
 		query := `
 			SELECT id, name, namespace, storage_size, pvc_name, cpu_request, cpu_limit, 
-			       memory_request, memory_limit, gpu_type, gpu_request, gpu_limit, instance_type, template_name
+			       memory_request, memory_limit, gpu_type, gpu_request, gpu_limit, instance_type, template_name, image_name
 			FROM notebooks
 			WHERE picked_at IS NULL
 			FOR UPDATE SKIP LOCKED
@@ -66,6 +66,7 @@ func FetchAndMarkNotebook(pg *db.PgPool, logger *slog.Logger, originalCtx contex
 				&newNotebook.GPULimit,
 				&newNotebook.InstanceType,
 				&newNotebook.TemplateName,
+				&newNotebook.ImageName,
 			); err != nil {
 				logger.Warn("failed to scan notebook row, will retry", "error", err)
 				return constants.RetryContinue, err

@@ -79,3 +79,5 @@ CREATE INDEX idx_notebooks_user_id ON notebooks(user_id);
 CREATE INDEX idx_notebooks_namespace ON notebooks(namespace);    
 CREATE INDEX idx_notebooks_created_at ON notebooks(created_at); 
 CREATE INDEX idx_notebooks_picked_at_null ON notebooks(picked_at) WHERE picked_at IS NULL;
+
+ALTER TABLE notebooks ADD COLUMN image_name VARCHAR(512);
