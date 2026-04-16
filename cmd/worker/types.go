@@ -29,7 +29,7 @@ type Env struct {
 	CPU_NOTEBOOK_IMAGE      string `env:"WORKER_CPU_NOTEBOOK_IMAGE,required"`
 	GPU_NOTEBOOK_IMAGE      string `env:"WORKER_GPU_NOTEBOOK_IMAGE,required"`
 	INIT_CONTAINER_IMAGE    string `env:"WORKER_INIT_CONTAINER_IMAGE,required"`
-	GPU_NODE_INSTANCE_TYPE  string `env:"WORKER_GPU_NODE_INSTANCE_TYPE,required"`
+	GPU_NODE_INSTANCE_TYPES string `env:"WORKER_GPU_NODE_INSTANCE_TYPES,required"`
 	CPU_NODE_INSTANCE_TYPES string `env:"WORKER_CPU_NODE_INSTANCE_TYPES,required"`
 	IMAGE_PULL_ENABLED      bool   `env:"WORKER_IMAGE_PULL_ENABLED" envDefault:"false"`
 	ECR_SECRET_NAME         string `env:"WORKER_ECR_SECRET_NAME"`
@@ -49,6 +49,7 @@ type Notebook struct {
 	GPULimit      *int    `json:"gpu_limit"`
 	InstanceType  *string `json:"instance_type"`
 	TemplateName  *string `json:"template_name"`
+	ImageName     *string `json:"image_name"`
 }
 type worker struct {
 	app      *application

@@ -126,9 +126,10 @@ type NotebookConfig struct {
 }
 
 type NotebookRequest struct {
-	Name         string `json:"name" validate:"required"`
-	Type         string `json:"type" validate:"required"`
-	InstanceType string `json:"instanceType" validate:"omitempty"`
+	Name         string  `json:"name" validate:"required"`
+	Type         string  `json:"type" validate:"required"`
+	InstanceType string  `json:"instanceType" validate:"omitempty"`
+	ImageName    *string `json:"imageName" validate:"omitempty"`
 }
 
 type NotebookStatus struct {
