@@ -30,6 +30,7 @@ func FetchAndMarkNotebook(pg *db.PgPool, logger *slog.Logger, originalCtx contex
 			       memory_request, memory_limit, gpu_type, gpu_request, gpu_limit, instance_type, template_name
 			FROM notebooks
 			WHERE picked_at IS NULL
+			  AND events[array_upper(events, 1)] <> 'deleted'
 			FOR UPDATE SKIP LOCKED
 			LIMIT 1
 		`

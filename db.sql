@@ -64,6 +64,7 @@ CREATE TABLE bookings (
     category_name VARCHAR(50) NOT NULL,
     resource_type VARCHAR(10) NOT NULL,
     slot_key VARCHAR(50) NOT NULL,
+    slot_keys VARCHAR(50)[] NOT NULL DEFAULT '{}',
     notebook_name VARCHAR(255) NOT NULL,
     slot_date DATE NOT NULL,
     slot_start TIMESTAMP WITHOUT TIME ZONE NOT NULL,
@@ -74,9 +75,15 @@ CREATE TABLE bookings (
     session_ended_at TIMESTAMP WITHOUT TIME ZONE,
     cleanup_completed_at TIMESTAMP WITHOUT TIME ZONE,
     shutdown_warning_sent_at TIMESTAMP WITHOUT TIME ZONE,
+    ready_at TIMESTAMPTZ,
     created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Existing deployments: add column (safe to re-run).
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS ready_at TIMESTAMPTZ;
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS slot_keys VARCHAR(50)[] NOT NULL DEFAULT '{}';
+UPDATE bookings SET slot_keys = ARRAY[slot_key] WHERE slot_keys = '{}'::varchar[] OR slot_keys IS NULL;
 
 ALTER TABLE notebooks
     ADD COLUMN booking_id BIGINT REFERENCES bookings(id) ON DELETE SET NULL;

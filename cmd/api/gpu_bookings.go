@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"sandbox-backend-service/pkg/gpuconfig"
 	"sandbox-backend-service/pkg/utils"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -41,6 +42,90 @@ func activeStatusSQLList() string {
 	return "'" + strings.Join(activeBookingStatuses, "','") + "'"
 }
 
+func bookingDurationHours(profile, category string, slotKeys []string, slotStart, slotEnd time.Time) float64 {
+	if len(slotKeys) > 0 {
+		total := 0.0
+		for _, key := range slotKeys {
+			tpl, ok := gpuconfig.GetGPUSlotTemplate(profile, category, key)
+			if !ok {
+				total = 0
+				break
+			}
+			total += tpl.DurationHours
+		}
+		if total > 0 {
+			return total
+		}
+	}
+	d := slotEnd.Sub(slotStart).Hours()
+	if d < 0 {
+		return -d
+	}
+	return d
+}
+
+func bookingDurationLabel(profile, category string, slotKeys []string, slotStart, slotEnd time.Time) string {
+	return fmt.Sprintf("%.0f Hours", bookingDurationHours(profile, category, slotKeys, slotStart, slotEnd))
+}
+
+func normalizedSlotKeys(keys []string) []string {
+	out := make([]string, 0, len(keys))
+	for _, key := range keys {
+		trimmed := strings.TrimSpace(key)
+		if trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+func orderedTemplatesByStart(slotDate time.Time, templates []gpuconfig.SlotTemplate) ([]gpuconfig.SlotTemplate, error) {
+	type item struct {
+		slot      gpuconfig.SlotTemplate
+		startTime time.Time
+	}
+	items := make([]item, 0, len(templates))
+	for _, t := range templates {
+		startAt, err := parseClockIST(slotDate, t.StartTime)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item{slot: t, startTime: startAt})
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		return items[i].startTime.Before(items[j].startTime)
+	})
+	ordered := make([]gpuconfig.SlotTemplate, 0, len(items))
+	for _, it := range items {
+		ordered = append(ordered, it.slot)
+	}
+	return ordered, nil
+}
+
+func isContiguousSelection(keys []string, ordered []gpuconfig.SlotTemplate) bool {
+	if len(keys) == 0 {
+		return false
+	}
+	indexByKey := make(map[string]int, len(ordered))
+	for i, s := range ordered {
+		indexByKey[s.Key] = i
+	}
+	firstIndex, ok := indexByKey[keys[0]]
+	if !ok {
+		return false
+	}
+	for i := 1; i < len(keys); i++ {
+		nextIndex, ok := indexByKey[keys[i]]
+		if !ok {
+			return false
+		}
+		if nextIndex != firstIndex+i {
+			return false
+		}
+	}
+	return true
+}
+
 // createGPUBooking godoc
 // @Summary      Create slot booking
 // @Description  Creates a CPU or GPU booking from code-defined categories and slot templates (API_GPU_SLOT_CONFIG_PROFILE)
@@ -72,8 +157,12 @@ func (app *application) createGPUBooking(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	req.Category = strings.TrimSpace(strings.ToLower(req.Category))
-	req.SlotKey = strings.TrimSpace(req.SlotKey)
 	req.SlotDate = strings.TrimSpace(req.SlotDate)
+	req.SlotKeys = normalizedSlotKeys(req.SlotKeys)
+	if len(req.SlotKeys) == 0 {
+		sendError(w, logger, http.StatusBadRequest, "slotKeys is required")
+		return
+	}
 
 	if errorMessage, gotError := getErrorMessageForNotebookName(req.NotebookName); gotError {
 		sendError(w, logger, http.StatusUnprocessableEntity, errorMessage)
@@ -86,12 +175,6 @@ func (app *application) createGPUBooking(w http.ResponseWriter, r *http.Request)
 		sendError(w, logger, http.StatusBadRequest, "Invalid category")
 		return
 	}
-	slotTemplate, ok := gpuconfig.GetGPUSlotTemplate(profile, req.Category, req.SlotKey)
-	if !ok {
-		sendError(w, logger, http.StatusBadRequest, "Invalid slot key for category")
-		return
-	}
-
 	// Category-aware access control:
 	// - If RequiredRole is set (e.g. GPU categories), enforce role.
 	// - If RequiresCredits is set, enforce profile credit gating.
@@ -106,17 +189,44 @@ func (app *application) createGPUBooking(w http.ResponseWriter, r *http.Request)
 		sendError(w, logger, http.StatusBadRequest, "slotDate must be in YYYY-MM-DD format")
 		return
 	}
-	slotStart, err := parseClockIST(slotDate, slotTemplate.StartTime)
+	if len(req.SlotKeys) > category.MaxContiguousSlotSelectionAllowed {
+		sendError(w, logger, http.StatusBadRequest, "Selected slots exceed max contiguous slot selection limit")
+		return
+	}
+	orderedTemplates, err := orderedTemplatesByStart(slotDate, category.Slots)
+	if err != nil {
+		sendError(w, logger, http.StatusBadRequest, "Invalid slot configuration for category")
+		return
+	}
+	if !isContiguousSelection(req.SlotKeys, orderedTemplates) {
+		sendError(w, logger, http.StatusBadRequest, "Selected slots must be contiguous and in chronological order")
+		return
+	}
+	templateByKey := make(map[string]gpuconfig.SlotTemplate, len(category.Slots))
+	for _, s := range category.Slots {
+		templateByKey[s.Key] = s
+	}
+	firstTemplate, ok := templateByKey[req.SlotKeys[0]]
+	if !ok {
+		sendError(w, logger, http.StatusBadRequest, "Invalid slot key for category")
+		return
+	}
+	lastTemplate, ok := templateByKey[req.SlotKeys[len(req.SlotKeys)-1]]
+	if !ok {
+		sendError(w, logger, http.StatusBadRequest, "Invalid slot key for category")
+		return
+	}
+	slotStart, err := parseClockIST(slotDate, firstTemplate.StartTime)
 	if err != nil {
 		sendError(w, logger, http.StatusBadRequest, "Invalid slot start time configuration")
 		return
 	}
-	slotEnd, err := parseClockIST(slotDate, slotTemplate.EndTime)
+	slotEnd, err := parseClockIST(slotDate, lastTemplate.EndTime)
 	if err != nil {
 		sendError(w, logger, http.StatusBadRequest, "Invalid slot end time configuration")
 		return
 	}
-	if slotTemplate.SpansMidnight || !slotEnd.After(slotStart) {
+	if lastTemplate.SpansMidnight || !slotEnd.After(slotStart) {
 		slotEnd = slotEnd.Add(24 * time.Hour)
 	}
 	nowIST := time.Now().In(istLocation())
@@ -124,8 +234,14 @@ func (app *application) createGPUBooking(w http.ResponseWriter, r *http.Request)
 		sendError(w, logger, http.StatusBadRequest, "Cannot book a slot in the past")
 		return
 	}
-	if !slotStart.After(nowIST) {
-		sendError(w, logger, http.StatusBadRequest, "Cannot book a slot that already started")
+	// Same calendar day (or future): allow only if the slot has not ended yet.
+	// - Before slotStart: early booking for a later window today (or any future date).
+	// - slotStart <= now < slotEnd: mid-window booking (e.g. 16:32 for 16:00–20:00).
+	// - now >= slotEnd: reject (e.g. at 16:32, 08:00–12:00 and 12:00–16:00 are closed).
+	allowBeforeSlot := nowIST.Before(slotStart)
+	allowMidSlot := !nowIST.Before(slotStart) && nowIST.Before(slotEnd)
+	if !allowBeforeSlot && !allowMidSlot {
+		sendError(w, logger, http.StatusBadRequest, "Cannot book a slot that has already ended")
 		return
 	}
 
@@ -213,23 +329,28 @@ func (app *application) createGPUBooking(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	var slotBooked int
 	slotCountQuery := fmt.Sprintf(`
 		SELECT COUNT(1)
 		FROM bookings
 		WHERE category_name = $1
-		  AND slot_key = $2
-		  AND slot_date = $3
+		  AND slot_date = $2
 		  AND status IN (%s)
+		  AND (
+		    slot_keys && $3::varchar[]
+		    OR (slot_keys = '{}'::varchar[] AND slot_key = ANY($3::varchar[]))
+		  )
 	`, activeStatusSQLList())
-	err = tx.QueryRow(ctx, slotCountQuery, req.Category, req.SlotKey, slotDate.Format("2006-01-02")).Scan(&slotBooked)
-	if err != nil {
-		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
-		return
-	}
-	if slotBooked >= category.MaxConcurrentUsers {
-		sendError(w, logger, http.StatusConflict, "Selected slot is full")
-		return
+	for _, selectedKey := range req.SlotKeys {
+		var slotBooked int
+		err = tx.QueryRow(ctx, slotCountQuery, req.Category, slotDate.Format("2006-01-02"), []string{selectedKey}).Scan(&slotBooked)
+		if err != nil {
+			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+			return
+		}
+		if slotBooked >= category.MaxConcurrentUsers {
+			sendError(w, logger, http.StatusConflict, fmt.Sprintf("Selected slot %s is full", selectedKey))
+			return
+		}
 	}
 
 	var userActiveCount int
@@ -290,9 +411,9 @@ func (app *application) createGPUBooking(w http.ResponseWriter, r *http.Request)
 
 	insertQuery := `
 		INSERT INTO bookings (
-			user_id, category_name, resource_type, slot_key, notebook_name, slot_date, slot_start, slot_end, status
+			user_id, category_name, resource_type, slot_key, slot_keys, notebook_name, slot_date, slot_start, slot_end, status
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, 'scheduled'
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, 'scheduled'
 		) RETURNING id
 	`
 	var bookingID int64
@@ -302,7 +423,8 @@ func (app *application) createGPUBooking(w http.ResponseWriter, r *http.Request)
 		userInfo.Sub,
 		req.Category,
 		category.ResourceType,
-		req.SlotKey,
+		req.SlotKeys[0],
+		req.SlotKeys,
 		req.NotebookName,
 		slotDate.Format("2006-01-02"),
 		slotStart,
@@ -326,6 +448,7 @@ func (app *application) createGPUBooking(w http.ResponseWriter, r *http.Request)
 		BookingID:    bookingID,
 		Status:       "scheduled",
 		SlotDate:     slotDate.Format("2006-01-02"),
+		SlotKeys:     req.SlotKeys,
 		SlotStart:    slotStart.Format(time.RFC3339),
 		SlotEnd:      slotEnd.Format(time.RFC3339),
 		NotebookName: req.NotebookName,
@@ -338,7 +461,7 @@ func (app *application) createGPUBooking(w http.ResponseWriter, r *http.Request)
 // @Description  Lists CPU and GPU slot bookings for the current user with optional status filter and pagination
 // @Tags         bookings
 // @Produce      json
-// @Param        status  query   string  false  "Comma-separated status filter"
+// @Param        status  query   string  false  "Comma-separated status filter, or 'all' to omit filtering"
 // @Param        limit   query   int     false  "Max rows (default 10, max 50)"
 // @Param        offset  query   int     false  "Pagination offset"
 // @Success      200  {object}  BookingsListResponse
@@ -381,7 +504,7 @@ func (app *application) listGPUBookings(w http.ResponseWriter, r *http.Request) 
 	//   then $n-1 = limit, $n = offset
 	args := []any{userInfo.Sub}
 	query := `
-		SELECT id, notebook_name, category_name, slot_key, status, slot_date, slot_start, slot_end, created_at
+		SELECT id, notebook_name, category_name, slot_key, slot_keys, status, slot_date, slot_start, slot_end, created_at
 		FROM bookings
 		WHERE user_id = $1
 	`
@@ -394,6 +517,11 @@ func (app *application) listGPUBookings(w http.ResponseWriter, r *http.Request) 
 				cleaned = append(cleaned, s)
 			}
 		}
+		// Frontends often send status=all to mean "no filter". The DB has no status
+		// value "all"; applying it would match zero rows.
+		if len(cleaned) == 1 && cleaned[0] == "all" {
+			cleaned = nil
+		}
 		if len(cleaned) > 0 {
 			// Cast to varchar[] to avoid any inference issues (status is VARCHAR).
 			query += fmt.Sprintf(" AND status = ANY($%d::varchar[])", len(args)+1)
@@ -402,7 +530,9 @@ func (app *application) listGPUBookings(w http.ResponseWriter, r *http.Request) 
 	}
 
 	args = append(args, limit, offset)
-	query += fmt.Sprintf(" ORDER BY slot_start ASC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+	// Newest bookings first so recent active/completed/cancelled items are visible
+	// on the first page when clients request status=all with a small limit.
+	query += fmt.Sprintf(" ORDER BY created_at DESC, id DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
 
 	rows, err := app.pgPool.Pool.Query(r.Context(), query, args...)
 	if err != nil {
@@ -419,31 +549,29 @@ func (app *application) listGPUBookings(w http.ResponseWriter, r *http.Request) 
 			notebookName string
 			categoryName string
 			slotKey      string
+			slotKeys     []string
 			status       string
 			slotDate     time.Time
 			slotStart    time.Time
 			slotEnd      time.Time
 			createdAt    time.Time
 		)
-		if err := rows.Scan(&id, &notebookName, &categoryName, &slotKey, &status, &slotDate, &slotStart, &slotEnd, &createdAt); err != nil {
+		if err := rows.Scan(&id, &notebookName, &categoryName, &slotKey, &slotKeys, &status, &slotDate, &slotStart, &slotEnd, &createdAt); err != nil {
 			sendError(w, logger, http.StatusInternalServerError, "Failed to list bookings")
 			return
+		}
+		if len(slotKeys) == 0 {
+			slotKeys = []string{slotKey}
 		}
 
 		displayName := categoryName
 		gpuMemory := ""
 		resourceType := ""
-		duration := ""
+		duration := bookingDurationLabel(profile, categoryName, slotKeys, slotStart, slotEnd)
 		if c, ok := gpuconfig.GetGPUCategory(profile, categoryName); ok {
 			displayName = c.DisplayName
 			gpuMemory = c.GPUMemory
 			resourceType = c.ResourceType
-		}
-		if s, ok := gpuconfig.GetGPUSlotTemplate(profile, categoryName, slotKey); ok {
-			duration = s.Label
-		}
-		if duration == "" {
-			duration = fmt.Sprintf("%.0f Hours", slotEnd.Sub(slotStart).Hours())
 		}
 
 		bookings = append(bookings, BookingListItem{
@@ -455,6 +583,7 @@ func (app *application) listGPUBookings(w http.ResponseWriter, r *http.Request) 
 			GPUMemory:    gpuMemory,
 			Status:       status,
 			SlotDate:     slotDate.Format("2006-01-02"),
+			SlotKeys:     slotKeys,
 			SlotStart:    slotStart.Format(time.RFC3339),
 			SlotEnd:      slotEnd.Format(time.RFC3339),
 			Duration:     duration,
@@ -511,12 +640,19 @@ func (app *application) listGPUAvailableSlots(w http.ResponseWriter, r *http.Req
 	rows, err := app.pgPool.Pool.Query(
 		r.Context(),
 		fmt.Sprintf(`
-			SELECT slot_key, COUNT(1)
-			FROM bookings
+			SELECT sk.slot_key, COUNT(1)
+			FROM bookings b,
+			     LATERAL unnest(
+			       CASE
+			         WHEN array_length(b.slot_keys, 1) IS NULL OR array_length(b.slot_keys, 1) = 0
+			           THEN ARRAY[b.slot_key]
+			         ELSE b.slot_keys
+			       END
+			     ) AS sk(slot_key)
 			WHERE category_name = $1
 			  AND slot_date = $2
 			  AND status IN (%s)
-			GROUP BY slot_key
+			GROUP BY sk.slot_key
 		`, activeStatusSQLList()),
 		categoryName,
 		slotDate.Format("2006-01-02"),
@@ -566,6 +702,9 @@ func (app *application) listGPUAvailableSlots(w http.ResponseWriter, r *http.Req
 			Availability:   availability,
 		})
 	}
+	sort.SliceStable(slots, func(i, j int) bool {
+		return slots[i].StartTime < slots[j].StartTime
+	})
 
 	sendResponseJson(w, logger, http.StatusOK, AvailableSlotsResponse{
 		Date:     slotDate.Format("2006-01-02"),
@@ -614,13 +753,20 @@ func (app *application) listGPUCalendarSlots(w http.ResponseWriter, r *http.Requ
 	rows, err := app.pgPool.Pool.Query(
 		r.Context(),
 		fmt.Sprintf(`
-			SELECT slot_date, COUNT(1)
-			FROM bookings
+			SELECT b.slot_date, COUNT(1)
+			FROM bookings b,
+			     LATERAL unnest(
+			       CASE
+			         WHEN array_length(b.slot_keys, 1) IS NULL OR array_length(b.slot_keys, 1) = 0
+			           THEN ARRAY[b.slot_key]
+			         ELSE b.slot_keys
+			       END
+			     ) AS sk(slot_key)
 			WHERE category_name = $1
 			  AND slot_date >= $2
 			  AND slot_date < $3
 			  AND status IN (%s)
-			GROUP BY slot_date
+			GROUP BY b.slot_date
 		`, activeStatusSQLList()),
 		categoryName,
 		monthStart.Format("2006-01-02"),
@@ -649,8 +795,25 @@ func (app *application) listGPUCalendarSlots(w http.ResponseWriter, r *http.Requ
 
 	days := make([]CalendarDay, 0, monthEnd.Day())
 	slotsPerDay := len(category.Slots) * category.MaxConcurrentUsers
+	nowIST := time.Now().In(istLocation())
+	todayStart := time.Date(nowIST.Year(), nowIST.Month(), nowIST.Day(), 0, 0, 0, 0, istLocation())
+	maxBookingDate := nowIST.AddDate(0, 0, category.AdvanceBookingDays)
+	maxBookingDayStart := time.Date(maxBookingDate.Year(), maxBookingDate.Month(), maxBookingDate.Day(), 0, 0, 0, 0, istLocation())
+	minBookingDate := nowIST.AddDate(0, 0, category.MinAdvanceBookingDays)
+	minBookingDayStart := time.Date(minBookingDate.Year(), minBookingDate.Month(), minBookingDate.Day(), 0, 0, 0, 0, istLocation())
 	for d := monthStart; d.Before(monthEnd); d = d.AddDate(0, 0, 1) {
 		ds := d.Format("2006-01-02")
+		// Keep calendar response aligned with booking creation constraints.
+		// A day outside the allowed booking window should not be shown as available.
+		if d.Before(todayStart) || d.Before(minBookingDayStart) || d.After(maxBookingDayStart) {
+			days = append(days, CalendarDay{
+				Date:            ds,
+				HasAvailability: false,
+				SlotsAvailable:  0,
+				SlotsTotal:      slotsPerDay,
+			})
+			continue
+		}
 		booked := bookedByDate[ds]
 		available := slotsPerDay - booked
 		if available < 0 {
@@ -729,6 +892,177 @@ func (app *application) cancelGPUBooking(w http.ResponseWriter, r *http.Request)
 	}
 
 	sendResponse(w, logger, http.StatusOK, "Booking cancelled successfully")
+}
+
+// extendGPUBooking godoc
+// @Summary      Extend active booking by one slot
+// @Description  Extends an active booking to the next contiguous slot if available
+// @Tags         bookings
+// @Produce      json
+// @Param        id  path  int  true  "Booking ID"
+// @Success      200  {object}  ExtendBookingResponse
+// @Failure      400  {object}  Error400
+// @Failure      401  {object}  Error401
+// @Failure      404  {object}  Error404
+// @Failure      409  {object}  Error409
+// @Failure      500  {object}  Error500
+// @Security     BearerAuth
+// @Router       /v1/bookings/{id}/extend [patch]
+func (app *application) extendGPUBooking(w http.ResponseWriter, r *http.Request) {
+	logger := getLogger(r)
+	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
+	if !ok {
+		sendResponse(w, logger, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	bookingIDRaw := r.PathValue("id")
+	bookingID, err := strconv.ParseInt(bookingIDRaw, 10, 64)
+	if err != nil || bookingID <= 0 {
+		sendError(w, logger, http.StatusBadRequest, "Invalid booking id")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	tx, err := app.pgPool.Pool.Begin(ctx)
+	if err != nil {
+		sendError(w, logger, http.StatusInternalServerError, "Failed to extend booking")
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	var (
+		status    string
+		category  string
+		slotDate  time.Time
+		slotStart time.Time
+		slotEnd   time.Time
+		slotKey   string
+		slotKeys  []string
+	)
+	err = tx.QueryRow(ctx, `
+		SELECT status, category_name, slot_date, slot_start, slot_end, slot_key, slot_keys
+		FROM bookings
+		WHERE id = $1 AND user_id = $2
+		FOR UPDATE
+	`, bookingID, userInfo.Sub).Scan(&status, &category, &slotDate, &slotStart, &slotEnd, &slotKey, &slotKeys)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			sendError(w, logger, http.StatusNotFound, "Booking not found")
+			return
+		}
+		sendError(w, logger, http.StatusInternalServerError, "Failed to extend booking")
+		return
+	}
+	if status != "active" {
+		sendError(w, logger, http.StatusBadRequest, "Only active bookings can be extended")
+		return
+	}
+	if len(slotKeys) == 0 {
+		slotKeys = []string{slotKey}
+	}
+
+	profile := app.env.NotebookConfig.SlotConfigProfile
+	cfgCategory, ok := gpuconfig.GetGPUCategory(profile, category)
+	if !ok {
+		sendError(w, logger, http.StatusBadRequest, "Invalid category")
+		return
+	}
+	if len(slotKeys) >= cfgCategory.MaxContiguousSlotSelectionAllowed {
+		sendError(w, logger, http.StatusBadRequest, "Maximum contiguous slot selection already reached")
+		return
+	}
+	orderedTemplates, err := orderedTemplatesByStart(slotDate.In(istLocation()), cfgCategory.Slots)
+	if err != nil {
+		sendError(w, logger, http.StatusInternalServerError, "Invalid slot configuration")
+		return
+	}
+	indexByKey := make(map[string]int, len(orderedTemplates))
+	for i, s := range orderedTemplates {
+		indexByKey[s.Key] = i
+	}
+	lastKey := slotKeys[len(slotKeys)-1]
+	lastIndex, ok := indexByKey[lastKey]
+	if !ok {
+		sendError(w, logger, http.StatusBadRequest, "Invalid slot sequence for booking")
+		return
+	}
+	if lastIndex+1 >= len(orderedTemplates) {
+		sendError(w, logger, http.StatusBadRequest, "No next contiguous slot available")
+		return
+	}
+	nextTemplate := orderedTemplates[lastIndex+1]
+	nextKey := nextTemplate.Key
+
+	var slotBooked int
+	slotCountQuery := fmt.Sprintf(`
+		SELECT COUNT(1)
+		FROM bookings
+		WHERE category_name = $1
+		  AND slot_date = $2
+		  AND status IN (%s)
+		  AND id <> $3
+		  AND (
+		    slot_keys && $4::varchar[]
+		    OR (slot_keys = '{}'::varchar[] AND slot_key = ANY($4::varchar[]))
+		  )
+	`, activeStatusSQLList())
+	err = tx.QueryRow(ctx, slotCountQuery, category, slotDate.Format("2006-01-02"), bookingID, []string{nextKey}).Scan(&slotBooked)
+	if err != nil {
+		sendError(w, logger, http.StatusInternalServerError, "Failed to extend booking")
+		return
+	}
+	if slotBooked >= cfgCategory.MaxConcurrentUsers {
+		sendError(w, logger, http.StatusConflict, "Next slot is full")
+		return
+	}
+
+	nextSlotStart, err := parseClockIST(slotDate.In(istLocation()), nextTemplate.StartTime)
+	if err != nil {
+		sendError(w, logger, http.StatusInternalServerError, "Invalid slot configuration")
+		return
+	}
+	newSlotEnd, err := parseClockIST(slotDate.In(istLocation()), nextTemplate.EndTime)
+	if err != nil {
+		sendError(w, logger, http.StatusInternalServerError, "Invalid slot configuration")
+		return
+	}
+	// Match create-booking semantics for midnight-spanning slots.
+	if nextTemplate.SpansMidnight || !newSlotEnd.After(nextSlotStart) {
+		newSlotEnd = newSlotEnd.Add(24 * time.Hour)
+	}
+	updatedSlotKeys := append(append([]string{}, slotKeys...), nextKey)
+
+	_, err = tx.Exec(ctx, `
+		UPDATE bookings
+		SET slot_keys = $1,
+		    slot_end = $2,
+		    shutdown_warning_sent_at = NULL
+		WHERE id = $3
+		  AND user_id = $4
+		  AND status = 'active'
+	`, updatedSlotKeys, newSlotEnd, bookingID, userInfo.Sub)
+	if err != nil {
+		sendError(w, logger, http.StatusInternalServerError, "Failed to extend booking")
+		return
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		sendError(w, logger, http.StatusInternalServerError, "Failed to extend booking")
+		return
+	}
+
+	sendResponseJson(w, logger, http.StatusOK, ExtendBookingResponse{
+		BookingID: bookingID,
+		Status:    "active",
+		SlotDate:  slotDate.Format("2006-01-02"),
+		SlotKeys:  updatedSlotKeys,
+		SlotStart: slotStart.Format(time.RFC3339),
+		SlotEnd:   newSlotEnd.Format(time.RFC3339),
+		Duration:  bookingDurationLabel(profile, category, updatedSlotKeys, slotStart, newSlotEnd),
+	})
 }
 
 // resetGPUBooking godoc
@@ -818,6 +1152,7 @@ func (app *application) resetGPUBooking(w http.ResponseWriter, r *http.Request) 
 			SELECT n.id, n.name, n.namespace, n.pvc_name
 			FROM notebooks n
 			WHERE n.id = $1
+			  AND n.events[array_upper(n.events, 1)] <> 'deleted'
 		`, *notebookID).Scan(&nbID, &nbName, &nbNS, &nbPVC); err == nil {
 			nbFound = true
 		}
@@ -827,6 +1162,7 @@ func (app *application) resetGPUBooking(w http.ResponseWriter, r *http.Request) 
 			SELECT n.id, n.name, n.namespace, n.pvc_name
 			FROM notebooks n
 			WHERE n.booking_id = $1
+			  AND n.events[array_upper(n.events, 1)] <> 'deleted'
 			ORDER BY n.id DESC
 			LIMIT 1
 		`, bookingID).Scan(&nbID, &nbName, &nbNS, &nbPVC); err == nil {
@@ -872,8 +1208,16 @@ func (app *application) resetGPUBooking(w http.ResponseWriter, r *http.Request) 
 		_ = app.deleteNotebookFromK8s(context.Background(), logger, nbNS, nbName)
 		_ = app.deletePVCFromK8s(context.Background(), logger, nbNS, nbPVC)
 
-		// Remove the linked DB row.
-		_, _ = app.pgPool.Pool.Exec(context.Background(), `DELETE FROM notebooks WHERE id=$1`, nbID)
+		// Soft-delete linked notebook metadata.
+		_, _ = app.pgPool.Pool.Exec(context.Background(), `
+			UPDATE notebooks
+			SET events = array_append(events, 'deleted'),
+			    name = name || '__deleted__' || id::text || '__' || extract(epoch from now())::bigint::text,
+			    pvc_name = pvc_name || '__deleted__' || id::text || '__' || extract(epoch from now())::bigint::text,
+			    booking_id = NULL
+			WHERE id = $1
+			  AND events[array_upper(events, 1)] <> 'deleted'
+		`, nbID)
 	}
 
 	sendResponse(w, logger, http.StatusOK, fmt.Sprintf("Booking reset successfully (%s -> %s)", dbStatus, targetStatus))
@@ -962,6 +1306,7 @@ func (app *application) terminateGPUBooking(w http.ResponseWriter, r *http.Reque
 			SELECT n.id, n.name, n.namespace, n.pvc_name
 			FROM notebooks n
 			WHERE n.id = $1
+			  AND n.events[array_upper(n.events, 1)] <> 'deleted'
 		`, *notebookID).Scan(&nbID, &nbName, &nbNS, &nbPVC); err == nil {
 			nbFound = true
 		}
@@ -971,6 +1316,7 @@ func (app *application) terminateGPUBooking(w http.ResponseWriter, r *http.Reque
 			SELECT n.id, n.name, n.namespace, n.pvc_name
 			FROM notebooks n
 			WHERE n.booking_id = $1
+			  AND n.events[array_upper(n.events, 1)] <> 'deleted'
 			ORDER BY n.id DESC
 			LIMIT 1
 		`, bookingID).Scan(&nbID, &nbName, &nbNS, &nbPVC); err == nil {
@@ -1000,7 +1346,15 @@ func (app *application) terminateGPUBooking(w http.ResponseWriter, r *http.Reque
 	if nbFound {
 		_ = app.deleteNotebookFromK8s(context.Background(), logger, nbNS, nbName)
 		_ = app.deletePVCFromK8s(context.Background(), logger, nbNS, nbPVC)
-		_, _ = app.pgPool.Pool.Exec(context.Background(), `DELETE FROM notebooks WHERE id=$1`, nbID)
+		_, _ = app.pgPool.Pool.Exec(context.Background(), `
+			UPDATE notebooks
+			SET events = array_append(events, 'deleted'),
+			    name = name || '__deleted__' || id::text || '__' || extract(epoch from now())::bigint::text,
+			    pvc_name = pvc_name || '__deleted__' || id::text || '__' || extract(epoch from now())::bigint::text,
+			    booking_id = NULL
+			WHERE id = $1
+			  AND events[array_upper(events, 1)] <> 'deleted'
+		`, nbID)
 	}
 
 	sendResponse(w, logger, http.StatusOK, "Booking terminated successfully")

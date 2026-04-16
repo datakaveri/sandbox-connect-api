@@ -50,7 +50,7 @@ func (app *application) checkNotebookExists(w http.ResponseWriter, r *http.Reque
 	}
 
 	var exists bool
-	query := `SELECT EXISTS(SELECT 1 FROM notebooks WHERE name = $1 AND namespace = $2)`
+	query := `SELECT EXISTS(SELECT 1 FROM notebooks WHERE name = $1 AND namespace = $2 AND events[array_upper(events, 1)] <> 'deleted')`
 	err := app.pgPool.Pool.QueryRow(r.Context(), query, notebookName, namespace).Scan(&exists)
 	if err != nil {
 		logger.Error("failed to check notebook existence", "error", err)
@@ -205,7 +205,7 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := tx.Query(ctx, "SELECT id, name, gpu_type, gpu_request, gpu_limit, events[array_upper(events, 1)] as latest_event FROM notebooks WHERE user_id = $1", userInfo.Sub)
+	rows, err := tx.Query(ctx, "SELECT id, name, gpu_type, gpu_request, gpu_limit, events[array_upper(events, 1)] as latest_event FROM notebooks WHERE user_id = $1 AND events[array_upper(events, 1)] <> 'deleted'", userInfo.Sub)
 	if err != nil {
 		logger.Error("failed to fetch notebooks for user", "error", err)
 		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
@@ -351,6 +351,7 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 		SELECT id, booking_id, events[array_upper(events, 1)] as latest_event, gpu_type, gpu_request, gpu_limit
 		FROM notebooks
 		WHERE name = $1 AND namespace = $2
+		  AND events[array_upper(events, 1)] <> 'deleted'
 	`
 	var notebookRowID int64
 	var notebookBookingID *int64
@@ -372,8 +373,9 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var blockingBookingID int64
+	var blockingBookingStatus string
 	err = app.pgPool.Pool.QueryRow(ctx, `
-		SELECT id FROM bookings
+		SELECT id, status FROM bookings
 		WHERE user_id = $1
 		  AND status IN ('scheduled', 'ready', 'active', 'shutting_down')
 		  AND (
@@ -381,18 +383,69 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 		    OR notebook_id = $3
 		  )
 		LIMIT 1
-	`, userInfo.Sub, notebookBookingID, notebookRowID).Scan(&blockingBookingID)
+	`, userInfo.Sub, notebookBookingID, notebookRowID).Scan(&blockingBookingID, &blockingBookingStatus)
 	if err != nil && err != pgx.ErrNoRows {
 		logger.Error("failed to check booking link for notebook delete", "error", err)
 		sendError(w, logger, http.StatusInternalServerError, "Failed to delete notebook")
 		return
 	}
 	if err == nil {
-		msg := fmt.Sprintf(
-			"Notebook is linked to booking %d. Use PATCH /v1/bookings/%d/cancel while scheduled, or PATCH /v1/bookings/%d/terminate when ready, active, or shutting down.",
-			blockingBookingID, blockingBookingID, blockingBookingID)
-		sendError(w, logger, http.StatusConflict, msg)
-		return
+		switch blockingBookingStatus {
+		case "scheduled":
+			result, updateErr := app.pgPool.Pool.Exec(ctx, `
+				UPDATE bookings
+				SET status = 'cancelled',
+				    notebook_id = NULL
+				WHERE id = $1
+				  AND user_id = $2
+				  AND status = 'scheduled'
+			`, blockingBookingID, userInfo.Sub)
+			if updateErr != nil {
+				logger.Error("failed to auto-cancel linked booking during notebook delete",
+					"booking_id", blockingBookingID,
+					"error", updateErr)
+				sendError(w, logger, http.StatusInternalServerError, "Failed to delete notebook")
+				return
+			}
+			if result.RowsAffected() == 0 {
+				logger.Error("linked booking state changed while deleting notebook",
+					"booking_id", blockingBookingID,
+					"expected_status", "scheduled")
+				sendError(w, logger, http.StatusConflict, "Booking state changed while deleting notebook; please retry")
+				return
+			}
+		case "ready", "active", "shutting_down":
+			result, updateErr := app.pgPool.Pool.Exec(ctx, `
+				UPDATE bookings
+				SET status = 'completed',
+				    session_ended_at = NOW(),
+				    cleanup_completed_at = NOW(),
+				    notebook_id = NULL
+				WHERE id = $1
+				  AND user_id = $2
+				  AND status IN ('ready', 'active', 'shutting_down')
+			`, blockingBookingID, userInfo.Sub)
+			if updateErr != nil {
+				logger.Error("failed to auto-terminate linked booking during notebook delete",
+					"booking_id", blockingBookingID,
+					"error", updateErr)
+				sendError(w, logger, http.StatusInternalServerError, "Failed to delete notebook")
+				return
+			}
+			if result.RowsAffected() == 0 {
+				logger.Error("linked booking state changed while deleting notebook",
+					"booking_id", blockingBookingID,
+					"expected_status", "ready|active|shutting_down")
+				sendError(w, logger, http.StatusConflict, "Booking state changed while deleting notebook; please retry")
+				return
+			}
+		default:
+			logger.Error("unexpected linked booking status while deleting notebook",
+				"booking_id", blockingBookingID,
+				"status", blockingBookingStatus)
+			sendError(w, logger, http.StatusConflict, "Cannot delete notebook due to linked booking state")
+			return
+		}
 	}
 
 	// Set sandbox type for audit logging
@@ -409,8 +462,17 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deleteQuery := `DELETE FROM notebooks WHERE name = $1 AND namespace = $2`
-	_, err = app.pgPool.Pool.Exec(ctx, deleteQuery, deleteReq.Name, namespace)
+	softDeleteQuery := `
+		UPDATE notebooks
+		SET events = array_append(events, 'deleted'),
+		    name = name || '__deleted__' || id::text || '__' || extract(epoch from now())::bigint::text,
+		    pvc_name = pvc_name || '__deleted__' || id::text || '__' || extract(epoch from now())::bigint::text,
+		    booking_id = NULL
+		WHERE name = $1
+		  AND namespace = $2
+		  AND events[array_upper(events, 1)] <> 'deleted'
+	`
+	_, err = app.pgPool.Pool.Exec(ctx, softDeleteQuery, deleteReq.Name, namespace)
 	if err != nil {
 		sendError(w, logger, http.StatusInternalServerError, "Failed to delete notebook")
 		return
@@ -578,6 +640,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 				gpu_type, gpu_request, gpu_limit, instance_type, template_name, events, created_at, booking_id
 			FROM notebooks
 			WHERE namespace = $1 AND created_at >= $2 AND created_at <= $3
+			  AND events[array_upper(events, 1)] <> 'deleted'
 			%s
 			LIMIT $4 OFFSET $5`, orderClause)
 		logger.Debug("executing filtered query",
@@ -594,6 +657,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 				gpu_type, gpu_request, gpu_limit, instance_type, template_name, events, created_at, booking_id
 			FROM notebooks
 			WHERE namespace = $1
+			  AND events[array_upper(events, 1)] <> 'deleted'
 			%s
 			LIMIT $2 OFFSET $3`, orderClause)
 		logger.Debug("executing unfiltered query",
@@ -647,7 +711,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		}
 		bookingRows, err := app.pgPool.Pool.Query(
 			ctx,
-			`SELECT notebook_id, id, status, category_name, slot_key, slot_date, slot_start, slot_end
+			`SELECT notebook_id, id, status, category_name, slot_key, slot_keys, slot_date, slot_start, slot_end
 			 FROM bookings
 			 WHERE notebook_id = ANY($1::bigint[])`,
 			notebookIDs,
@@ -666,25 +730,25 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 			var status string
 			var categoryName string
 			var slotKey string
+			var slotKeys []string
 			var slotDate time.Time
 			var slotStart time.Time
 			var slotEnd time.Time
-			if err := bookingRows.Scan(&notebookID, &bookingID, &status, &categoryName, &slotKey, &slotDate, &slotStart, &slotEnd); err != nil {
+			if err := bookingRows.Scan(&notebookID, &bookingID, &status, &categoryName, &slotKey, &slotKeys, &slotDate, &slotStart, &slotEnd); err != nil {
 				logger.Error("failed to scan gpu booking row", "error", err)
 				sendError(w, logger, http.StatusInternalServerError, "Failed to fetch notebooks")
 				return
 			}
+			if len(slotKeys) == 0 {
+				slotKeys = []string{slotKey}
+			}
 			displayName := categoryName
 			gpuMemory := ""
 			resourceType := ""
-			duration := fmt.Sprintf("%.0f Hours", slotEnd.Sub(slotStart).Hours())
 			if c, ok := gpuconfig.GetGPUCategory(profile, categoryName); ok {
 				displayName = c.DisplayName
 				gpuMemory = c.GPUMemory
 				resourceType = c.ResourceType
-			}
-			if s, ok := gpuconfig.GetGPUSlotTemplate(profile, categoryName, slotKey); ok {
-				duration = s.Label
 			}
 			bookingByNotebookID[notebookID] = &NotebookBooking{
 				ID:          bookingID,
@@ -694,9 +758,10 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 				DisplayName: displayName,
 				GPUMemory:   gpuMemory,
 				SlotDate:    slotDate.Format("2006-01-02"),
+				SlotKeys:    slotKeys,
 				SlotStart:   slotStart.Format(time.RFC3339),
 				SlotEnd:     slotEnd.Format(time.RFC3339),
-				Duration:    duration,
+				Duration:    bookingDurationLabel(profile, categoryName, slotKeys, slotStart, slotEnd),
 			}
 		}
 		if err := bookingRows.Err(); err != nil {
@@ -877,7 +942,8 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 			cpu_request, cpu_limit, memory_request, memory_limit,
 			gpu_type, gpu_request, gpu_limit, instance_type, template_name, events, created_at, booking_id
 		FROM notebooks
-		WHERE namespace= $1 and name = $2`
+		WHERE namespace= $1 and name = $2
+		  AND events[array_upper(events, 1)] <> 'deleted'`
 
 	err := app.pgPool.Pool.QueryRow(ctx, query, namespace, notebookName).Scan(
 		&status.ID,
@@ -939,23 +1005,22 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 		var slotDate, slotStart, slotEnd time.Time
 		err := app.pgPool.Pool.QueryRow(
 			ctx,
-			`SELECT id, status, category_name, slot_key, slot_date, slot_start, slot_end
+			`SELECT id, status, category_name, slot_key, slot_keys, slot_date, slot_start, slot_end
 			 FROM bookings
 			 WHERE id = $1`,
 			*bookingID,
-		).Scan(&booking.ID, &booking.Status, &categoryName, &slotKey, &slotDate, &slotStart, &slotEnd)
+		).Scan(&booking.ID, &booking.Status, &categoryName, &slotKey, &booking.SlotKeys, &slotDate, &slotStart, &slotEnd)
 		if err == nil {
+			if len(booking.SlotKeys) == 0 {
+				booking.SlotKeys = []string{slotKey}
+			}
 			displayName := categoryName
 			gpuMemory := ""
 			resourceType := ""
-			duration := fmt.Sprintf("%.0f Hours", slotEnd.Sub(slotStart).Hours())
 			if c, ok := gpuconfig.GetGPUCategory(profile, categoryName); ok {
 				displayName = c.DisplayName
 				gpuMemory = c.GPUMemory
 				resourceType = c.ResourceType
-			}
-			if s, ok := gpuconfig.GetGPUSlotTemplate(profile, categoryName, slotKey); ok {
-				duration = s.Label
 			}
 
 			booking.Category = categoryName
@@ -965,7 +1030,7 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 			booking.SlotDate = slotDate.Format("2006-01-02")
 			booking.SlotStart = slotStart.Format(time.RFC3339)
 			booking.SlotEnd = slotEnd.Format(time.RFC3339)
-			booking.Duration = duration
+			booking.Duration = bookingDurationLabel(profile, categoryName, booking.SlotKeys, slotStart, slotEnd)
 			status.Booking = &booking
 		}
 	}

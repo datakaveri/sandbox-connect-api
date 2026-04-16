@@ -25,6 +25,7 @@ type GPUCategory struct {
 	MinAdvanceBookingDays   int
 	NoShowGraceMins         int
 	MaxConcurrentUsers      int
+	MaxContiguousSlotSelectionAllowed int
 
 	// Access control
 	// When true, the booking requires profile credit gating (existing can_create_gpu_notebook).
@@ -68,12 +69,13 @@ var GPUSlotConfigs = map[string]GPUSlotConfigProfile{
 				InstanceType:            "",
 				GPUMemory:               "",
 				// CPU booking rules
-				MaxActiveBookings:       1,
+				MaxActiveBookings:       2,
 				MaxBookingsPerWeek:      7,
 				AdvanceBookingDays:      30,
 				MinAdvanceBookingDays:   0,
 				NoShowGraceMins:         15,
 				MaxConcurrentUsers:      2,
+				MaxContiguousSlotSelectionAllowed: 2,
 				RequiresCredits:         false,
 				RequiredRole:            "",
 				// CPU resources
@@ -88,9 +90,11 @@ var GPUSlotConfigs = map[string]GPUSlotConfigProfile{
 				SortOrder:               1,
 				Slots: []SlotTemplate{
 					{Key: "cpu_basic_08:00", Label: "4h Session", StartTime: "08:00", EndTime: "12:00", DurationHours: 4},
-					{Key: "cpu_basic_14:00", Label: "4h Session", StartTime: "14:00", EndTime: "18:00", DurationHours: 4},
+					{Key: "cpu_basic_12:00", Label: "4h Session", StartTime: "12:00", EndTime: "16:00", DurationHours: 4},
+					{Key: "cpu_basic_16:00", Label: "4h Session", StartTime: "16:00", EndTime: "20:00", DurationHours: 4},
 					{Key: "cpu_basic_20:00", Label: "4h Session", StartTime: "20:00", EndTime: "00:00", DurationHours: 4, SpansMidnight: true},
-					{Key: "cpu_basic_02:00", Label: "4h Session", StartTime: "02:00", EndTime: "06:00", DurationHours: 4},
+					{Key: "cpu_basic_00:00", Label: "4h Session", StartTime: "00:00", EndTime: "04:00", DurationHours: 4},
+					{Key: "cpu_basic_04:00", Label: "4h Session", StartTime: "04:00", EndTime: "08:00", DurationHours: 4},
 				},
 			},
 			{
@@ -106,15 +110,16 @@ var GPUSlotConfigs = map[string]GPUSlotConfigProfile{
 				MinAdvanceBookingDays:   3,
 				NoShowGraceMins:         15,
 				MaxConcurrentUsers:      8,
+				MaxContiguousSlotSelectionAllowed: 2,
 				RequiresCredits:         true,
 				RequiredRole:            "compute",
 				GPUType:                 "nvidia.com/gpu",
 				GPURequest:              1,
 				GPULimit:                1,
-				CPURequest:              "3",
-				CPULimit:                "3.9",
-				MemoryRequest:           "12Gi",
-				MemoryLimit:             "14Gi",
+				CPURequest:              "2",
+				CPULimit:                "3",
+				MemoryRequest:           "8Gi",
+				MemoryLimit:             "10Gi",
 				StorageSize:             "50Gi",
 				PreShutdownWarningMins:  15,
 				ShutdownGracePeriodMins: 5,
@@ -136,24 +141,27 @@ var GPUSlotConfigs = map[string]GPUSlotConfigProfile{
 				MinAdvanceBookingDays:   0,
 				NoShowGraceMins:         15,
 				MaxConcurrentUsers:      28,
+				MaxContiguousSlotSelectionAllowed: 2,
 				RequiresCredits:         true,
 				RequiredRole:            "compute",
 				GPUType:                 "nvidia.com/gpu",
 				GPURequest:              1,
 				GPULimit:                1,
-				CPURequest:              "3",
-				CPULimit:                "3.9",
-				MemoryRequest:           "12Gi",
-				MemoryLimit:             "14Gi",
+				CPURequest:              "2",
+				CPULimit:                "3",
+				MemoryRequest:           "8Gi",
+				MemoryLimit:             "10Gi",
 				StorageSize:             "50Gi",
 				PreShutdownWarningMins:  15,
 				ShutdownGracePeriodMins: 5,
 				SortOrder:               10,
 				Slots: []SlotTemplate{
 					{Key: "basic_08:00", Label: "4h Session", StartTime: "08:00", EndTime: "12:00", DurationHours: 4},
-					{Key: "basic_14:00", Label: "4h Session", StartTime: "14:00", EndTime: "18:00", DurationHours: 4},
+					{Key: "basic_12:00", Label: "4h Session", StartTime: "12:00", EndTime: "16:00", DurationHours: 4},
+					{Key: "basic_16:00", Label: "4h Session", StartTime: "16:00", EndTime: "20:00", DurationHours: 4},
 					{Key: "basic_20:00", Label: "4h Session", StartTime: "20:00", EndTime: "00:00", DurationHours: 4, SpansMidnight: true},
-					{Key: "basic_02:00", Label: "4h Session", StartTime: "02:00", EndTime: "06:00", DurationHours: 4},
+					{Key: "basic_00:00", Label: "4h Session", StartTime: "00:00", EndTime: "04:00", DurationHours: 4},
+					{Key: "basic_04:00", Label: "4h Session", StartTime: "04:00", EndTime: "08:00", DurationHours: 4},
 				},
 			},
 		},
@@ -198,6 +206,9 @@ func ValidateGPUSlotConfigProfile(profile string) error {
 
 		if len(category.Slots) == 0 {
 			return fmt.Errorf("gpu category %s has no slots", category.Name)
+		}
+		if category.MaxContiguousSlotSelectionAllowed <= 0 {
+			return fmt.Errorf("gpu category %s must have MaxContiguousSlotSelectionAllowed > 0", category.Name)
 		}
 
 		seenSlot := map[string]struct{}{}

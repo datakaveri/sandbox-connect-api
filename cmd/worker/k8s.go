@@ -316,24 +316,28 @@ func (w *worker) CreateNotebook() error {
 	if utils.CheckGPUResource(nb.GPUType, nb.GPURequest, nb.GPULimit) {
 		imageName = w.app.env.GPU_NOTEBOOK_IMAGE
 		limit = map[string]any{
-			"cpu":       fmt.Sprintf("%.6f", nb.CPULimit),
-			"memory":    nb.MemoryLimit,
-			*nb.GPUType: *nb.GPULimit,
+			"cpu":               fmt.Sprintf("%.6f", nb.CPULimit),
+			"memory":            nb.MemoryLimit,
+			"ephemeral-storage": "10Gi",
+			*nb.GPUType:         *nb.GPULimit,
 		}
 		request = map[string]any{
-			"cpu":       fmt.Sprintf("%.6f", nb.CPURequest),
-			"memory":    nb.MemoryRequest,
-			*nb.GPUType: *nb.GPURequest,
+			"cpu":               fmt.Sprintf("%.6f", nb.CPURequest),
+			"memory":            nb.MemoryRequest,
+			"ephemeral-storage": "1Gi",
+			*nb.GPUType:         *nb.GPURequest,
 		}
 	} else {
 		imageName = w.app.env.CPU_NOTEBOOK_IMAGE
 		limit = map[string]any{
-			"cpu":    fmt.Sprintf("%.6f", nb.CPULimit),
-			"memory": nb.MemoryLimit,
+			"cpu":               fmt.Sprintf("%.6f", nb.CPULimit),
+			"memory":            nb.MemoryLimit,
+			"ephemeral-storage": "10Gi",
 		}
 		request = map[string]any{
-			"cpu":    fmt.Sprintf("%.6f", nb.CPURequest),
-			"memory": nb.MemoryRequest,
+			"cpu":               fmt.Sprintf("%.6f", nb.CPURequest),
+			"memory":            nb.MemoryRequest,
+			"ephemeral-storage": "1Gi",
 		}
 	}
 

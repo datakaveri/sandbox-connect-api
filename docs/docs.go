@@ -36,7 +36,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Comma-separated status filter",
+                        "description": "Comma-separated status filter, or 'all' to omit filtering",
                         "name": "status",
                         "in": "query"
                     },
@@ -57,25 +57,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.BookingsListResponse"
+                            "$ref": "#/definitions/main.BookingsListResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error401"
+                            "$ref": "#/definitions/main.Error401"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error429"
+                            "$ref": "#/definitions/main.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error500"
+                            "$ref": "#/definitions/main.Error500"
                         }
                     }
                 }
@@ -104,7 +104,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.CreateBookingRequest"
+                            "$ref": "#/definitions/main.CreateBookingRequest"
                         }
                     }
                 ],
@@ -112,49 +112,49 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.CreateBookingResponse"
+                            "$ref": "#/definitions/main.CreateBookingResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error400"
+                            "$ref": "#/definitions/main.Error400"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error403"
+                            "$ref": "#/definitions/main.Error403"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error404"
+                            "$ref": "#/definitions/main.Error404"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error409"
+                            "$ref": "#/definitions/main.Error409"
                         }
                     },
                     "422": {
                         "description": "Unprocessable Entity",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error422"
+                            "$ref": "#/definitions/main.Error422"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error429"
+                            "$ref": "#/definitions/main.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error500"
+                            "$ref": "#/definitions/main.Error500"
                         }
                     }
                 }
@@ -188,37 +188,101 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.SwaggerMessageResponse"
+                            "$ref": "#/definitions/main.SwaggerMessageResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error400"
+                            "$ref": "#/definitions/main.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error401"
+                            "$ref": "#/definitions/main.Error401"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error404"
+                            "$ref": "#/definitions/main.Error404"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error429"
+                            "$ref": "#/definitions/main.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error500"
+                            "$ref": "#/definitions/main.Error500"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/bookings/{id}/extend": {
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Extends an active booking to the next contiguous slot if available",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bookings"
+                ],
+                "summary": "Extend active booking by one slot",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Booking ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/main.ExtendBookingResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error400"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error401"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error404"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error409"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error500"
                         }
                     }
                 }
@@ -252,31 +316,31 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.SwaggerMessageResponse"
+                            "$ref": "#/definitions/main.SwaggerMessageResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error400"
+                            "$ref": "#/definitions/main.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error401"
+                            "$ref": "#/definitions/main.Error401"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error404"
+                            "$ref": "#/definitions/main.Error404"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error500"
+                            "$ref": "#/definitions/main.Error500"
                         }
                     }
                 }
@@ -310,31 +374,31 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.SwaggerMessageResponse"
+                            "$ref": "#/definitions/main.SwaggerMessageResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error400"
+                            "$ref": "#/definitions/main.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error401"
+                            "$ref": "#/definitions/main.Error401"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error404"
+                            "$ref": "#/definitions/main.Error404"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error500"
+                            "$ref": "#/definitions/main.Error500"
                         }
                     }
                 }
@@ -359,25 +423,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.CategoriesResponse"
+                            "$ref": "#/definitions/main.CategoriesResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error401"
+                            "$ref": "#/definitions/main.Error401"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error429"
+                            "$ref": "#/definitions/main.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error500"
+                            "$ref": "#/definitions/main.Error500"
                         }
                     }
                 }
@@ -411,31 +475,31 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.SwaggerExistsResponse"
+                            "$ref": "#/definitions/main.SwaggerExistsResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error400"
+                            "$ref": "#/definitions/main.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error401"
+                            "$ref": "#/definitions/main.Error401"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error429"
+                            "$ref": "#/definitions/main.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error500"
+                            "$ref": "#/definitions/main.Error500"
                         }
                     }
                 }
@@ -466,7 +530,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.DeleteNotebookRequest"
+                            "$ref": "#/definitions/main.DeleteNotebookRequest"
                         }
                     }
                 ],
@@ -474,43 +538,43 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.SwaggerMessageResponse"
+                            "$ref": "#/definitions/main.SwaggerMessageResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error401"
+                            "$ref": "#/definitions/main.Error401"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error404"
+                            "$ref": "#/definitions/main.Error404"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error409"
+                            "$ref": "#/definitions/main.Error409"
                         }
                     },
                     "422": {
                         "description": "Unprocessable Entity",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error422"
+                            "$ref": "#/definitions/main.Error422"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error429"
+                            "$ref": "#/definitions/main.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error500"
+                            "$ref": "#/definitions/main.Error500"
                         }
                     }
                 }
@@ -535,25 +599,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.NotebookInstanceTypesResponse"
+                            "$ref": "#/definitions/main.NotebookInstanceTypesResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error401"
+                            "$ref": "#/definitions/main.Error401"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error429"
+                            "$ref": "#/definitions/main.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error500"
+                            "$ref": "#/definitions/main.Error500"
                         }
                     }
                 }
@@ -604,31 +668,31 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.NotebookListResponse"
+                            "$ref": "#/definitions/main.NotebookListResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error400"
+                            "$ref": "#/definitions/main.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error401"
+                            "$ref": "#/definitions/main.Error401"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error429"
+                            "$ref": "#/definitions/main.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error500"
+                            "$ref": "#/definitions/main.Error500"
                         }
                     }
                 }
@@ -659,7 +723,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.StartNotebookRequest"
+                            "$ref": "#/definitions/main.StartNotebookRequest"
                         }
                     }
                 ],
@@ -667,37 +731,37 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.SwaggerMessageResponse"
+                            "$ref": "#/definitions/main.SwaggerMessageResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error401"
+                            "$ref": "#/definitions/main.Error401"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error404"
+                            "$ref": "#/definitions/main.Error404"
                         }
                     },
                     "422": {
                         "description": "Unprocessable Entity",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error422"
+                            "$ref": "#/definitions/main.Error422"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error429"
+                            "$ref": "#/definitions/main.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error500"
+                            "$ref": "#/definitions/main.Error500"
                         }
                     }
                 }
@@ -731,31 +795,31 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.NotebookStatus"
+                            "$ref": "#/definitions/main.NotebookStatus"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error401"
+                            "$ref": "#/definitions/main.Error401"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error404"
+                            "$ref": "#/definitions/main.Error404"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error429"
+                            "$ref": "#/definitions/main.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error500"
+                            "$ref": "#/definitions/main.Error500"
                         }
                     }
                 }
@@ -786,7 +850,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.StopNotebookRequest"
+                            "$ref": "#/definitions/main.StopNotebookRequest"
                         }
                     }
                 ],
@@ -794,43 +858,43 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.SwaggerMessageResponse"
+                            "$ref": "#/definitions/main.SwaggerMessageResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error400"
+                            "$ref": "#/definitions/main.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error401"
+                            "$ref": "#/definitions/main.Error401"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error404"
+                            "$ref": "#/definitions/main.Error404"
                         }
                     },
                     "422": {
                         "description": "Unprocessable Entity",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error422"
+                            "$ref": "#/definitions/main.Error422"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error429"
+                            "$ref": "#/definitions/main.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error500"
+                            "$ref": "#/definitions/main.Error500"
                         }
                     }
                 }
@@ -858,31 +922,31 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.SwaggerMessageResponse"
+                            "$ref": "#/definitions/main.SwaggerMessageResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error401"
+                            "$ref": "#/definitions/main.Error401"
                         }
                     },
                     "422": {
                         "description": "Unprocessable Entity",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error422"
+                            "$ref": "#/definitions/main.Error422"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error429"
+                            "$ref": "#/definitions/main.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error500"
+                            "$ref": "#/definitions/main.Error500"
                         }
                     }
                 }
@@ -923,31 +987,31 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.AvailableSlotsResponse"
+                            "$ref": "#/definitions/main.AvailableSlotsResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error400"
+                            "$ref": "#/definitions/main.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error401"
+                            "$ref": "#/definitions/main.Error401"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error429"
+                            "$ref": "#/definitions/main.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error500"
+                            "$ref": "#/definitions/main.Error500"
                         }
                     }
                 }
@@ -988,31 +1052,31 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.CalendarResponse"
+                            "$ref": "#/definitions/main.CalendarResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error400"
+                            "$ref": "#/definitions/main.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error401"
+                            "$ref": "#/definitions/main.Error401"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error429"
+                            "$ref": "#/definitions/main.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/cmd_api.Error500"
+                            "$ref": "#/definitions/main.Error500"
                         }
                     }
                 }
@@ -1020,7 +1084,36 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "cmd_api.AvailableSlot": {
+        "constants.Events": {
+            "type": "string",
+            "enum": [
+                "picked",
+                "pvc-applied",
+                "pvc-apply-failed",
+                "pvc-created",
+                "pvc-creation-failed",
+                "pvc-upload-successful",
+                "pvc-upload-applied",
+                "pvc-upload-apply-failed",
+                "pvc-upload-failed",
+                "notebook-applied",
+                "notebook-apply-failed"
+            ],
+            "x-enum-varnames": [
+                "StatusPicked",
+                "StatusPVCApplied",
+                "StatusPVCApplyFailed",
+                "StatusPVCCreated",
+                "StatusPVCCreationFailed",
+                "StatusPVCUploadSuccessful",
+                "StatusPVCUploadApplied",
+                "StatusPVCUploadApplyFailed",
+                "StatusPVCUploadFailed",
+                "StatusNotebookApplied",
+                "StatusNotebookApplyFailed"
+            ]
+        },
+        "main.AvailableSlot": {
             "type": "object",
             "properties": {
                 "availability": {
@@ -1049,7 +1142,7 @@ const docTemplate = `{
                 }
             }
         },
-        "cmd_api.AvailableSlotsResponse": {
+        "main.AvailableSlotsResponse": {
             "type": "object",
             "properties": {
                 "category": {
@@ -1064,12 +1157,12 @@ const docTemplate = `{
                 "slots": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/cmd_api.AvailableSlot"
+                        "$ref": "#/definitions/main.AvailableSlot"
                     }
                 }
             }
         },
-        "cmd_api.BookingListItem": {
+        "main.BookingListItem": {
             "type": "object",
             "properties": {
                 "category": {
@@ -1102,6 +1195,12 @@ const docTemplate = `{
                 "slotEnd": {
                     "type": "string"
                 },
+                "slotKeys": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "slotStart": {
                     "type": "string"
                 },
@@ -1110,13 +1209,13 @@ const docTemplate = `{
                 }
             }
         },
-        "cmd_api.BookingsListResponse": {
+        "main.BookingsListResponse": {
             "type": "object",
             "properties": {
                 "bookings": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/cmd_api.BookingListItem"
+                        "$ref": "#/definitions/main.BookingListItem"
                     }
                 },
                 "nextOffset": {
@@ -1124,7 +1223,7 @@ const docTemplate = `{
                 }
             }
         },
-        "cmd_api.CalendarDay": {
+        "main.CalendarDay": {
             "type": "object",
             "properties": {
                 "date": {
@@ -1141,7 +1240,7 @@ const docTemplate = `{
                 }
             }
         },
-        "cmd_api.CalendarResponse": {
+        "main.CalendarResponse": {
             "type": "object",
             "properties": {
                 "category": {
@@ -1150,7 +1249,7 @@ const docTemplate = `{
                 "days": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/cmd_api.CalendarDay"
+                        "$ref": "#/definitions/main.CalendarDay"
                     }
                 },
                 "month": {
@@ -1161,18 +1260,18 @@ const docTemplate = `{
                 }
             }
         },
-        "cmd_api.CategoriesResponse": {
+        "main.CategoriesResponse": {
             "type": "object",
             "properties": {
                 "categories": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/cmd_api.CategoryResponse"
+                        "$ref": "#/definitions/main.CategoryResponse"
                     }
                 }
             }
         },
-        "cmd_api.CategoryResponse": {
+        "main.CategoryResponse": {
             "type": "object",
             "properties": {
                 "advanceBookingDays": {
@@ -1223,18 +1322,18 @@ const docTemplate = `{
                 "slots": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/cmd_api.SlotTemplateResponse"
+                        "$ref": "#/definitions/main.SlotTemplateResponse"
                     }
                 }
             }
         },
-        "cmd_api.CreateBookingRequest": {
+        "main.CreateBookingRequest": {
             "type": "object",
             "required": [
                 "category",
                 "notebookName",
                 "slotDate",
-                "slotKey"
+                "slotKeys"
             ],
             "properties": {
                 "category": {
@@ -1246,12 +1345,16 @@ const docTemplate = `{
                 "slotDate": {
                     "type": "string"
                 },
-                "slotKey": {
-                    "type": "string"
+                "slotKeys": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
-        "cmd_api.CreateBookingResponse": {
+        "main.CreateBookingResponse": {
             "type": "object",
             "properties": {
                 "bookingId": {
@@ -1269,6 +1372,12 @@ const docTemplate = `{
                 "slotEnd": {
                     "type": "string"
                 },
+                "slotKeys": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "slotStart": {
                     "type": "string"
                 },
@@ -1277,7 +1386,7 @@ const docTemplate = `{
                 }
             }
         },
-        "cmd_api.DeleteNotebookRequest": {
+        "main.DeleteNotebookRequest": {
             "type": "object",
             "required": [
                 "name"
@@ -1290,7 +1399,7 @@ const docTemplate = `{
                 }
             }
         },
-        "cmd_api.Error400": {
+        "main.Error400": {
             "description": "Response for bad request errors",
             "type": "object",
             "properties": {
@@ -1305,7 +1414,7 @@ const docTemplate = `{
                 }
             }
         },
-        "cmd_api.Error401": {
+        "main.Error401": {
             "description": "Response for authentication errors",
             "type": "object",
             "properties": {
@@ -1320,7 +1429,7 @@ const docTemplate = `{
                 }
             }
         },
-        "cmd_api.Error403": {
+        "main.Error403": {
             "description": "Response for permission errors",
             "type": "object",
             "properties": {
@@ -1335,7 +1444,7 @@ const docTemplate = `{
                 }
             }
         },
-        "cmd_api.Error404": {
+        "main.Error404": {
             "description": "Response for resource not found errors",
             "type": "object",
             "properties": {
@@ -1350,7 +1459,7 @@ const docTemplate = `{
                 }
             }
         },
-        "cmd_api.Error409": {
+        "main.Error409": {
             "description": "Response for resource conflict errors",
             "type": "object",
             "properties": {
@@ -1365,7 +1474,7 @@ const docTemplate = `{
                 }
             }
         },
-        "cmd_api.Error422": {
+        "main.Error422": {
             "description": "Response for invalid request body errors",
             "type": "object",
             "properties": {
@@ -1380,7 +1489,7 @@ const docTemplate = `{
                 }
             }
         },
-        "cmd_api.Error429": {
+        "main.Error429": {
             "description": "Response for rate limiting errors",
             "type": "object",
             "properties": {
@@ -1395,7 +1504,7 @@ const docTemplate = `{
                 }
             }
         },
-        "cmd_api.Error500": {
+        "main.Error500": {
             "description": "Response for internal server errors",
             "type": "object",
             "properties": {
@@ -1410,7 +1519,36 @@ const docTemplate = `{
                 }
             }
         },
-        "cmd_api.NotebookBooking": {
+        "main.ExtendBookingResponse": {
+            "type": "object",
+            "properties": {
+                "bookingId": {
+                    "type": "integer"
+                },
+                "duration": {
+                    "type": "string"
+                },
+                "slotDate": {
+                    "type": "string"
+                },
+                "slotEnd": {
+                    "type": "string"
+                },
+                "slotKeys": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "slotStart": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "main.NotebookBooking": {
             "type": "object",
             "properties": {
                 "category": {
@@ -1437,6 +1575,12 @@ const docTemplate = `{
                 "slotEnd": {
                     "type": "string"
                 },
+                "slotKeys": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "slotStart": {
                     "type": "string"
                 },
@@ -1445,7 +1589,7 @@ const docTemplate = `{
                 }
             }
         },
-        "cmd_api.NotebookInstanceType": {
+        "main.NotebookInstanceType": {
             "type": "object",
             "properties": {
                 "description": {
@@ -1465,18 +1609,18 @@ const docTemplate = `{
                 }
             }
         },
-        "cmd_api.NotebookInstanceTypesResponse": {
+        "main.NotebookInstanceTypesResponse": {
             "type": "object",
             "properties": {
                 "instanceTypes": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/cmd_api.NotebookInstanceType"
+                        "$ref": "#/definitions/main.NotebookInstanceType"
                     }
                 }
             }
         },
-        "cmd_api.NotebookListResponse": {
+        "main.NotebookListResponse": {
             "type": "object",
             "properties": {
                 "next_offset": {
@@ -1485,12 +1629,12 @@ const docTemplate = `{
                 "notebooks": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/cmd_api.NotebookStatus"
+                        "$ref": "#/definitions/main.NotebookStatus"
                     }
                 }
             }
         },
-        "cmd_api.NotebookState": {
+        "main.NotebookState": {
             "type": "string",
             "enum": [
                 "opening",
@@ -1507,11 +1651,11 @@ const docTemplate = `{
                 "NotebookStateOrphaned"
             ]
         },
-        "cmd_api.NotebookStatus": {
+        "main.NotebookStatus": {
             "type": "object",
             "properties": {
                 "booking": {
-                    "$ref": "#/definitions/cmd_api.NotebookBooking"
+                    "$ref": "#/definitions/main.NotebookBooking"
                 },
                 "cpuLimit": {
                     "type": "number"
@@ -1525,7 +1669,7 @@ const docTemplate = `{
                 "events": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/sandbox-backend-service_pkg_constants.Events"
+                        "$ref": "#/definitions/constants.Events"
                     }
                 },
                 "gpuLimit": {
@@ -1562,7 +1706,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "status": {
-                    "$ref": "#/definitions/cmd_api.NotebookState"
+                    "$ref": "#/definitions/main.NotebookState"
                 },
                 "storageSize": {
                     "type": "string"
@@ -1572,7 +1716,7 @@ const docTemplate = `{
                 }
             }
         },
-        "cmd_api.SlotTemplateResponse": {
+        "main.SlotTemplateResponse": {
             "type": "object",
             "properties": {
                 "durationHours": {
@@ -1595,7 +1739,7 @@ const docTemplate = `{
                 }
             }
         },
-        "cmd_api.StartNotebookRequest": {
+        "main.StartNotebookRequest": {
             "type": "object",
             "required": [
                 "name"
@@ -1608,7 +1752,7 @@ const docTemplate = `{
                 }
             }
         },
-        "cmd_api.StopNotebookRequest": {
+        "main.StopNotebookRequest": {
             "type": "object",
             "required": [
                 "name"
@@ -1621,7 +1765,7 @@ const docTemplate = `{
                 }
             }
         },
-        "cmd_api.SwaggerExistsResponse": {
+        "main.SwaggerExistsResponse": {
             "description": "Response structure for check-exists endpoint",
             "type": "object",
             "properties": {
@@ -1632,7 +1776,7 @@ const docTemplate = `{
                 }
             }
         },
-        "cmd_api.SwaggerMessageResponse": {
+        "main.SwaggerMessageResponse": {
             "description": "Standard success response structure with a message",
             "type": "object",
             "properties": {
@@ -1642,35 +1786,6 @@ const docTemplate = `{
                     "example": "string"
                 }
             }
-        },
-        "sandbox-backend-service_pkg_constants.Events": {
-            "type": "string",
-            "enum": [
-                "picked",
-                "pvc-applied",
-                "pvc-apply-failed",
-                "pvc-created",
-                "pvc-creation-failed",
-                "pvc-upload-successful",
-                "pvc-upload-applied",
-                "pvc-upload-apply-failed",
-                "pvc-upload-failed",
-                "notebook-applied",
-                "notebook-apply-failed"
-            ],
-            "x-enum-varnames": [
-                "StatusPicked",
-                "StatusPVCApplied",
-                "StatusPVCApplyFailed",
-                "StatusPVCCreated",
-                "StatusPVCCreationFailed",
-                "StatusPVCUploadSuccessful",
-                "StatusPVCUploadApplied",
-                "StatusPVCUploadApplyFailed",
-                "StatusPVCUploadFailed",
-                "StatusNotebookApplied",
-                "StatusNotebookApplyFailed"
-            ]
         }
     },
     "securityDefinitions": {

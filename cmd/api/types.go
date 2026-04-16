@@ -161,6 +161,7 @@ type NotebookBooking struct {
 	DisplayName string `json:"displayName"`
 	GPUMemory   string `json:"gpuMemory"`
 	SlotDate    string `json:"slotDate"`
+	SlotKeys    []string `json:"slotKeys,omitempty"`
 	SlotStart   string `json:"slotStart"`
 	SlotEnd     string `json:"slotEnd"`
 	Duration    string `json:"duration"`
@@ -239,7 +240,7 @@ type CategoriesResponse struct {
 type CreateBookingRequest struct {
 	NotebookName string `json:"notebookName" validate:"required"`
 	Category     string `json:"category" validate:"required"`
-	SlotKey      string `json:"slotKey" validate:"required"`
+	SlotKeys     []string `json:"slotKeys" validate:"required,min=1,dive,required"`
 	SlotDate     string `json:"slotDate" validate:"required"`
 }
 
@@ -247,10 +248,21 @@ type CreateBookingResponse struct {
 	BookingID    int64  `json:"bookingId"`
 	Status       string `json:"status"`
 	SlotDate     string `json:"slotDate"`
+	SlotKeys     []string `json:"slotKeys,omitempty"`
 	SlotStart    string `json:"slotStart"`
 	SlotEnd      string `json:"slotEnd"`
 	NotebookName string `json:"notebookName"`
 	ResourceType string `json:"resourceType"`
+}
+
+type ExtendBookingResponse struct {
+	BookingID int64    `json:"bookingId"`
+	Status    string   `json:"status"`
+	SlotDate  string   `json:"slotDate"`
+	SlotKeys  []string `json:"slotKeys"`
+	SlotStart string   `json:"slotStart"`
+	SlotEnd   string   `json:"slotEnd"`
+	Duration  string   `json:"duration"`
 }
 
 type BookingListItem struct {
@@ -262,6 +274,7 @@ type BookingListItem struct {
 	GPUMemory    string `json:"gpuMemory"`
 	Status       string `json:"status"`
 	SlotDate     string `json:"slotDate"`
+	SlotKeys     []string `json:"slotKeys,omitempty"`
 	SlotStart    string `json:"slotStart"`
 	SlotEnd      string `json:"slotEnd"`
 	Duration     string `json:"duration"`

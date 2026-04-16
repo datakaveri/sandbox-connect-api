@@ -266,7 +266,7 @@ func processBookingToReady(pool *db.PgPool, logger *slog.Logger, cfg CronEnv, b 
 			logger.Warn("notebook already exists for booking, linking instead", "booking_id", b.ID)
 			if err2 := tx.QueryRow(
 				ctx,
-				`SELECT id FROM notebooks WHERE namespace=$1 AND name=$2`,
+				`SELECT id FROM notebooks WHERE namespace=$1 AND name=$2 AND events[array_upper(events, 1)] <> 'deleted'`,
 				b.UserID, b.Notebook,
 			).Scan(&notebookID); err2 != nil {
 				return err2
@@ -285,10 +285,11 @@ func processBookingToReady(pool *db.PgPool, logger *slog.Logger, cfg CronEnv, b 
 		}
 	}
 
-	// Idempotent update: only scheduled -> ready.
+	// Idempotent update: only scheduled -> ready. ready_at is wall-clock instant (timestamptz)
+	// for no-show grace so it beats slot_start when created_at is UTC-naive vs IST slot_start.
 	if _, err := tx.Exec(ctx,
 		`UPDATE bookings
-		 SET notebook_id=$1, status='ready'
+		 SET notebook_id=$1, status='ready', ready_at=NOW()
 		 WHERE id=$2 AND status='scheduled'`,
 		notebookID, b.ID,
 	); err != nil {
@@ -311,10 +312,18 @@ func stepReadyToActiveOrNoShow(pool *db.PgPool, k8sClient *k8s.K8sClient, logger
 	k8sDeleteErrors := 0
 
 	// Include pvc_name so we can delete quickly on no-show.
+	// Grace anchor: max(slot_start as IST instant, ready_at). ready_at is set at scheduled->ready
+	// (NOW() timestamptz) so it wins over IST slot_start when created_at is stored in another zone.
 	query := `
 		SELECT gb.id, gb.notebook_id, gb.user_id, gb.category_name,
 		       n.name, n.namespace, n.pvc_name,
-		       to_char(gb.slot_start,'YYYY-MM-DD HH24:MI:SS') as slot_start_str
+		       to_char(
+		         GREATEST(
+		           (gb.slot_start::timestamp AT TIME ZONE 'Asia/Kolkata'),
+		           COALESCE(gb.ready_at, (gb.slot_start::timestamp AT TIME ZONE 'Asia/Kolkata'))
+		         ) AT TIME ZONE 'Asia/Kolkata',
+		         'YYYY-MM-DD HH24:MI:SS'
+		       ) as no_show_anchor_str
 		FROM bookings gb
 		JOIN notebooks n ON n.id = gb.notebook_id
 		WHERE gb.status='ready'
@@ -333,19 +342,19 @@ func stepReadyToActiveOrNoShow(pool *db.PgPool, k8sClient *k8s.K8sClient, logger
 	for rows.Next() {
 		selected++
 		var (
-			bookingID   int64
-			notebookID  int64
-			userID      string
-			category    string
-			notebookName string
-			namespace   string
-			pvcName     string
-			slotStartStr string
+			bookingID         int64
+			notebookID        int64
+			userID            string
+			category          string
+			notebookName      string
+			namespace         string
+			pvcName           string
+			noShowAnchorStr   string
 		)
 		if err := rows.Scan(
 			&bookingID, &notebookID, &userID, &category,
 			&notebookName, &namespace, &pvcName,
-			&slotStartStr,
+			&noShowAnchorStr,
 		); err != nil {
 			return err
 		}
@@ -357,10 +366,10 @@ func stepReadyToActiveOrNoShow(pool *db.PgPool, k8sClient *k8s.K8sClient, logger
 			continue
 		}
 
-		slotStart, err := parseISTWallClock("2006-01-02 15:04:05", slotStartStr)
+		noShowAnchor, err := parseISTWallClock("2006-01-02 15:04:05", noShowAnchorStr)
 		if err != nil {
 			parseErrors++
-			logger.Warn("failed parsing slot_start", "booking_id", bookingID, "error", err)
+			logger.Warn("failed parsing no-show anchor time", "booking_id", bookingID, "error", err)
 			continue
 		}
 
@@ -382,8 +391,8 @@ func stepReadyToActiveOrNoShow(pool *db.PgPool, k8sClient *k8s.K8sClient, logger
 			continue
 		}
 
-		// No-show if slot_start + grace <= now.
-		noShowAt := slotStart.Add(time.Duration(cat.NoShowGraceMins) * time.Minute)
+		// No-show if anchor + grace <= now (anchor is later of slot_start and booking creation).
+		noShowAt := noShowAnchor.Add(time.Duration(cat.NoShowGraceMins) * time.Minute)
 		if now.Before(noShowAt) {
 			waitingNoShowGrace++
 			continue
@@ -403,7 +412,15 @@ func stepReadyToActiveOrNoShow(pool *db.PgPool, k8sClient *k8s.K8sClient, logger
 			 WHERE id=$1 AND status='ready'`,
 			bookingID,
 		)
-		_, _ = pool.Pool.Exec(ctx, `DELETE FROM notebooks WHERE id=$1`, notebookID)
+		_, _ = pool.Pool.Exec(ctx, `
+			UPDATE notebooks
+			SET events = array_append(events, 'deleted'),
+			    name = name || '__deleted__' || id::text || '__' || extract(epoch from now())::bigint::text,
+			    pvc_name = pvc_name || '__deleted__' || id::text || '__' || extract(epoch from now())::bigint::text,
+			    booking_id = NULL
+			WHERE id = $1
+			  AND events[array_upper(events, 1)] <> 'deleted'
+		`, notebookID)
 		expiredNoShow++
 	}
 	if err := rows.Err(); err != nil {
@@ -679,7 +696,15 @@ func stepCleanupCompleted(pool *db.PgPool, k8sClient *k8s.K8sClient, logger *slo
 			 WHERE id=$1 AND status='completed' AND cleanup_completed_at IS NULL`,
 			bookingID,
 		)
-		_, _ = pool.Pool.Exec(ctx, `DELETE FROM notebooks WHERE id=$1`, notebookID)
+		_, _ = pool.Pool.Exec(ctx, `
+			UPDATE notebooks
+			SET events = array_append(events, 'deleted'),
+			    name = name || '__deleted__' || id::text || '__' || extract(epoch from now())::bigint::text,
+			    pvc_name = pvc_name || '__deleted__' || id::text || '__' || extract(epoch from now())::bigint::text,
+			    booking_id = NULL
+			WHERE id = $1
+			  AND events[array_upper(events, 1)] <> 'deleted'
+		`, notebookID)
 		cleanupCompleted++
 	}
 	if err := rows.Err(); err != nil {

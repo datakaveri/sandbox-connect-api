@@ -31,6 +31,7 @@ func (app *application) router() http.Handler {
 	apiMux.HandleFunc("POST /v1/bookings", app.createGPUBooking)
 	apiMux.HandleFunc("GET /v1/bookings", app.listGPUBookings)
 	apiMux.HandleFunc("PATCH /v1/bookings/{id}/cancel", app.cancelGPUBooking)
+	apiMux.HandleFunc("PATCH /v1/bookings/{id}/extend", app.extendGPUBooking)
 	apiMux.HandleFunc("PATCH /v1/bookings/{id}/reset", app.resetGPUBooking)
 	apiMux.HandleFunc("PATCH /v1/bookings/{id}/terminate", app.terminateGPUBooking)
 	apiMux.HandleFunc("GET /v1/slots/available", app.listGPUAvailableSlots)
