@@ -444,8 +444,8 @@ fi
 
 	// Add nodeSelector for CPU or GPU notebooks
 	if utils.CheckGPUResource(nb.GPUType, nb.GPURequest, nb.GPULimit) {
-		// Use the user-selected instance type from DB, fallback to env default
-		gpuInstanceType := w.app.env.GPU_NODE_INSTANCE_TYPE
+		// Use the user-selected instance type from DB, fallback to first entry in env list
+		gpuInstanceType := strings.Split(w.app.env.GPU_NODE_INSTANCE_TYPES, ",")[0]
 		if nb.InstanceType != nil && *nb.InstanceType != "" {
 			gpuInstanceType = *nb.InstanceType
 		}
