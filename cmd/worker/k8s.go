@@ -401,6 +401,30 @@ fi
 					},
 				},
 			},
+			map[string]any{
+				"name":  "extract-built-in-notebooks",
+				"image": imageName,
+				"command": []any{"/bin/sh", "-c", `
+# The main container will mount the PVC at /home/jovyan, which shadows any files baked into the image.
+# This init container uses the SAME notebook image, mounts the PVC elsewhere, and copies the baked files over into the persistent volume.
+if ls /home/jovyan/*.ipynb 1> /dev/null 2>&1; then
+  echo '[init] Extracting compiled .ipynb files to PVC...'
+  for f in /home/jovyan/*.ipynb; do
+    filename=$(basename "$f")
+    if [ ! -f "/mnt/data/$filename" ]; then
+      cp "$f" "/mnt/data/$filename"
+      chown 1000:1000 "/mnt/data/$filename"
+    fi
+  done
+fi
+`},
+				"volumeMounts": []any{
+					map[string]any{
+						"name":      "data-volume",
+						"mountPath": "/mnt/data",
+					},
+				},
+			},
 		},
 		"containers": []any{
 			map[string]any{
