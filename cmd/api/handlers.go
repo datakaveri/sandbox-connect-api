@@ -837,7 +837,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		query = fmt.Sprintf(`
 			SELECT id, name, namespace, storage_size, pvc_name,
 				cpu_request, cpu_limit, memory_request, memory_limit,
-				gpu_type, gpu_request, gpu_limit, instance_type, template_name, events, created_at
+				gpu_type, gpu_request, gpu_limit, instance_type, template_name, image_name, events, created_at
 			FROM notebooks
 			WHERE namespace = $1 AND created_at >= $2 AND created_at <= $3
 			%s
@@ -853,7 +853,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		query = fmt.Sprintf(`
 			SELECT id, name, namespace, storage_size, pvc_name,
 				cpu_request, cpu_limit, memory_request, memory_limit,
-				gpu_type, gpu_request, gpu_limit, instance_type, template_name, events, created_at
+				gpu_type, gpu_request, gpu_limit, instance_type, template_name, image_name, events, created_at
 			FROM notebooks
 			WHERE namespace = $1
 			%s
@@ -882,7 +882,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		scanErr := rows.Scan(
 			&nb.ID, &nb.Name, &nb.Namespace, &nb.StorageSize, &nb.PVCName,
 			&nb.CPURequest, &nb.CPULimit, &nb.MemoryRequest, &nb.MemoryLimit,
-			&nb.GPUType, &nb.GPURequest, &nb.GPULimit, &nb.InstanceType, &nb.TemplateName, &nb.Events, &nb.CreatedAt,
+			&nb.GPUType, &nb.GPURequest, &nb.GPULimit, &nb.InstanceType, &nb.TemplateName, &nb.ImageName, &nb.Events, &nb.CreatedAt,
 		)
 		if scanErr != nil {
 			logger.Error("failed to scan notebook row", "error", scanErr)
@@ -1000,7 +1000,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 
 		nb.Status = determineNotebookState(latestEvent, k8sObject)
 		if nb.Status == NotebookStateRunning {
-			nb.URL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, nb.Namespace, nb.Name)
+			nb.URL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, nb.Namespace, nb.Name, nb.ImageName)
 		}
 		notebooks[i] = nb
 	}
@@ -1061,7 +1061,7 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 	query := `
 		SELECT id, name, namespace, storage_size, pvc_name, 
 			cpu_request, cpu_limit, memory_request, memory_limit,
-			gpu_type, gpu_request, gpu_limit, instance_type, template_name, events, created_at
+			gpu_type, gpu_request, gpu_limit, instance_type, template_name, image_name, events, created_at
 		FROM notebooks
 		WHERE namespace= $1 and name = $2`
 
@@ -1080,6 +1080,7 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 		&status.GPULimit,
 		&status.InstanceType,
 		&status.TemplateName,
+		&status.ImageName,
 		&status.Events,
 		&status.CreatedAt,
 	)
@@ -1114,7 +1115,7 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 	status.Status = determineNotebookState(latestEvent, k8sObject)
 
 	if status.Status == NotebookStateRunning {
-		status.URL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, status.Namespace, status.Name)
+		status.URL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, status.Namespace, status.Name, status.ImageName)
 	}
 
 	sendResponseJson(w, logger, http.StatusOK, status)
