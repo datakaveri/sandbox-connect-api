@@ -345,13 +345,13 @@ func (w *worker) CreateNotebook() error {
 		imageName = *nb.ImageName
 	}
 
-	// Build the notebook spec
-	specTemplateSpec := map[string]any{
-		"initContainers": []any{
-			map[string]any{
-				"name":  "init-demo-ipynb",
-				"image": w.app.env.INIT_CONTAINER_IMAGE,
-				"command": []any{"/bin/sh", "-c", `
+	initContainers := []any{}
+
+	if imageName != "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps1" {
+		initContainers = append(initContainers, map[string]any{
+			"name":  "init-demo-ipynb",
+			"image": w.app.env.INIT_CONTAINER_IMAGE,
+			"command": []any{"/bin/sh", "-c", `
 if [ -f /home/jovyan/demo.ipynb ]; then
   echo '[init] /home/jovyan/demo.ipynb already exists, skipping copy.'
 else
@@ -394,17 +394,19 @@ else
   fi
 fi
 `},
-				"volumeMounts": []any{
-					map[string]any{
-						"name":      "data-volume",
-						"mountPath": "/home/jovyan",
-					},
+			"volumeMounts": []any{
+				map[string]any{
+					"name":      "data-volume",
+					"mountPath": "/home/jovyan",
 				},
 			},
-			map[string]any{
-				"name":  "extract-built-in-notebooks",
-				"image": imageName,
-				"command": []any{"/bin/sh", "-c", `
+		})
+	}
+
+	initContainers = append(initContainers, map[string]any{
+		"name":  "extract-built-in-notebooks",
+		"image": imageName,
+		"command": []any{"/bin/sh", "-c", `
 # The main container will mount the PVC at /home/jovyan, which shadows any files baked into the image.
 # This init container uses the SAME notebook image, mounts the PVC elsewhere, and copies the baked files over into the persistent volume.
 if ls /home/jovyan/*.ipynb 1> /dev/null 2>&1; then
@@ -418,14 +420,17 @@ if ls /home/jovyan/*.ipynb 1> /dev/null 2>&1; then
   done
 fi
 `},
-				"volumeMounts": []any{
-					map[string]any{
-						"name":      "data-volume",
-						"mountPath": "/mnt/data",
-					},
-				},
+		"volumeMounts": []any{
+			map[string]any{
+				"name":      "data-volume",
+				"mountPath": "/mnt/data",
 			},
 		},
+	})
+
+	// Build the notebook spec
+	specTemplateSpec := map[string]any{
+		"initContainers": initContainers,
 		"containers": []any{
 			map[string]any{
 				"name":  nb.Name,
