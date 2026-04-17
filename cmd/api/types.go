@@ -147,6 +147,7 @@ type NotebookStatus struct {
 	GPULimit      *int               `json:"gpuLimit,omitempty"`
 	InstanceType  *string            `json:"instanceType,omitempty"`
 	TemplateName  *string            `json:"templateName,omitempty"`
+	ImageName     *string            `json:"imageName,omitempty"`
 	Events        []constants.Events `json:"events"`
 	Status        NotebookState      `json:"status"`
 	URL           string             `json:"notebookUrl,omitempty"`
