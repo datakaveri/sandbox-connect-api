@@ -133,8 +133,14 @@ func generateNotebookURL(baseURL, namespace, notebookName string, imageName *str
 	baseURL = strings.TrimSuffix(baseURL, "/")
 
 	fileName := "demo.ipynb"
-	if imageName != nil && *imageName == "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps1-v2" {
-		fileName = "nha_ps1_skeletal_notebook_main.ipynb"
+	if imageName != nil {
+		if *imageName == "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps1-v2" {
+			fileName = "nha_ps1_skeletal_notebook_main.ipynb"
+		} else if *imageName == "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps2-v2" {
+			fileName = "nha_ps2_skeletal_notebook_main.ipynb"
+		} else if *imageName == "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps3-v2" {
+			fileName = "nha_ps3_skeletal_notebook_main.ipynb"
+		}
 	}
 
 	notebookPath := fmt.Sprintf("notebook/%s/%s/lab/tree/%s", namespace, notebookName, fileName)
