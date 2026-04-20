@@ -347,7 +347,7 @@ func (w *worker) CreateNotebook() error {
 
 	initContainers := []any{}
 
-	if imageName != "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps1-v1" {
+	if imageName != "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps1-v2" {
 		initContainers = append(initContainers, map[string]any{
 			"name":  "init-demo-ipynb",
 			"image": w.app.env.INIT_CONTAINER_IMAGE,
@@ -418,6 +418,14 @@ if ls /home/jovyan/*.ipynb 1> /dev/null 2>&1; then
       chown 1000:1000 "/mnt/data/$filename"
     fi
   done
+fi
+
+if [ -f "/home/jovyan/nha_client.py" ]; then
+  echo '[init] Extracting nha_client.py to PVC...'
+  if [ ! -f "/mnt/data/nha_client.py" ]; then
+    cp "/home/jovyan/nha_client.py" "/mnt/data/nha_client.py"
+    chown 1000:1000 "/mnt/data/nha_client.py"
+  fi
 fi
 `},
 		"volumeMounts": []any{
