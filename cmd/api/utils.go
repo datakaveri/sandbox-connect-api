@@ -134,7 +134,7 @@ func generateNotebookURL(baseURL, namespace, notebookName string, imageName *str
 
 	fileName := "demo.ipynb"
 	if imageName != nil && *imageName == "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps1-v2" {
-		fileName = "nha_ps1_starter_notebook.ipynb"
+		fileName = "nha_ps1_skeletal_notebook_main.ipynb"
 	}
 
 	notebookPath := fmt.Sprintf("notebook/%s/%s/lab/tree/%s", namespace, notebookName, fileName)
