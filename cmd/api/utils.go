@@ -133,7 +133,7 @@ func generateNotebookURL(baseURL, namespace, notebookName string, imageName *str
 	baseURL = strings.TrimSuffix(baseURL, "/")
 
 	fileName := "demo.ipynb"
-	if imageName != nil && *imageName == "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps1-v1" {
+	if imageName != nil && *imageName == "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps1-v2" {
 		fileName = "nha_ps1_starter_notebook.ipynb"
 	}
 
