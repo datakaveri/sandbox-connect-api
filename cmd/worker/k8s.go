@@ -380,8 +380,8 @@ func (w *worker) CreateNotebook() error {
 	initContainers := []any{}
 
 	if imageName != "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps1-v3" &&
-		imageName != "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps2-v3" &&
-		imageName != "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps3-v2" {
+		imageName != "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps2-v4" &&
+		imageName != "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps3-v3" {
 		initContainers = append(initContainers, map[string]any{
 			"name":  "init-demo-ipynb",
 			"image": w.app.env.INIT_CONTAINER_IMAGE,
