@@ -19,8 +19,11 @@ func (w *worker) CreatePVC() error {
 	storageSize := w.notebook.StorageSize
 	logger := w.logger.With("operation", "CreatePVC")
 
-	ctx, cancel := WithTimeoutContext(context.Background(), K8sCreationTimeout)
-	defer cancel()
+	pvcGVR := schema.GroupVersionResource{
+		Group:    "",
+		Version:  "v1",
+		Resource: "persistentvolumeclaims",
+	}
 
 	pvc := &unstructured.Unstructured{
 		Object: map[string]any{
@@ -43,17 +46,46 @@ func (w *worker) CreatePVC() error {
 			},
 		},
 	}
-	pvcGVR := schema.GroupVersionResource{
-		Group:    "",
-		Version:  "v1",
-		Resource: "persistentvolumeclaims",
+
+	// Phase 1: if a same-named PVC from a prior deletion is still Terminating,
+	// wait for it to fully disappear before attempting creation.
+	// This uses a dedicated timeout (PVCTerminatingWaitTimeout) so EBS detachment
+	// time does not eat into the creation retry budget below.
+	waitCtx, waitCancel := WithTimeoutContext(context.Background(), PVCTerminatingWaitTimeout)
+	defer waitCancel()
+
+	err := WithK8sRetry(waitCtx, logger, func() (constants.ShouldContinue, error) {
+		existing, getErr := w.app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Get(waitCtx, pvcName, metav1.GetOptions{})
+		if k8serrors.IsNotFound(getErr) {
+			// PVC is gone — proceed to creation.
+			return constants.RetryStop, nil
+		}
+		if getErr != nil {
+			logger.Warn("failed to GET PVC while waiting for termination, will retry", "error", getErr)
+			return constants.RetryContinue, getErr
+		}
+		deletionTimestamp, found, _ := unstructured.NestedString(existing.Object, "metadata", "deletionTimestamp")
+		if found && deletionTimestamp != "" {
+			logger.Warn("PVC is still Terminating, waiting for it to be removed", "pvcName", pvcName)
+			return constants.RetryContinue, fmt.Errorf("PVC %s is still Terminating", pvcName)
+		}
+		// PVC exists with no deletionTimestamp — it is a live PVC from another source, stop immediately.
+		logger.Warn("PVC already exists and is not terminating, will not proceed with creation", "pvcName", pvcName)
+		return constants.RetryStop, fmt.Errorf("PVC %s already exists and is not being deleted", pvcName)
+	})
+	if err != nil {
+		return err
 	}
 
-	err := WithK8sRetry(ctx, logger, func() (constants.ShouldContinue, error) {
-		_, err := w.app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Create(ctx, pvc, metav1.CreateOptions{})
-		//it can happen that our notebook is in deletion phase and it is still showing it exists so we better throw error
+	// Phase 2: PVC is confirmed gone — now create it with the normal creation timeout.
+	createCtx, createCancel := WithTimeoutContext(context.Background(), K8sCreationTimeout)
+	defer createCancel()
+
+	err = WithK8sRetry(createCtx, logger, func() (constants.ShouldContinue, error) {
+		_, err := w.app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Create(createCtx, pvc, metav1.CreateOptions{})
 		if k8serrors.IsAlreadyExists(err) {
-			logger.Warn("PVC already exists, will not retry creation", "error", err)
+			// Should not happen given Phase 1 cleared the way, but guard defensively.
+			logger.Warn("PVC unexpectedly exists after wait phase, will not retry", "error", err)
 			return constants.RetryStop, err
 		}
 		return constants.RetryContinue, err

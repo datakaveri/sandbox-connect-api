@@ -6,16 +6,20 @@ import (
 )
 
 const (
-	PollInterval            = 1 * time.Second
-	UploadPodWatcherTimeout = 4 * time.Minute
-	DBTransactionTimeout    = 30 * time.Second
-	DBReadTimeout           = 15 * time.Second
-	DBWriteTimeout          = 20 * time.Second
-	K8sCreationTimeout      = 30 * time.Second
-	K8sPVCWatcherTimeout    = 2 * time.Minute
-	K8sDeletionTimeout      = 30 * time.Second
-	NotebookCreationTimeout = 1 * time.Minute
-	NotebookDeletionTimeout = 1 * time.Minute
+	PollInterval               = 1 * time.Second
+	UploadPodWatcherTimeout    = 4 * time.Minute
+	DBTransactionTimeout       = 30 * time.Second
+	DBReadTimeout              = 15 * time.Second
+	DBWriteTimeout             = 20 * time.Second
+	K8sCreationTimeout         = 30 * time.Second
+	K8sPVCWatcherTimeout       = 2 * time.Minute
+	K8sDeletionTimeout         = 30 * time.Second
+	NotebookCreationTimeout    = 1 * time.Minute
+	NotebookDeletionTimeout    = 1 * time.Minute
+	// PVCTerminatingWaitTimeout is the max time to wait for a same-named PVC that is
+	// still in Terminating state (e.g. EBS volume detachment) to fully disappear before
+	// a new PVC creation is attempted. EBS detachment can take several minutes.
+	PVCTerminatingWaitTimeout  = 5 * time.Minute
 )
 
 const (
