@@ -345,7 +345,9 @@ func (w *worker) CreateNotebook() error {
 	var limit map[string]any
 	var imageName string
 	var request map[string]any
+	var notebookFlavor string
 	if utils.CheckGPUResource(nb.GPUType, nb.GPURequest, nb.GPULimit) {
+		notebookFlavor = "gpu"
 		imageName = w.app.env.GPU_NOTEBOOK_IMAGE
 		limit = map[string]any{
 			"cpu":       fmt.Sprintf("%.6f", nb.CPULimit),
@@ -358,6 +360,7 @@ func (w *worker) CreateNotebook() error {
 			*nb.GPUType: *nb.GPURequest,
 		}
 	} else {
+		notebookFlavor = "cpu"
 		imageName = w.app.env.CPU_NOTEBOOK_IMAGE
 		limit = map[string]any{
 			"cpu":    fmt.Sprintf("%.6f", nb.CPULimit),
@@ -385,49 +388,36 @@ func (w *worker) CreateNotebook() error {
 		initContainers = append(initContainers, map[string]any{
 			"name":  "init-demo-ipynb",
 			"image": w.app.env.INIT_CONTAINER_IMAGE,
-			"command": []any{"/bin/sh", "-c", `
-if [ -f /home/jovyan/demo.ipynb ]; then
-  echo '[init] /home/jovyan/demo.ipynb already exists, skipping copy.'
+			"command": []any{"/bin/sh", "-c", fmt.Sprintf(`
+SOURCE_DIR="/tmp/demo_notebooks/%s"
+if [ -d "$SOURCE_DIR" ]; then
+  echo "[init] Extracting files from $SOURCE_DIR to /home/jovyan..."
+  for f in "$SOURCE_DIR"/*; do
+    if [ -f "$f" ]; then
+      filename=$(basename "$f")
+      if [ ! -f "/home/jovyan/$filename" ]; then
+        cp "$f" "/home/jovyan/$filename"
+        chown 1000:1000 "/home/jovyan/$filename"
+        chmod 644 "/home/jovyan/$filename"
+        echo "[init] Copied $filename"
+      else
+        echo "[init] $filename already exists, skipping."
+      fi
+    fi
+  done
 else
-  echo '[init] /home/jovyan/demo.ipynb not found, attempting to move from /tmp/demo.ipynb...'
-  if mv /tmp/demo.ipynb /home/jovyan/demo.ipynb; then
-    echo '[init] Successfully moved /tmp/demo.ipynb to /home/jovyan/demo.ipynb.'
+  echo "[init] Directory $SOURCE_DIR not found in init container image."
+  # Fallback to old behavior if the image hasn't been updated yet
+  if [ -f /tmp/demo.ipynb ] && [ ! -f /home/jovyan/demo.ipynb ]; then
+    cp /tmp/demo.ipynb /home/jovyan/demo.ipynb
     chown 1000:1000 /home/jovyan/demo.ipynb
-    chmod 644 /home/jovyan/demo.ipynb
-  else
-    echo '[init] Failed to move /tmp/demo.ipynb to /home/jovyan/demo.ipynb.'
-    exit 1
   fi
-fi
-
-if [ -f /home/jovyan/requirements.txt ]; then
-  echo '[init] /home/jovyan/requirements.txt already exists, skipping copy.'
-else
-  echo '[init] /home/jovyan/requirements.txt not found, attempting to move from /tmp/requirements.txt...'
-  if mv /tmp/requirements.txt /home/jovyan/requirements.txt; then
-    echo '[init] Successfully moved /tmp/requirements.txt to /home/jovyan/requirements.txt.'
+  if [ -f /tmp/requirements.txt ] && [ ! -f /home/jovyan/requirements.txt ]; then
+    cp /tmp/requirements.txt /home/jovyan/requirements.txt
     chown 1000:1000 /home/jovyan/requirements.txt
-    chmod 644 /home/jovyan/requirements.txt
-  else
-    echo '[init] Failed to move /tmp/requirements.txt to /home/jovyan/requirements.txt.'
-    exit 1
   fi
 fi
-
-if [ -f /home/jovyan/Python_Packages_Installation_Demo.ipynb ]; then
-  echo '[init] /home/jovyan/Python_Packages_Installation_Demo.ipynb already exists, skipping copy.'
-else
-  echo '[init] /home/jovyan/Python_Packages_Installation_Demo.ipynb not found, attempting to move from /tmp/Python_Packages_Installation_Demo.ipynb...'
-  if mv /tmp/Python_Packages_Installation_Demo.ipynb /home/jovyan/Python_Packages_Installation_Demo.ipynb; then
-    echo '[init] Successfully moved /tmp/Python_Packages_Installation_Demo.ipynb to /home/jovyan/Python_Packages_Installation_Demo.ipynb.'
-    chown 1000:1000 /home/jovyan/Python_Packages_Installation_Demo.ipynb
-    chmod 644 /home/jovyan/Python_Packages_Installation_Demo.ipynb
-  else
-    echo '[init] Failed to move /tmp/Python_Packages_Installation_Demo.ipynb to /home/jovyan/Python_Packages_Installation_Demo.ipynb.'
-    exit 1
-  fi
-fi
-`},
+`, notebookFlavor)},
 			"volumeMounts": []any{
 				map[string]any{
 					"name":      "data-volume",
@@ -443,8 +433,10 @@ fi
 		"command": []any{"/bin/sh", "-c", `
 # The main container will mount the PVC at /home/jovyan, which shadows any files baked into the image.
 # This init container uses the SAME notebook image, mounts the PVC elsewhere, and copies the baked files over into the persistent volume.
+
+# 1. Extract from /home/jovyan (for NHA images which bake files into /home/jovyan)
 if ls /home/jovyan/*.ipynb 1> /dev/null 2>&1; then
-  echo '[init] Extracting compiled .ipynb files to PVC...'
+  echo '[init] Extracting compiled .ipynb files from /home/jovyan to PVC...'
   for f in /home/jovyan/*.ipynb; do
     filename=$(basename "$f")
     if [ ! -f "/mnt/data/$filename" ]; then
@@ -459,6 +451,26 @@ if [ -f "/home/jovyan/nha_client.py" ]; then
   if [ ! -f "/mnt/data/nha_client.py" ]; then
     cp "/home/jovyan/nha_client.py" "/mnt/data/nha_client.py"
     chown 1000:1000 "/mnt/data/nha_client.py"
+  fi
+fi
+
+# 2. Extract from /tmp (for new CPU and GPU images which bake files into /tmp)
+if ls /tmp/*.ipynb 1> /dev/null 2>&1; then
+  echo '[init] Extracting compiled .ipynb files from /tmp to PVC...'
+  for f in /tmp/*.ipynb; do
+    filename=$(basename "$f")
+    if [ ! -f "/mnt/data/$filename" ]; then
+      cp "$f" "/mnt/data/$filename"
+      chown 1000:1000 "/mnt/data/$filename"
+    fi
+  done
+fi
+
+if [ -f "/tmp/requirements.txt" ]; then
+  echo '[init] Extracting requirements.txt from /tmp to PVC...'
+  if [ ! -f "/mnt/data/requirements.txt" ]; then
+    cp "/tmp/requirements.txt" "/mnt/data/requirements.txt"
+    chown 1000:1000 "/mnt/data/requirements.txt"
   fi
 fi
 `},
