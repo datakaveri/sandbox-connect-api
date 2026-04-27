@@ -126,13 +126,24 @@ func contains(s []string, e string) bool {
 	return false
 }
 
-func generateNotebookURL(baseURL, namespace, notebookName string) string {
+func generateNotebookURL(baseURL, namespace, notebookName string, imageName *string) string {
 	if baseURL == "" {
 		return ""
 	}
 	baseURL = strings.TrimSuffix(baseURL, "/")
 
-	notebookPath := fmt.Sprintf("notebook/%s/%s/lab/tree/demo.ipynb", namespace, notebookName)
+	fileName := "demo.ipynb"
+	if imageName != nil {
+		if *imageName == "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps1-v3" {
+			fileName = "nha_ps1_skeletal_notebook_main.ipynb"
+		} else if *imageName == "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps2-v4" {
+			fileName = "nha_ps2_skeletal_notebook_main.ipynb"
+		} else if *imageName == "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps3-v3" {
+			fileName = "nha_ps3_skeletal_notebook_main.ipynb"
+		}
+	}
+
+	notebookPath := fmt.Sprintf("notebook/%s/%s/lab/tree/%s", namespace, notebookName, fileName)
 
 	return baseURL + "/" + notebookPath
 }

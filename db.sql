@@ -127,3 +127,5 @@ CREATE UNIQUE INDEX idx_bookings_unique_user_slot_active
 CREATE UNIQUE INDEX idx_bookings_unique_user_notebook_name_active
     ON bookings(user_id, notebook_name)
     WHERE status IN ('scheduled', 'ready', 'active', 'shutting_down');
+
+ALTER TABLE notebooks ADD COLUMN image_name VARCHAR(512);

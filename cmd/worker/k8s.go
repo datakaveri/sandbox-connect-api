@@ -19,8 +19,11 @@ func (w *worker) CreatePVC() error {
 	storageSize := w.notebook.StorageSize
 	logger := w.logger.With("operation", "CreatePVC")
 
-	ctx, cancel := WithTimeoutContext(context.Background(), K8sCreationTimeout)
-	defer cancel()
+	pvcGVR := schema.GroupVersionResource{
+		Group:    "",
+		Version:  "v1",
+		Resource: "persistentvolumeclaims",
+	}
 
 	pvc := &unstructured.Unstructured{
 		Object: map[string]any{
@@ -43,17 +46,46 @@ func (w *worker) CreatePVC() error {
 			},
 		},
 	}
-	pvcGVR := schema.GroupVersionResource{
-		Group:    "",
-		Version:  "v1",
-		Resource: "persistentvolumeclaims",
+
+	// Phase 1: if a same-named PVC from a prior deletion is still Terminating,
+	// wait for it to fully disappear before attempting creation.
+	// This uses a dedicated timeout (PVCTerminatingWaitTimeout) so EBS detachment
+	// time does not eat into the creation retry budget below.
+	waitCtx, waitCancel := WithTimeoutContext(context.Background(), PVCTerminatingWaitTimeout)
+	defer waitCancel()
+
+	err := WithK8sRetry(waitCtx, logger, func() (constants.ShouldContinue, error) {
+		existing, getErr := w.app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Get(waitCtx, pvcName, metav1.GetOptions{})
+		if k8serrors.IsNotFound(getErr) {
+			// PVC is gone — proceed to creation.
+			return constants.RetryStop, nil
+		}
+		if getErr != nil {
+			logger.Warn("failed to GET PVC while waiting for termination, will retry", "error", getErr)
+			return constants.RetryContinue, getErr
+		}
+		deletionTimestamp, found, _ := unstructured.NestedString(existing.Object, "metadata", "deletionTimestamp")
+		if found && deletionTimestamp != "" {
+			logger.Warn("PVC is still Terminating, waiting for it to be removed", "pvcName", pvcName)
+			return constants.RetryContinue, fmt.Errorf("PVC %s is still Terminating", pvcName)
+		}
+		// PVC exists with no deletionTimestamp — it is a live PVC from another source, stop immediately.
+		logger.Warn("PVC already exists and is not terminating, will not proceed with creation", "pvcName", pvcName)
+		return constants.RetryStop, fmt.Errorf("PVC %s already exists and is not being deleted", pvcName)
+	})
+	if err != nil {
+		return err
 	}
 
-	err := WithK8sRetry(ctx, logger, func() (constants.ShouldContinue, error) {
-		_, err := w.app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Create(ctx, pvc, metav1.CreateOptions{})
-		//it can happen that our notebook is in deletion phase and it is still showing it exists so we better throw error
+	// Phase 2: PVC is confirmed gone — now create it with the normal creation timeout.
+	createCtx, createCancel := WithTimeoutContext(context.Background(), K8sCreationTimeout)
+	defer createCancel()
+
+	err = WithK8sRetry(createCtx, logger, func() (constants.ShouldContinue, error) {
+		_, err := w.app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Create(createCtx, pvc, metav1.CreateOptions{})
 		if k8serrors.IsAlreadyExists(err) {
-			logger.Warn("PVC already exists, will not retry creation", "error", err)
+			// Should not happen given Phase 1 cleared the way, but guard defensively.
+			logger.Warn("PVC unexpectedly exists after wait phase, will not retry", "error", err)
 			return constants.RetryStop, err
 		}
 		return constants.RetryContinue, err
@@ -313,7 +345,9 @@ func (w *worker) CreateNotebook() error {
 	var limit map[string]any
 	var imageName string
 	var request map[string]any
+	var notebookFlavor string
 	if utils.CheckGPUResource(nb.GPUType, nb.GPURequest, nb.GPULimit) {
+		notebookFlavor = "gpu"
 		imageName = w.app.env.GPU_NOTEBOOK_IMAGE
 		limit = map[string]any{
 			"cpu":               fmt.Sprintf("%.6f", nb.CPULimit),
@@ -328,6 +362,7 @@ func (w *worker) CreateNotebook() error {
 			*nb.GPUType:         *nb.GPURequest,
 		}
 	} else {
+		notebookFlavor = "cpu"
 		imageName = w.app.env.CPU_NOTEBOOK_IMAGE
 		limit = map[string]any{
 			"cpu":               fmt.Sprintf("%.6f", nb.CPULimit),
@@ -341,63 +376,119 @@ func (w *worker) CreateNotebook() error {
 		}
 	}
 
-	// Build the notebook spec
-	specTemplateSpec := map[string]any{
-		"initContainers": []any{
-			map[string]any{
-				"name":  "init-demo-ipynb",
-				"image": w.app.env.INIT_CONTAINER_IMAGE,
-				"command": []any{"/bin/sh", "-c", `
-if [ -f /home/jovyan/demo.ipynb ]; then
-  echo '[init] /home/jovyan/demo.ipynb already exists, skipping copy.'
+	// Override with the per-notebook image if one was specified at creation time.
+	// The image is pulled from ECR using the imagePullSecret already provisioned
+	// in the namespace; no additional pull step is required here.
+	if nb.ImageName != nil && *nb.ImageName != "" {
+		logger.Info("using custom image from notebook request", "image", *nb.ImageName)
+		imageName = *nb.ImageName
+	}
+
+	initContainers := []any{}
+
+	if imageName != "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps1-v3" &&
+		imageName != "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps2-v4" &&
+		imageName != "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps3-v3" {
+		initContainers = append(initContainers, map[string]any{
+			"name":  "init-demo-ipynb",
+			"image": w.app.env.INIT_CONTAINER_IMAGE,
+			"command": []any{"/bin/sh", "-c", fmt.Sprintf(`
+SOURCE_DIR="/tmp/demo_notebooks/%s"
+if [ -d "$SOURCE_DIR" ]; then
+  echo "[init] Extracting files from $SOURCE_DIR to /home/jovyan..."
+  for f in "$SOURCE_DIR"/*; do
+    if [ -f "$f" ]; then
+      filename=$(basename "$f")
+      if [ ! -f "/home/jovyan/$filename" ]; then
+        cp "$f" "/home/jovyan/$filename"
+        chown 1000:1000 "/home/jovyan/$filename"
+        chmod 644 "/home/jovyan/$filename"
+        echo "[init] Copied $filename"
+      else
+        echo "[init] $filename already exists, skipping."
+      fi
+    fi
+  done
 else
-  echo '[init] /home/jovyan/demo.ipynb not found, attempting to move from /tmp/demo.ipynb...'
-  if mv /tmp/demo.ipynb /home/jovyan/demo.ipynb; then
-    echo '[init] Successfully moved /tmp/demo.ipynb to /home/jovyan/demo.ipynb.'
+  echo "[init] Directory $SOURCE_DIR not found in init container image."
+  # Fallback to old behavior if the image hasn't been updated yet
+  if [ -f /tmp/demo.ipynb ] && [ ! -f /home/jovyan/demo.ipynb ]; then
+    cp /tmp/demo.ipynb /home/jovyan/demo.ipynb
     chown 1000:1000 /home/jovyan/demo.ipynb
-    chmod 644 /home/jovyan/demo.ipynb
-  else
-    echo '[init] Failed to move /tmp/demo.ipynb to /home/jovyan/demo.ipynb.'
-    exit 1
   fi
-fi
-
-if [ -f /home/jovyan/requirements.txt ]; then
-  echo '[init] /home/jovyan/requirements.txt already exists, skipping copy.'
-else
-  echo '[init] /home/jovyan/requirements.txt not found, attempting to move from /tmp/requirements.txt...'
-  if mv /tmp/requirements.txt /home/jovyan/requirements.txt; then
-    echo '[init] Successfully moved /tmp/requirements.txt to /home/jovyan/requirements.txt.'
+  if [ -f /tmp/requirements.txt ] && [ ! -f /home/jovyan/requirements.txt ]; then
+    cp /tmp/requirements.txt /home/jovyan/requirements.txt
     chown 1000:1000 /home/jovyan/requirements.txt
-    chmod 644 /home/jovyan/requirements.txt
-  else
-    echo '[init] Failed to move /tmp/requirements.txt to /home/jovyan/requirements.txt.'
-    exit 1
+  fi
+fi
+`, notebookFlavor)},
+			"volumeMounts": []any{
+				map[string]any{
+					"name":      "data-volume",
+					"mountPath": "/home/jovyan",
+				},
+			},
+		})
+	}
+
+	initContainers = append(initContainers, map[string]any{
+		"name":  "extract-built-in-notebooks",
+		"image": imageName,
+		"command": []any{"/bin/sh", "-c", `
+# The main container will mount the PVC at /home/jovyan, which shadows any files baked into the image.
+# This init container uses the SAME notebook image, mounts the PVC elsewhere, and copies the baked files over into the persistent volume.
+
+# 1. Extract from /home/jovyan (for NHA images which bake files into /home/jovyan)
+if ls /home/jovyan/*.ipynb 1> /dev/null 2>&1; then
+  echo '[init] Extracting compiled .ipynb files from /home/jovyan to PVC...'
+  for f in /home/jovyan/*.ipynb; do
+    filename=$(basename "$f")
+    if [ ! -f "/mnt/data/$filename" ]; then
+      cp "$f" "/mnt/data/$filename"
+      chown 1000:1000 "/mnt/data/$filename"
+    fi
+  done
+fi
+
+if [ -f "/home/jovyan/nha_client.py" ]; then
+  echo '[init] Extracting nha_client.py to PVC...'
+  if [ ! -f "/mnt/data/nha_client.py" ]; then
+    cp "/home/jovyan/nha_client.py" "/mnt/data/nha_client.py"
+    chown 1000:1000 "/mnt/data/nha_client.py"
   fi
 fi
 
-if [ -f /home/jovyan/Python_Packages_Installation_Demo.ipynb ]; then
-  echo '[init] /home/jovyan/Python_Packages_Installation_Demo.ipynb already exists, skipping copy.'
-else
-  echo '[init] /home/jovyan/Python_Packages_Installation_Demo.ipynb not found, attempting to move from /tmp/Python_Packages_Installation_Demo.ipynb...'
-  if mv /tmp/Python_Packages_Installation_Demo.ipynb /home/jovyan/Python_Packages_Installation_Demo.ipynb; then
-    echo '[init] Successfully moved /tmp/Python_Packages_Installation_Demo.ipynb to /home/jovyan/Python_Packages_Installation_Demo.ipynb.'
-    chown 1000:1000 /home/jovyan/Python_Packages_Installation_Demo.ipynb
-    chmod 644 /home/jovyan/Python_Packages_Installation_Demo.ipynb
-  else
-    echo '[init] Failed to move /tmp/Python_Packages_Installation_Demo.ipynb to /home/jovyan/Python_Packages_Installation_Demo.ipynb.'
-    exit 1
+# 2. Extract from /tmp (for new CPU and GPU images which bake files into /tmp)
+if ls /tmp/*.ipynb 1> /dev/null 2>&1; then
+  echo '[init] Extracting compiled .ipynb files from /tmp to PVC...'
+  for f in /tmp/*.ipynb; do
+    filename=$(basename "$f")
+    if [ ! -f "/mnt/data/$filename" ]; then
+      cp "$f" "/mnt/data/$filename"
+      chown 1000:1000 "/mnt/data/$filename"
+    fi
+  done
+fi
+
+if [ -f "/tmp/requirements.txt" ]; then
+  echo '[init] Extracting requirements.txt from /tmp to PVC...'
+  if [ ! -f "/mnt/data/requirements.txt" ]; then
+    cp "/tmp/requirements.txt" "/mnt/data/requirements.txt"
+    chown 1000:1000 "/mnt/data/requirements.txt"
   fi
 fi
 `},
-				"volumeMounts": []any{
-					map[string]any{
-						"name":      "data-volume",
-						"mountPath": "/home/jovyan",
-					},
-				},
+		"volumeMounts": []any{
+			map[string]any{
+				"name":      "data-volume",
+				"mountPath": "/mnt/data",
 			},
 		},
+	})
+
+	// Build the notebook spec
+	specTemplateSpec := map[string]any{
+		"initContainers": initContainers,
 		"containers": []any{
 			map[string]any{
 				"name":  nb.Name,
