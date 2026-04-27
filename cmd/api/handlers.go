@@ -60,22 +60,9 @@ func (app *application) checkNotebookExists(w http.ResponseWriter, r *http.Reque
 	sendResponseJson(w, logger, http.StatusOK, map[string]bool{"exists": exists})
 }
 
-// createNotebook godoc
-// @Summary      Create notebook
-// @Description  Creates a new notebook for the user
-// @Tags         notebook
-// @Accept       json
-// @Produce      json
-// @Param        notebook  body  NotebookRequest  true  "Notebook Create Request"
-// @Success      201  {object}  SwaggerMessageResponse
-// @Failure      422  {object}  Error422
-// @Failure      403  {object}  Error403
-// @Failure      429  {object}  Error429
-// @Failure      401  {object}  Error401
-// @Failure      500  {object}  Error500
-// @Failure      409  {object}  Error409
-// @Security     BearerAuth
-// @Router       /v1/notebook/create [post]
+// Deprecated: direct notebook creation is not routed in this branch.
+// Public clients must create CPU/GPU sandboxes via POST /v1/bookings so the
+// booking lifecycle can manage scheduling, provisioning, and cleanup.
 func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
 	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
