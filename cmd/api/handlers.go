@@ -665,11 +665,6 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 
 	notebookFailed := checkNotebookFailed(latestEvent)
 
-	if latestEvent != constants.StatusNotebookApplied && !notebookFailed {
-		sendError(w, logger, http.StatusBadRequest, "Cannot delete notebook that is not in applied state")
-		return
-	}
-
 	deleteQuery := `DELETE FROM notebooks WHERE name = $1 AND namespace = $2`
 	_, err = app.pgPool.Pool.Exec(ctx, deleteQuery, deleteReq.Name, namespace)
 	if err != nil {
