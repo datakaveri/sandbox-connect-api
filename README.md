@@ -67,6 +67,20 @@ go run ./cmd/worker/
 
 ## API Documentation
 
+The service exposes generated ReDoc API reference at:
+
+```text
+/v1/apis/
+```
+
+Regenerate OpenAPI artifacts after changing Swag annotations or API response types:
+
+```bash
+./scripts/generate-openapi.sh
+```
+
+User-facing docs and tutorials live in `user-docs/`. They are authored separately from the generated API reference and sync `docs/swagger.yaml` plus `docs/swagger.json` into the docs site before start/build.
+
 ### Notebook Endpoints
 
 CPU/GPU sandboxes are **created via bookings** (`POST /v1/bookings`); the worker provisions the notebook at the scheduled time. Direct `POST /v1/notebook/create` is not supported.

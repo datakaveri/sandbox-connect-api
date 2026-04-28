@@ -1,0 +1,23 @@
+{
+  "name": "sandbox-connect-user-docs",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "sync:openapi": "bash scripts/sync-openapi.sh",
+    "start": "npm run sync:openapi && docusaurus start",
+    "build": "npm run sync:openapi && docusaurus build",
+    "serve": "docusaurus serve"
+  },
+  "dependencies": {
+    "@docusaurus/core": "^3.7.0",
+    "@docusaurus/preset-classic": "^3.7.0",
+    "@easyops-cn/docusaurus-search-local": "^0.49.2",
+    "prism-react-renderer": "^2.4.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {}
+}

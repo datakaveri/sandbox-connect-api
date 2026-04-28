@@ -1684,6 +1684,9 @@ const docTemplate = `{
                 "id": {
                     "type": "integer"
                 },
+                "imageName": {
+                    "type": "string"
+                },
                 "instanceType": {
                     "type": "string"
                 },
