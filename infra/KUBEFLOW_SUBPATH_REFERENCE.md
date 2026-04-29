@@ -51,6 +51,12 @@ spec:
           number: 80
 ```
 
+Apply command:
+
+```bash
+kubectl apply -f apps/jupyter/jupyter-web-app/upstream/overlays/istio/virtual-service.yaml -n kubeflow
+```
+
 ## 2. Notebook Controller Manager
 
 Target folder: `apps/jupyter/notebook-controller/upstream/manager`
@@ -135,6 +141,14 @@ spec:
       serviceAccountName: service-account
 ```
 
+Apply command:
+
+```bash
+kustomize build apps/jupyter/notebook-controller/upstream/overlays/kubeflow | kubectl apply -f -
+kustomize build apps/jupyter/jupyter-web-app/upstream/overlays/istio | kubectl apply -f -
+```
+
+
 ## 3. Profiles VirtualService
 
 Target folder: `apps/profiles/upstream/overlays/kubeflow`
@@ -168,7 +182,12 @@ spec:
         host: profiles-kfam.$(PROFILES_NAMESPACE).svc.cluster.local
         port:
           number: 8081
+```
 
+Apply command:
+
+```bash
+kubectl apply -f apps/profiles/upstream/overlays/kubeflow/virtual-service.yaml -n kubeflow
 ```
 
 ## 4. Dex Istio VirtualService
@@ -199,12 +218,18 @@ spec:
         port:
           number: 5556
 ```
+Apply command:
+
+```bash
+kubectl apply -f common/dex/overlays/istio/virtual-service.yaml -n auth
+```
 
 ## 5. Dex OAuth2 Proxy ConfigMap
 
 Target folder: `common/dex/overlays/oauth2-proxy`
 
 Target file: `config-map.yaml`
+
 
 ```yaml
 apiVersion: v1
@@ -253,6 +278,12 @@ data:
           - profile
           - email
           - offline_access
+```
+Apply command:
+
+```bash
+kustomize build common/dex/overlays/oauth2-proxy | kubectl delete -f -
+kustomize build common/dex/overlays/oauth2-proxy | kubectl apply -f -
 ```
 
 ## 6. OAuth2 Proxy Config
@@ -308,6 +339,12 @@ relative_redirect_url = true
 
 ```
 
+Apply command:
+```bash
+kustomize build common/oauth2-proxy/overlays/m2m-dex-only/ | kubectl delete -f -
+kustomize build common/oauth2-proxy/overlays/m2m-dex-only/ | kubectl apply -f -
+```
+
 ## 7. OAuth2 Proxy VirtualService
 
 Target folder: `common/oauth2-proxy/base`
@@ -337,11 +374,18 @@ spec:
           number: 80
 ```
 
+Apply command:
+
+```bash
+kubectl apply -f common/oauth2-proxy/base/virtualservice.yaml -n oauth2-proxy
+```
+
 ## 8. OAuth2 Proxy External Auth AuthorizationPolicy
 
 Target folder: `common/oauth2-proxy/components/istio-external-auth`
 
 Target file: `authorizationpolicy.istio-ingressgateway-oauth2-proxy.yaml`
+
 
 ```yaml
 apiVersion: security.istio.io/v1beta1
@@ -372,11 +416,19 @@ spec:
         - /<subpath>/oauth2/*
 ```
 
+Apply command:
+
+```bash
+kubectl apply -f common/oauth2-proxy/components/istio-external-auth/authorizationpolicy.istio-ingressgateway-oauth2-proxy.yaml -n istio-system
+```
+
+
 ## 9. JWT AuthorizationPolicy
 
 Target folder: `common/oauth2-proxy/components/istio-external-auth`
 
 Target file: `authorizationpolicy.istio-ingressgateway-require-jwt.yaml`
+
 
 ```yaml
 apiVersion: security.istio.io/v1beta1
@@ -405,6 +457,13 @@ spec:
         - /<subpath>/dex/**
         - /<subpath>/oauth2/*
 ```
+
+Apply command:
+
+```bash
+kubectl apply -f common/oauth2-proxy/components/istio-external-auth/authorizationpolicy.istio-ingressgateway-require-jwt.yaml -n istio-system
+```
+
 
 ## 10. Dex JWT RequestAuthentication
 
@@ -435,9 +494,24 @@ spec:
       prefix: "Bearer "
 ```
 
+Apply command:
+
+```bash
+kustomize build common/istio-1-24/istio-install/overlays/oauth2-proxy | kubectl delete -f -
+kustomize build common/istio-1-24/istio-install/overlays/oauth2-proxy | kubectl apply -f -
+kustomize build common/oauth2-proxy/overlays/m2m-dex-only/ | kubectl delete -f -
+kustomize build common/oauth2-proxy/overlays/m2m-dex-only/ | kubectl apply -f -
+```
+
 ## 11. NGINX Ingress
 
 Target file: `ingress.yaml`
+
+Apply command:
+
+```bash
+kubectl apply -f ingress.yaml -n istio-system
+```
 
 Use this when an NGINX ingress fronts the Istio ingress gateway and Kubeflow is
 served from `/<subpath>`.
@@ -480,3 +554,4 @@ spec:
     - <kubeflow-host>
     secretName: <tls-secret-name>
 ```
+
