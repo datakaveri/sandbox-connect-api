@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -9,10 +11,13 @@ import (
 	"sandbox-backend-service/pkg/k8s"
 	"sandbox-backend-service/pkg/utils"
 	"syscall"
+	"time"
 
 	"github.com/caarlos0/env/v11"
 	"github.com/joho/godotenv"
 )
+
+const livenessFile = "/tmp/slot-lifecycle-alive"
 
 func main() {
 	logLevel := slog.LevelInfo
@@ -20,9 +25,14 @@ func main() {
 		logLevel = slog.LevelDebug
 	}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: logLevel,
-	}))
+	handlerOpts := &slog.HandlerOptions{Level: logLevel}
+	var handler slog.Handler
+	if os.Getenv("SLOT_LIFECYCLE_LOG_FORMAT") == "text" {
+		handler = slog.NewTextHandler(os.Stdout, handlerOpts)
+	} else {
+		handler = slog.NewJSONHandler(os.Stdout, handlerOpts)
+	}
+	logger := slog.New(handler)
 	slog.SetDefault(logger)
 
 	if err := godotenv.Load(); err != nil {
@@ -54,23 +64,30 @@ func main() {
 		utils.LogErrorAndExit(logger, "failed to create kubernetes client", "error", err)
 	}
 
-	// Handle signals so the cron job can exit gracefully.
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	done := make(chan struct{})
-	go func() {
-		<-sigChan
-		close(done)
-	}()
+	tickInterval := time.Duration(config.TickIntervalSecs) * time.Second
+	runTimeout := time.Duration(config.RunTimeoutSecs) * time.Second
 
-	if err := runSlotLifecycle(pool, k8sClient, config); err != nil {
-		logger.Error("slot lifecycle run failed", "error", err)
-		os.Exit(1)
-	}
+	logger.Info("slot lifecycle worker started", "tick_interval", tickInterval, "run_timeout", runTimeout)
 
-	select {
-	case <-done:
-	default:
+	for {
+		// Touch liveness file so the K8s liveness probe can verify the loop is running.
+		_ = os.WriteFile(livenessFile, []byte(time.Now().Format(time.RFC3339)), 0644)
+
+		ctx, cancel := context.WithTimeout(context.Background(), runTimeout)
+		if err := runSlotLifecycle(ctx, pool, k8sClient, config); err != nil {
+			logger.Error("slot lifecycle run failed", "error", err)
+		}
+		cancel()
+		fmt.Println("****")
+
+		select {
+		case <-sigChan:
+			logger.Info("shutting down slot lifecycle worker")
+			return
+		case <-time.After(tickInterval):
+		}
 	}
 }

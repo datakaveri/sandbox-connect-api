@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: slot-lifecycle
+  namespace: sandbox
+  labels:
+    app: slot-lifecycle
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: slot-lifecycle
+  template:
+    metadata:
+      labels:
+        app: slot-lifecycle
+    spec:
+      serviceAccountName: notebook-manager-sa
+      imagePullSecrets:
+        - name: tgdex-registry-cred
+      containers:
+        - name: slot-lifecycle
+          image: ghcr.io/datakaveri/tgdex-slot-lifecycle-cron:tgdex-1.0.0
+          env:
+            - name: SLOT_LIFECYCLE_POSTGRES_URL
+              valueFrom:
+                secretKeyRef:
+                  name: database-creds
+                  key: POSTGRES_URL
+          envFrom:
+            - configMapRef:
+                name: slot-lifecycle-config
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "test $(( $(date +%s) - $(stat -c %Y /tmp/slot-lifecycle-alive) )) -lt 90"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+            requests:
+              memory: "256Mi"
+              cpu: "100m"

@@ -62,24 +62,24 @@ type lifecycleRunSummary struct {
 	cleanupDeleteErrors    int
 }
 
-func runSlotLifecycle(pool *db.PgPool, k8sClient *k8s.K8sClient, cfg CronEnv) error {
+func runSlotLifecycle(ctx context.Context, pool *db.PgPool, k8sClient *k8s.K8sClient, cfg CronEnv) error {
 	logger := slog.Default().With("service", "slot-lifecycle")
 	summary := &lifecycleRunSummary{}
 
 	// v1 transitions in order; each step is best-effort and idempotent.
-	if err := stepScheduledToReady(pool, logger, cfg, summary); err != nil {
+	if err := stepScheduledToReady(ctx, pool, logger, cfg, summary); err != nil {
 		return err
 	}
-	if err := stepReadyToActiveOrNoShow(pool, k8sClient, logger, cfg, summary); err != nil {
+	if err := stepReadyToActiveOrNoShow(ctx, pool, k8sClient, logger, cfg, summary); err != nil {
 		return err
 	}
-	if err := stepActiveToShuttingDown(pool, logger, cfg, summary); err != nil {
+	if err := stepActiveToShuttingDown(ctx, pool, logger, cfg, summary); err != nil {
 		return err
 	}
-	if err := stepSlotEndStopAndComplete(pool, k8sClient, logger, cfg, summary); err != nil {
+	if err := stepSlotEndStopAndComplete(ctx, pool, k8sClient, logger, cfg, summary); err != nil {
 		return err
 	}
-	if err := stepCleanupCompleted(pool, k8sClient, logger, cfg, summary); err != nil {
+	if err := stepCleanupCompleted(ctx, pool, k8sClient, logger, cfg, summary); err != nil {
 		return err
 	}
 
@@ -134,8 +134,7 @@ func nowIST() time.Time {
 	return time.Now().In(istLocation())
 }
 
-func stepScheduledToReady(pool *db.PgPool, logger *slog.Logger, cfg CronEnv, summary *lifecycleRunSummary) error {
-	ctx := context.Background()
+func stepScheduledToReady(ctx context.Context, pool *db.PgPool, logger *slog.Logger, cfg CronEnv, summary *lifecycleRunSummary) error {
 	nowQuery := `NOW() AT TIME ZONE 'Asia/Kolkata'`
 	selected := 0
 	processed := 0
@@ -182,7 +181,7 @@ func stepScheduledToReady(pool *db.PgPool, logger *slog.Logger, cfg CronEnv, sum
 
 	for _, b := range bookings {
 		processed++
-		if err := processBookingToReady(pool, logger, cfg, b); err != nil {
+		if err := processBookingToReady(ctx, pool, logger, cfg, b); err != nil {
 			failures++
 			logger.Error("failed processing booking scheduled->ready", "booking_id", b.ID, "error", err)
 			continue
@@ -205,8 +204,7 @@ func stepScheduledToReady(pool *db.PgPool, logger *slog.Logger, cfg CronEnv, sum
 	return nil
 }
 
-func processBookingToReady(pool *db.PgPool, logger *slog.Logger, cfg CronEnv, b GPUBookingRow) error {
-	ctx := context.Background()
+func processBookingToReady(ctx context.Context, pool *db.PgPool, logger *slog.Logger, cfg CronEnv, b GPUBookingRow) error {
 
 	category, ok := gpuconfig.GetGPUCategory(cfg.SlotConfigProfile, b.Category)
 	if !ok {
@@ -299,8 +297,7 @@ func processBookingToReady(pool *db.PgPool, logger *slog.Logger, cfg CronEnv, b 
 	return tx.Commit(ctx)
 }
 
-func stepReadyToActiveOrNoShow(pool *db.PgPool, k8sClient *k8s.K8sClient, logger *slog.Logger, cfg CronEnv, summary *lifecycleRunSummary) error {
-	ctx := context.Background()
+func stepReadyToActiveOrNoShow(ctx context.Context, pool *db.PgPool, k8sClient *k8s.K8sClient, logger *slog.Logger, cfg CronEnv, summary *lifecycleRunSummary) error {
 	batch := cfg.BatchSize
 	selected := 0
 	becameActive := 0
@@ -373,7 +370,7 @@ func stepReadyToActiveOrNoShow(pool *db.PgPool, k8sClient *k8s.K8sClient, logger
 			continue
 		}
 
-		running, err := isNotebookRunning(k8sClient, namespace, notebookName)
+		running, err := isNotebookRunning(ctx, k8sClient, namespace, notebookName)
 		if err != nil {
 			k8sCheckErrors++
 			logger.Error("failed checking notebook running", "booking_id", bookingID, "error", err)
@@ -399,7 +396,7 @@ func stepReadyToActiveOrNoShow(pool *db.PgPool, k8sClient *k8s.K8sClient, logger
 		}
 
 		// Delete notebook + PVC (best-effort), then mark booking expired.
-		if err := deleteNotebookAndPVC(k8sClient, namespace, notebookName, pvcName); err != nil {
+		if err := deleteNotebookAndPVC(ctx, k8sClient, namespace, notebookName, pvcName); err != nil {
 			k8sDeleteErrors++
 			logger.Error("failed deleting resources for no-show", "booking_id", bookingID, "error", err)
 		}
@@ -449,8 +446,7 @@ func stepReadyToActiveOrNoShow(pool *db.PgPool, k8sClient *k8s.K8sClient, logger
 	return nil
 }
 
-func stepActiveToShuttingDown(pool *db.PgPool, logger *slog.Logger, cfg CronEnv, summary *lifecycleRunSummary) error {
-	ctx := context.Background()
+func stepActiveToShuttingDown(ctx context.Context, pool *db.PgPool, logger *slog.Logger, cfg CronEnv, summary *lifecycleRunSummary) error {
 	selected := 0
 	shuttingDownTransitions := 0
 	waitingWarningWindow := 0
@@ -541,8 +537,7 @@ func stepActiveToShuttingDown(pool *db.PgPool, logger *slog.Logger, cfg CronEnv,
 	return nil
 }
 
-func stepSlotEndStopAndComplete(pool *db.PgPool, k8sClient *k8s.K8sClient, logger *slog.Logger, cfg CronEnv, summary *lifecycleRunSummary) error {
-	ctx := context.Background()
+func stepSlotEndStopAndComplete(ctx context.Context, pool *db.PgPool, k8sClient *k8s.K8sClient, logger *slog.Logger, cfg CronEnv, summary *lifecycleRunSummary) error {
 	selected := 0
 	completedTransitions := 0
 	waitingSlotEnd := 0
@@ -593,7 +588,7 @@ func stepSlotEndStopAndComplete(pool *db.PgPool, k8sClient *k8s.K8sClient, logge
 		}
 
 		// Stop notebook; mark complete regardless of stop call success.
-		if err := addStoppedAnnotation(k8sClient, namespace, notebookName); err != nil {
+		if err := addStoppedAnnotation(ctx, k8sClient, namespace, notebookName); err != nil {
 			stopErrors++
 			logger.Error("failed adding stopped annotation", "booking_id", bookingID, "error", err)
 		}
@@ -627,8 +622,7 @@ func stepSlotEndStopAndComplete(pool *db.PgPool, k8sClient *k8s.K8sClient, logge
 	return nil
 }
 
-func stepCleanupCompleted(pool *db.PgPool, k8sClient *k8s.K8sClient, logger *slog.Logger, cfg CronEnv, summary *lifecycleRunSummary) error {
-	ctx := context.Background()
+func stepCleanupCompleted(ctx context.Context, pool *db.PgPool, k8sClient *k8s.K8sClient, logger *slog.Logger, cfg CronEnv, summary *lifecycleRunSummary) error {
 	selected := 0
 	cleanupCompleted := 0
 	waitingGrace := 0
@@ -686,7 +680,7 @@ func stepCleanupCompleted(pool *db.PgPool, k8sClient *k8s.K8sClient, logger *slo
 			continue
 		}
 
-		if err := deleteNotebookAndPVC(k8sClient, namespace, notebookName, pvcName); err != nil {
+		if err := deleteNotebookAndPVC(ctx, k8sClient, namespace, notebookName, pvcName); err != nil {
 			deleteErrors++
 			logger.Error("failed deleting resources for cleanup", "booking_id", bookingID, "error", err)
 		}
@@ -729,8 +723,8 @@ func stepCleanupCompleted(pool *db.PgPool, k8sClient *k8s.K8sClient, logger *slo
 	return nil
 }
 
-func isNotebookRunning(k8sClient *k8s.K8sClient, namespace, notebookName string) (bool, error) {
-	obj, err := k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Get(context.Background(), notebookName, metav1.GetOptions{})
+func isNotebookRunning(ctx context.Context, k8sClient *k8s.K8sClient, namespace, notebookName string) (bool, error) {
+	obj, err := k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Get(ctx, notebookName, metav1.GetOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			return false, nil
@@ -768,8 +762,8 @@ func isNotebookRunning(k8sClient *k8s.K8sClient, namespace, notebookName string)
 	}
 }
 
-func addStoppedAnnotation(k8sClient *k8s.K8sClient, namespace, notebookName string) error {
-	obj, err := k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Get(context.Background(), notebookName, metav1.GetOptions{})
+func addStoppedAnnotation(ctx context.Context, k8sClient *k8s.K8sClient, namespace, notebookName string) error {
+	obj, err := k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Get(ctx, notebookName, metav1.GetOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			return nil
@@ -790,13 +784,11 @@ func addStoppedAnnotation(k8sClient *k8s.K8sClient, namespace, notebookName stri
 		return err
 	}
 
-	_, err = k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Update(context.Background(), obj, metav1.UpdateOptions{})
+	_, err = k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Update(ctx, obj, metav1.UpdateOptions{})
 	return err
 }
 
-func deleteNotebookAndPVC(k8sClient *k8s.K8sClient, namespace, notebookName, pvcName string) error {
-	ctx := context.Background()
-
+func deleteNotebookAndPVC(ctx context.Context, k8sClient *k8s.K8sClient, namespace, notebookName, pvcName string) error {
 	// Best-effort deletes; kubernetes may already have removed them.
 	if err := k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Delete(ctx, notebookName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
 		return err
