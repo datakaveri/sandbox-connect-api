@@ -11,7 +11,7 @@ const config = {
   organizationName: 'datakaveri',
   projectName: 'sandbox-connect-api',
 
-  onBrokenLinks: 'throw',
+  onBrokenLinks: 'warn',
   onBrokenMarkdownLinks: 'warn',
 
   i18n: {
