@@ -145,8 +145,16 @@ Apply command:
 
 ```bash
 kustomize build apps/jupyter/notebook-controller/upstream/overlays/kubeflow | kubectl apply -f -
-kustomize build apps/jupyter/jupyter-web-app/upstream/overlays/istio | kubectl apply -f -
 ```
+> ⚠️🚨 **DANGER: Do not delete the Notebook Controller resources directly.**
+>
+> Deleting this may also delete the Notebook CRD, which can delete **all notebooks** in Kubeflow.
+>
+> Instead, either delete/recreate only the **notebook-controller deployment** in the `kubeflow` namespace, or restart it safely:
+>
+> ```bash
+> kubectl rollout restart deployment notebook-controller-deployment -n kubeflow
+> ```
 
 
 ## 3. Profiles VirtualService
