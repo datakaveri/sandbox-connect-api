@@ -16,6 +16,16 @@ Common placeholders:
 - `<tls-secret-name>`: the TLS secret used by the ingress
 - `<allowed-origin-list>`: comma-separated CORS origins, if CORS is required
 
+  
+> ⚠️ **Add the Kubeflow redirect URLs in Keycloak before starting.**
+>
+> When Kubeflow is served under a subpath such as `/<subpath>` or `/kubeflow`,
+> the Keycloak OIDC client **must** include these redirect URLs:
+>
+> ```text
+> https://<kubeflow-host>/<subpath>
+> https://<kubeflow-host>/<subpath>/dex/callback
+> ```
 ## 1. Jupyter Web App VirtualService
 
 Target folder: `apps/jupyter/jupyter-web-app/upstream/overlays/istio`
@@ -156,6 +166,7 @@ kustomize build apps/jupyter/notebook-controller/upstream/overlays/kubeflow | ku
 > kubectl rollout restart deployment notebook-controller-deployment -n kubeflow
 > ```
 
+image we are using `ghcr.io/datakaveri/kubeflow-notebook-controller:v1.10-with-subpath-v2`
 
 ## 3. Profiles VirtualService
 
@@ -217,7 +228,7 @@ spec:
   http:
   - match:
     - uri:
-        exact: /<subpath>/dex
+        exact: /<subpath>/dexDANGERDANGER
     - uri:
         prefix: /<subpath>/dex/
     route:
