@@ -1,12 +1,15 @@
 // @ts-check
 
+const siteUrl = process.env.DOCS_SITE_URL || 'https://v2.dev.sandbox.iudx.io';
+const baseUrl = process.env.DOCS_BASE_URL || '/user-docs/';
+
 const config = {
   title: 'Sandbox Connect',
   tagline: 'User docs and tutorials for booking-based sandbox notebooks',
   favicon: 'img/favicon.ico',
 
-  url: 'https://docs.example.com',
-  baseUrl: '/',
+  url: siteUrl,
+  baseUrl,
 
   organizationName: 'datakaveri',
   projectName: 'sandbox-connect-api',
@@ -54,7 +57,7 @@ const config = {
       items: [
         { to: '/docs/intro', label: 'Docs', position: 'left' },
         { to: '/docs/tutorials/getting-started/launch-a-cpu-sandbox', label: 'Tutorials', position: 'left' },
-        { href: '/openapi/swagger.yaml', label: 'OpenAPI', position: 'right' },
+        { href: `${baseUrl}openapi/swagger.yaml`, label: 'OpenAPI', position: 'right' },
       ],
     },
     docs: {
