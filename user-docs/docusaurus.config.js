@@ -1,6 +1,7 @@
 // @ts-check
 
-const siteUrl = process.env.DOCS_SITE_URL || 'https://v2.dev.sandbox.iudx.io';
+const isDev = process.env.NODE_ENV !== 'production';
+const siteUrl = process.env.DOCS_SITE_URL || (isDev ? 'http://localhost:3000' : 'https://v2.dev.sandbox.iudx.io');
 const baseUrl = process.env.DOCS_BASE_URL || '/user-docs/';
 
 const config = {

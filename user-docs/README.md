@@ -16,6 +16,9 @@ npm install
 npm run start
 ```
 
+Local development and production both default to `baseUrl=/user-docs/`, so the local site opens at `http://localhost:3000/user-docs/docs/intro`.
+The site URL and base URL can still be overridden with `DOCS_SITE_URL` and `DOCS_BASE_URL`.
+
 Build production assets:
 
 ```bash

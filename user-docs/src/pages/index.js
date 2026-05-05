@@ -1,5 +1,7 @@
 import { Redirect } from '@docusaurus/router';
+import useBaseUrl from '@docusaurus/useBaseUrl';
 
 export default function Home() {
-  return <Redirect to="/docs/intro" />;
+  const introUrl = useBaseUrl('/docs/intro');
+  return <Redirect to={introUrl} />;
 }
