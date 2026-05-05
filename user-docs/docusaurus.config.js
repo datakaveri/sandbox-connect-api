@@ -58,7 +58,7 @@ const config = {
       items: [
         { to: '/docs/intro', label: 'Docs', position: 'left' },
         { to: '/docs/tutorials/getting-started/launch-a-cpu-sandbox', label: 'Tutorials', position: 'left' },
-        { href: `${baseUrl}openapi/swagger.yaml`, label: 'OpenAPI', position: 'right' },
+        { to: '/docs/api-guides/api-reference', label: 'OpenAPI', position: 'right' },
       ],
     },
     docs: {
