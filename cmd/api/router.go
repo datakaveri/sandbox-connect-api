@@ -19,9 +19,7 @@ func (app *application) router() http.Handler {
 
 	apiMux := http.NewServeMux()
 
-	// Standard notebook routes (non-permission protected)
-	apiMux.HandleFunc("PATCH /v1/notebook/stop", app.stopNotebook)
-	apiMux.HandleFunc("DELETE /v1/notebook/delete", app.deleteNotebook)
+	// Standard notebook read/status routes (non-permission protected)
 	apiMux.HandleFunc("GET /v1/notebook/list", app.listNotebooks)
 	apiMux.HandleFunc("GET /v1/notebook/check-exists/{notebook_name}", app.checkNotebookExists)
 	apiMux.HandleFunc("GET /v1/notebook/status/{notebook_name}", app.checkNotebookStatus)
@@ -39,9 +37,6 @@ func (app *application) router() http.Handler {
 
 	// Profile routes
 	apiMux.HandleFunc("POST /v1/profile/create", app.createProfile)
-
-	// Register notebook routes directly
-	apiMux.HandleFunc("PATCH /v1/notebook/start", app.startNotebook)
 
 	// Apply audit middleware (after auth, before handlers)
 	// Auth runs first → sets UserInfo in context → Audit wraps handlers to capture status code

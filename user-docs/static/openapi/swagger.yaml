@@ -206,15 +206,6 @@ definitions:
       status:
         type: string
     type: object
-  main.DeleteNotebookRequest:
-    properties:
-      name:
-        maxLength: 50
-        minLength: 4
-        type: string
-    required:
-    - name
-    type: object
   main.Error400:
     description: Response for bad request errors
     properties:
@@ -451,24 +442,6 @@ definitions:
         type: boolean
       startTime:
         type: string
-    type: object
-  main.StartNotebookRequest:
-    properties:
-      name:
-        maxLength: 50
-        minLength: 4
-        type: string
-    required:
-    - name
-    type: object
-  main.StopNotebookRequest:
-    properties:
-      name:
-        maxLength: 50
-        minLength: 4
-        type: string
-    required:
-    - name
     type: object
   main.SwaggerExistsResponse:
     description: Response structure for check-exists endpoint
@@ -811,54 +784,6 @@ paths:
       summary: Check if notebook exists
       tags:
       - notebook
-  /v1/notebook/delete:
-    delete:
-      consumes:
-      - application/json
-      description: Deletes a notebook by name
-      parameters:
-      - description: Notebook Delete Request
-        in: body
-        name: notebook_name
-        required: true
-        schema:
-          $ref: '#/definitions/main.DeleteNotebookRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/main.SwaggerMessageResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/main.Error401'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/main.Error404'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/main.Error409'
-        "422":
-          description: Unprocessable Entity
-          schema:
-            $ref: '#/definitions/main.Error422'
-        "429":
-          description: Too Many Requests
-          schema:
-            $ref: '#/definitions/main.Error429'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/main.Error500'
-      security:
-      - BearerAuth: []
-      summary: Delete notebook
-      tags:
-      - notebook
   /v1/notebook/instance-types:
     get:
       description: Returns instance types from API_GPU_NODE_INSTANCE_TYPES with display
@@ -936,50 +861,6 @@ paths:
       summary: List notebooks
       tags:
       - notebook
-  /v1/notebook/start:
-    patch:
-      consumes:
-      - application/json
-      description: Starts an existing notebook
-      parameters:
-      - description: Notebook Start Request
-        in: body
-        name: notebook_name
-        required: true
-        schema:
-          $ref: '#/definitions/main.StartNotebookRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/main.SwaggerMessageResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/main.Error401'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/main.Error404'
-        "422":
-          description: Unprocessable Entity
-          schema:
-            $ref: '#/definitions/main.Error422'
-        "429":
-          description: Too Many Requests
-          schema:
-            $ref: '#/definitions/main.Error429'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/main.Error500'
-      security:
-      - BearerAuth: []
-      summary: Start notebook
-      tags:
-      - notebook
   /v1/notebook/status/{notebook_name}:
     get:
       description: Gets the status of a notebook
@@ -1015,54 +896,6 @@ paths:
       security:
       - BearerAuth: []
       summary: Get notebook status
-      tags:
-      - notebook
-  /v1/notebook/stop:
-    patch:
-      consumes:
-      - application/json
-      description: Stops a running notebook
-      parameters:
-      - description: Notebook Stop Request
-        in: body
-        name: notebook_name
-        required: true
-        schema:
-          $ref: '#/definitions/main.StopNotebookRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/main.SwaggerMessageResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/main.Error400'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/main.Error401'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/main.Error404'
-        "422":
-          description: Unprocessable Entity
-          schema:
-            $ref: '#/definitions/main.Error422'
-        "429":
-          description: Too Many Requests
-          schema:
-            $ref: '#/definitions/main.Error429'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/main.Error500'
-      security:
-      - BearerAuth: []
-      summary: Stop notebook
       tags:
       - notebook
   /v1/profile/create:

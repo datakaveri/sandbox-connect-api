@@ -4,15 +4,17 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strings"
 )
 
 // auditedEndpoints maps "METHOD /path" to a human-readable action name.
 // Only these endpoints produce audit messages, and only on 2xx responses.
 var auditedEndpoints = map[string]string{
-	"POST /v1/bookings":       "Create",
-	"PATCH /v1/notebook/start":  "Start",
-	"PATCH /v1/notebook/stop":   "Stop",
-	"DELETE /v1/notebook/delete": "Delete",
+	"POST /v1/bookings":                 "Create",
+	"PATCH /v1/bookings/{id}/cancel":    "Cancel",
+	"PATCH /v1/bookings/{id}/extend":    "Extend",
+	"PATCH /v1/bookings/{id}/reset":     "Reset",
+	"PATCH /v1/bookings/{id}/terminate": "Terminate",
 }
 
 // ---------------------------------------------------------------------------
@@ -184,6 +186,17 @@ func getAuditAction(method, path string) string {
 	if action, ok := auditedEndpoints[key]; ok {
 		return action
 	}
+
+	if method == http.MethodPatch {
+		parts := strings.Split(strings.Trim(path, "/"), "/")
+		if len(parts) == 4 && parts[0] == "v1" && parts[1] == "bookings" && parts[2] != "" {
+			key = method + " /v1/bookings/{id}/" + parts[3]
+			if action, ok := auditedEndpoints[key]; ok {
+				return action
+			}
+		}
+	}
+
 	return ""
 }
 

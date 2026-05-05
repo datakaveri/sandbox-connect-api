@@ -338,22 +338,9 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 	sendResponse(w, logger, http.StatusCreated, "Notebook creation is in process")
 }
 
-// stopNotebook godoc
-// @Summary      Stop notebook
-// @Description  Stops a running notebook
-// @Tags         notebook
-// @Accept       json
-// @Produce      json
-// @Param        notebook_name  body  StopNotebookRequest  true  "Notebook Stop Request"
-// @Success      200  {object}  SwaggerMessageResponse
-// @Failure      429  {object}  Error429
-// @Failure      401  {object}  Error401
-// @Failure      500  {object}  Error500
-// @Failure      422  {object}  Error422
-// @Failure      404  {object}  Error404
-// @Failure      400  {object}  Error400
-// @Security     BearerAuth
-// @Router       /v1/notebook/stop [patch]
+// Deprecated: notebook stop is no longer routed for public clients.
+// Booking-owned sessions must be ended with PATCH /v1/bookings/{id}/terminate
+// so capacity accounting and compute cleanup stay in the same lifecycle.
 func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
 	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
@@ -411,21 +398,9 @@ func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
 	sendResponse(w, logger, http.StatusOK, "Notebook stopped successfully")
 }
 
-// startNotebook godoc
-// @Summary      Start notebook
-// @Description  Starts an existing notebook
-// @Tags         notebook
-// @Accept       json
-// @Produce      json
-// @Param        notebook_name  body  StartNotebookRequest  true  "Notebook Start Request"
-// @Success      200  {object}  SwaggerMessageResponse
-// @Failure      404  {object}  Error404
-// @Failure      429  {object}  Error429
-// @Failure      401  {object}  Error401
-// @Failure      500  {object}  Error500
-// @Failure      422  {object}  Error422
-// @Security     BearerAuth
-// @Router       /v1/notebook/start [patch]
+// Deprecated: notebook start is no longer routed for public clients.
+// Users must create a new session with POST /v1/bookings, or extend an active
+// booking with PATCH /v1/bookings/{id}/extend.
 func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
 	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
@@ -592,22 +567,8 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 	sendResponse(w, logger, http.StatusOK, "Notebook started successfully")
 }
 
-// deleteNotebook godoc
-// @Summary      Delete notebook
-// @Description  Deletes a notebook by name
-// @Tags         notebook
-// @Accept       json
-// @Produce      json
-// @Param        notebook_name  body  DeleteNotebookRequest  true  "Notebook Delete Request"
-// @Success      200  {object}  SwaggerMessageResponse
-// @Failure      429  {object}  Error429
-// @Failure      401  {object}  Error401
-// @Failure      404  {object}  Error404
-// @Failure      409  {object}  Error409
-// @Failure      422  {object}  Error422
-// @Failure      500  {object}  Error500
-// @Security     BearerAuth
-// @Router       /v1/notebook/delete [delete]
+// Deprecated: notebook delete is no longer routed for public clients.
+// Use booking terminate/reset so cleanup and capacity accounting remain booking-owned.
 func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
 	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)

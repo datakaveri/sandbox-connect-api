@@ -79,9 +79,6 @@ The REST API server handles all client-facing operations. Key features:
 |----------|--------|-------------|
 | `/v1/bookings` | POST | Create a CPU/GPU slot booking (notebook provisioned via worker / lifecycle) |
 | `/v1/bookings` | GET | List the current user's bookings |
-| `/v1/notebook/start` | PATCH | Start a stopped notebook |
-| `/v1/notebook/stop` | PATCH | Stop a running notebook |
-| `/v1/notebook/delete` | DELETE | Delete a notebook |
 | `/v1/notebook/list` | GET | List all user notebooks |
 | `/v1/notebook/check-exists/{name}` | GET | Check if notebook exists |
 | `/v1/notebook/status/{name}` | GET | Get notebook status |
@@ -251,31 +248,14 @@ Once a notebook reaches `notebook-applied`, its runtime state is derived by comb
 
 ---
 
-## Start / Stop / Delete Operations
+## Booking-Owned Lifecycle Operations
 
-### Stop (`PATCH /v1/notebook/stop`)
+Notebook lifecycle writes are intentionally not exposed to public clients. A booking reserves capacity, so lifecycle changes must go through booking APIs:
 
-1. Validate notebook exists and has reached `notebook-applied`
-2. Add annotation `kubeflow-resource-stopped: <RFC3339 timestamp>` to the Notebook CRD
-3. Kubeflow controller automatically scales replicas to 0
-
-### Start (`PATCH /v1/notebook/start`)
-
-1. Validate notebook exists and has reached `notebook-applied`
-2. Update ECR secret if needed
-3. Lock profile row and re-check resource limits and GPU credit balance
-4. Remove `kubeflow-resource-stopped` annotation from the Notebook CRD
-5. Kubeflow controller automatically scales replicas back up
-
-### Delete (`DELETE /v1/notebook/delete`)
-
-1. Validate notebook exists
-2. Check state: must be `notebook-applied` or failed
-3. Delete the record from the database
-4. If not in a failed state:
-   - Delete the Notebook CRD from Kubernetes (background propagation)
-   - Delete the PVC from Kubernetes (background propagation)
-5. Handle `NotFound` errors gracefully (resource may already be gone)
+1. Use `PATCH /v1/bookings/{id}/cancel` for scheduled sessions.
+2. Use `PATCH /v1/bookings/{id}/terminate` to end ready, active, or shutting down sessions early.
+3. Use `PATCH /v1/bookings/{id}/reset` to clean up a stuck ready/scheduled session.
+4. Use `PATCH /v1/bookings/{id}/extend` to keep an active session running longer.
 
 ---
 
