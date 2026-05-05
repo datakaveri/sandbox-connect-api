@@ -36,3 +36,7 @@ Bookings are the main user workflow for creating sandbox notebooks.
 - `slotKeys` must be valid for the selected category.
 - Multiple slot keys must be contiguous and chronological.
 - GPU categories can require the `compute` role and credit eligibility.
+
+## Opening a Notebook
+
+`GET /v1/bookings` includes `notebookUrl` only for active bookings whose notebook has been provisioned. Use that URL to open the session.

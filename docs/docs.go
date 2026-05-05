@@ -967,6 +967,9 @@ const docTemplate = `{
                 "notebookName": {
                     "type": "string"
                 },
+                "notebookUrl": {
+                    "type": "string"
+                },
                 "resourceType": {
                     "type": "string"
                 },

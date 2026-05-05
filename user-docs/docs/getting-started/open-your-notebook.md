@@ -4,18 +4,18 @@ title: Open Your Notebook
 
 # Open Your Notebook
 
-After creating a booking, poll notebook status until the notebook is running.
+After creating a booking, list your bookings until the active booking includes `notebookUrl`.
+
+```bash
+curl "$SANDBOX_API_URL/v1/bookings?status=active" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+You can also check a specific notebook status:
 
 ```bash
 curl "$SANDBOX_API_URL/v1/notebook/status/demo-cpu-01" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 
-You can also list notebooks:
-
-```bash
-curl "$SANDBOX_API_URL/v1/notebook/list" \
-  -H "Authorization: Bearer $ACCESS_TOKEN"
-```
-
-When the notebook is running, the list response can include `notebookUrl`. Open that URL in your browser to access Jupyter.
+Open the returned `notebookUrl` in your browser to access Jupyter.

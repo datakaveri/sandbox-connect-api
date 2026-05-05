@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sandbox-backend-service/pkg/constants"
 	"sandbox-backend-service/pkg/gpuconfig"
 	"sandbox-backend-service/pkg/utils"
 	"sort"
@@ -504,9 +505,22 @@ func (app *application) listGPUBookings(w http.ResponseWriter, r *http.Request) 
 	//   then $n-1 = limit, $n = offset
 	args := []any{userInfo.Sub}
 	query := `
-		SELECT id, notebook_name, category_name, slot_key, slot_keys, status, slot_date, slot_start, slot_end, created_at
-		FROM bookings
-		WHERE user_id = $1
+		SELECT b.id, b.notebook_name, b.category_name, b.slot_key, b.slot_keys, b.status,
+		       b.slot_date, b.slot_start, b.slot_end, b.created_at,
+		       n.namespace, n.name, n.image_name, n.events[array_upper(n.events, 1)]::text AS notebook_latest_event
+		FROM bookings b
+		LEFT JOIN LATERAL (
+			SELECT namespace, name, image_name, events
+			FROM notebooks
+			WHERE events[array_upper(events, 1)] <> 'deleted'
+			  AND (
+			    id = b.notebook_id
+			    OR booking_id = b.id
+			  )
+			ORDER BY id DESC
+			LIMIT 1
+		) n ON true
+		WHERE b.user_id = $1
 	`
 	if statusFilter := strings.TrimSpace(r.URL.Query().Get("status")); statusFilter != "" {
 		statuses := strings.Split(statusFilter, ",")
@@ -524,7 +538,7 @@ func (app *application) listGPUBookings(w http.ResponseWriter, r *http.Request) 
 		}
 		if len(cleaned) > 0 {
 			// Cast to varchar[] to avoid any inference issues (status is VARCHAR).
-			query += fmt.Sprintf(" AND status = ANY($%d::varchar[])", len(args)+1)
+			query += fmt.Sprintf(" AND b.status = ANY($%d::varchar[])", len(args)+1)
 			args = append(args, cleaned)
 		}
 	}
@@ -532,7 +546,7 @@ func (app *application) listGPUBookings(w http.ResponseWriter, r *http.Request) 
 	args = append(args, limit, offset)
 	// Newest bookings first so recent active/completed/cancelled items are visible
 	// on the first page when clients request status=all with a small limit.
-	query += fmt.Sprintf(" ORDER BY created_at DESC, id DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+	query += fmt.Sprintf(" ORDER BY b.created_at DESC, b.id DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
 
 	rows, err := app.pgPool.Pool.Query(r.Context(), query, args...)
 	if err != nil {
@@ -555,8 +569,16 @@ func (app *application) listGPUBookings(w http.ResponseWriter, r *http.Request) 
 			slotStart    time.Time
 			slotEnd      time.Time
 			createdAt    time.Time
+			nbNamespace  *string
+			nbName       *string
+			nbImageName  *string
+			nbLatest     *string
 		)
-		if err := rows.Scan(&id, &notebookName, &categoryName, &slotKey, &slotKeys, &status, &slotDate, &slotStart, &slotEnd, &createdAt); err != nil {
+		if err := rows.Scan(
+			&id, &notebookName, &categoryName, &slotKey, &slotKeys, &status,
+			&slotDate, &slotStart, &slotEnd, &createdAt,
+			&nbNamespace, &nbName, &nbImageName, &nbLatest,
+		); err != nil {
 			sendError(w, logger, http.StatusInternalServerError, "Failed to list bookings")
 			return
 		}
@@ -574,9 +596,19 @@ func (app *application) listGPUBookings(w http.ResponseWriter, r *http.Request) 
 			resourceType = c.ResourceType
 		}
 
+		notebookURL := ""
+		if status == "active" &&
+			nbNamespace != nil &&
+			nbName != nil &&
+			nbLatest != nil &&
+			*nbLatest == string(constants.StatusNotebookApplied) {
+			notebookURL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, *nbNamespace, *nbName, nbImageName)
+		}
+
 		bookings = append(bookings, BookingListItem{
 			ID:           id,
 			NotebookName: notebookName,
+			NotebookURL:  notebookURL,
 			Category:     categoryName,
 			ResourceType: resourceType,
 			DisplayName:  displayName,
@@ -707,10 +739,10 @@ func (app *application) listGPUAvailableSlots(w http.ResponseWriter, r *http.Req
 	})
 
 	sendResponseJson(w, logger, http.StatusOK, AvailableSlotsResponse{
-		Date:     slotDate.Format("2006-01-02"),
-		Category: categoryName,
+		Date:         slotDate.Format("2006-01-02"),
+		Category:     categoryName,
 		ResourceType: category.ResourceType,
-		Slots:    slots,
+		Slots:        slots,
 	})
 }
 
@@ -828,10 +860,10 @@ func (app *application) listGPUCalendarSlots(w http.ResponseWriter, r *http.Requ
 	}
 
 	sendResponseJson(w, logger, http.StatusOK, CalendarResponse{
-		Month:    monthStart.Format("2006-01"),
-		Category: categoryName,
+		Month:        monthStart.Format("2006-01"),
+		Category:     categoryName,
 		ResourceType: category.ResourceType,
-		Days:     days,
+		Days:         days,
 	})
 }
 

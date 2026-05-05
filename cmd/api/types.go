@@ -276,6 +276,7 @@ type ExtendBookingResponse struct {
 type BookingListItem struct {
 	ID           int64    `json:"id"`
 	NotebookName string   `json:"notebookName"`
+	NotebookURL  string   `json:"notebookUrl,omitempty"`
 	Category     string   `json:"category"`
 	ResourceType string   `json:"resourceType"`
 	DisplayName  string   `json:"displayName"`
