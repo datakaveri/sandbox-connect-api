@@ -650,6 +650,12 @@ func (app *application) listGPUBookings(w http.ResponseWriter, r *http.Request) 
 // @Router       /v1/slots/available [get]
 func (app *application) listGPUAvailableSlots(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
+	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
+	if !ok {
+		sendResponse(w, logger, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
 	categoryName := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("category")))
 	dateStr := strings.TrimSpace(r.URL.Query().Get("date"))
 	if categoryName == "" || dateStr == "" {
@@ -672,7 +678,7 @@ func (app *application) listGPUAvailableSlots(w http.ResponseWriter, r *http.Req
 	rows, err := app.pgPool.Pool.Query(
 		r.Context(),
 		fmt.Sprintf(`
-			SELECT sk.slot_key, COUNT(1)
+			SELECT sk.slot_key, COUNT(1), BOOL_OR(b.user_id = $3)
 			FROM bookings b,
 			     LATERAL unnest(
 			       CASE
@@ -688,6 +694,7 @@ func (app *application) listGPUAvailableSlots(w http.ResponseWriter, r *http.Req
 		`, activeStatusSQLList()),
 		categoryName,
 		slotDate.Format("2006-01-02"),
+		userInfo.Sub,
 	)
 	if err != nil {
 		sendError(w, logger, http.StatusInternalServerError, "Failed to calculate slot availability")
@@ -696,14 +703,17 @@ func (app *application) listGPUAvailableSlots(w http.ResponseWriter, r *http.Req
 	defer rows.Close()
 
 	bookedBySlot := map[string]int{}
+	alreadyBookedBySlot := map[string]bool{}
 	for rows.Next() {
 		var key string
 		var count int
-		if err := rows.Scan(&key, &count); err != nil {
+		var alreadyBooked bool
+		if err := rows.Scan(&key, &count, &alreadyBooked); err != nil {
 			sendError(w, logger, http.StatusInternalServerError, "Failed to calculate slot availability")
 			return
 		}
 		bookedBySlot[key] = count
+		alreadyBookedBySlot[key] = alreadyBooked
 	}
 	if err := rows.Err(); err != nil {
 		sendError(w, logger, http.StatusInternalServerError, "Failed to calculate slot availability")
@@ -732,6 +742,7 @@ func (app *application) listGPUAvailableSlots(w http.ResponseWriter, r *http.Req
 			BookedSlots:    booked,
 			AvailableSlots: available,
 			Availability:   availability,
+			AlreadyBooked:  alreadyBookedBySlot[s.Key],
 		})
 	}
 	sort.SliceStable(slots, func(i, j int) bool {
@@ -966,20 +977,21 @@ func (app *application) extendGPUBooking(w http.ResponseWriter, r *http.Request)
 	defer tx.Rollback(ctx)
 
 	var (
-		status    string
-		category  string
-		slotDate  time.Time
-		slotStart time.Time
-		slotEnd   time.Time
-		slotKey   string
-		slotKeys  []string
+		status        string
+		category      string
+		slotDate      time.Time
+		slotStart     time.Time
+		slotEnd       time.Time
+		slotKey       string
+		slotKeys      []string
+		extensionUsed bool
 	)
 	err = tx.QueryRow(ctx, `
-		SELECT status, category_name, slot_date, slot_start, slot_end, slot_key, slot_keys
+		SELECT status, category_name, slot_date, slot_start, slot_end, slot_key, slot_keys, extension_used
 		FROM bookings
 		WHERE id = $1 AND user_id = $2
 		FOR UPDATE
-	`, bookingID, userInfo.Sub).Scan(&status, &category, &slotDate, &slotStart, &slotEnd, &slotKey, &slotKeys)
+	`, bookingID, userInfo.Sub).Scan(&status, &category, &slotDate, &slotStart, &slotEnd, &slotKey, &slotKeys, &extensionUsed)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			sendError(w, logger, http.StatusNotFound, "Booking not found")
@@ -990,6 +1002,10 @@ func (app *application) extendGPUBooking(w http.ResponseWriter, r *http.Request)
 	}
 	if status != "active" {
 		sendError(w, logger, http.StatusBadRequest, "Only active bookings can be extended")
+		return
+	}
+	if extensionUsed {
+		sendError(w, logger, http.StatusBadRequest, "You can only extend at max once")
 		return
 	}
 	if len(slotKeys) == 0 {
@@ -1071,7 +1087,8 @@ func (app *application) extendGPUBooking(w http.ResponseWriter, r *http.Request)
 		UPDATE bookings
 		SET slot_keys = $1,
 		    slot_end = $2,
-		    shutdown_warning_sent_at = NULL
+		    shutdown_warning_sent_at = NULL,
+		    extension_used = true
 		WHERE id = $3
 		  AND user_id = $4
 		  AND status = 'active'

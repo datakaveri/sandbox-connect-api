@@ -304,6 +304,7 @@ type AvailableSlot struct {
 	BookedSlots    int    `json:"bookedSlots"`
 	AvailableSlots int    `json:"availableSlots"`
 	Availability   string `json:"availability"`
+	AlreadyBooked  bool   `json:"alreadyBooked"`
 }
 
 type AvailableSlotsResponse struct {

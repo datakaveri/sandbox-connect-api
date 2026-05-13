@@ -65,6 +65,7 @@ CREATE TABLE bookings (
     resource_type VARCHAR(10) NOT NULL,
     slot_key VARCHAR(50) NOT NULL,
     slot_keys VARCHAR(50)[] NOT NULL DEFAULT '{}',
+    extension_used BOOLEAN NOT NULL DEFAULT false,
     notebook_name VARCHAR(255) NOT NULL,
     slot_date DATE NOT NULL,
     slot_start TIMESTAMP WITHOUT TIME ZONE NOT NULL,
@@ -83,6 +84,7 @@ CREATE TABLE bookings (
 -- Existing deployments: add column (safe to re-run).
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS ready_at TIMESTAMPTZ;
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS slot_keys VARCHAR(50)[] NOT NULL DEFAULT '{}';
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS extension_used BOOLEAN NOT NULL DEFAULT false;
 UPDATE bookings SET slot_keys = ARRAY[slot_key] WHERE slot_keys = '{}'::varchar[] OR slot_keys IS NULL;
 
 ALTER TABLE notebooks

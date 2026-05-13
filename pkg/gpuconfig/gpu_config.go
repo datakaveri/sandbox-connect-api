@@ -14,17 +14,17 @@ type GPUCategory struct {
 	// Allowed values: "cpu" | "gpu"
 	ResourceType string
 
-	Name                    string
-	DisplayName             string
-	Description             string
-	InstanceType            string
-	GPUMemory               string
-	MaxActiveBookings       int
-	MaxBookingsPerWeek      int
-	AdvanceBookingDays      int
-	MinAdvanceBookingDays   int
-	NoShowGraceMins         int
-	MaxConcurrentUsers      int
+	Name                              string
+	DisplayName                       string
+	Description                       string
+	InstanceType                      string
+	GPUMemory                         string
+	MaxActiveBookings                 int
+	MaxBookingsPerWeek                int
+	AdvanceBookingDays                int
+	MinAdvanceBookingDays             int
+	NoShowGraceMins                   int
+	MaxConcurrentUsers                int
 	MaxContiguousSlotSelectionAllowed int
 
 	// Access control
@@ -62,22 +62,22 @@ var GPUSlotConfigs = map[string]GPUSlotConfigProfile{
 	"production": {
 		Categories: []GPUCategory{
 			{
-				ResourceType:        "cpu",
-				Name:                    "cpu_basic",
-				DisplayName:             "CPU Basic",
-				Description:             "Standard CPU notebook",
-				InstanceType:            "",
-				GPUMemory:               "",
+				ResourceType: "cpu",
+				Name:         "cpu_basic",
+				DisplayName:  "CPU Basic",
+				Description:  "Standard CPU notebook",
+				InstanceType: "",
+				GPUMemory:    "",
 				// CPU booking rules
-				MaxActiveBookings:       2,
-				MaxBookingsPerWeek:      7,
-				AdvanceBookingDays:      30,
-				MinAdvanceBookingDays:   0,
-				NoShowGraceMins:         15,
-				MaxConcurrentUsers:      2,
+				MaxActiveBookings:                 2,
+				MaxBookingsPerWeek:                7,
+				AdvanceBookingDays:                30,
+				MinAdvanceBookingDays:             0,
+				NoShowGraceMins:                   15,
+				MaxConcurrentUsers:                2,
 				MaxContiguousSlotSelectionAllowed: 2,
-				RequiresCredits:         false,
-				RequiredRole:            "",
+				RequiresCredits:                   false,
+				RequiredRole:                      "",
 				// CPU resources
 				// Conservative dev sizing: improves scheduling on saturated t3a.large nodes.
 				CPURequest:              "0.25",
@@ -85,7 +85,7 @@ var GPUSlotConfigs = map[string]GPUSlotConfigProfile{
 				MemoryRequest:           "512Mi",
 				MemoryLimit:             "1Gi",
 				StorageSize:             "10Gi",
-				PreShutdownWarningMins: 10,
+				PreShutdownWarningMins:  10,
 				ShutdownGracePeriodMins: 5,
 				SortOrder:               1,
 				Slots: []SlotTemplate{
@@ -97,64 +97,64 @@ var GPUSlotConfigs = map[string]GPUSlotConfigProfile{
 					{Key: "cpu_basic_04:00", Label: "4h Session", StartTime: "04:00", EndTime: "08:00", DurationHours: 4},
 				},
 			},
+			// {
+			// 	ResourceType:        "gpu",
+			// 	Name:                    "advance",
+			// 	DisplayName:             "GPU Advance",
+			// 	Description:             "40 GB NVIDIA A100 GPU",
+			// 	InstanceType:            "p4d.24xlarge",
+			// 	GPUMemory:               "40 GB",
+			// 	MaxActiveBookings:       1,
+			// 	MaxBookingsPerWeek:      3,
+			// 	AdvanceBookingDays:      30,
+			// 	MinAdvanceBookingDays:   3,
+			// 	NoShowGraceMins:         15,
+			// 	MaxConcurrentUsers:      8,
+			// 	MaxContiguousSlotSelectionAllowed: 2,
+			// 	RequiresCredits:         true,
+			// 	RequiredRole:            "compute",
+			// 	GPUType:                 "nvidia.com/gpu",
+			// 	GPURequest:              1,
+			// 	GPULimit:                1,
+			// 	CPURequest:              "2",
+			// 	CPULimit:                "3",
+			// 	MemoryRequest:           "8Gi",
+			// 	MemoryLimit:             "10Gi",
+			// 	StorageSize:             "50Gi",
+			// 	PreShutdownWarningMins:  15,
+			// 	ShutdownGracePeriodMins: 5,
+			// 	SortOrder:               2,
+			// 	Slots: []SlotTemplate{
+			// 		{Key: "advance_10:00", Label: "22h Session", StartTime: "10:00", EndTime: "08:00", DurationHours: 22, SpansMidnight: true},
+			// 	},
+			// },
 			{
-				ResourceType:        "gpu",
-				Name:                    "advance",
-				DisplayName:             "GPU Advance",
-				Description:             "40 GB NVIDIA A100 GPU",
-				InstanceType:            "p4d.24xlarge",
-				GPUMemory:               "40 GB",
-				MaxActiveBookings:       1,
-				MaxBookingsPerWeek:      3,
-				AdvanceBookingDays:      30,
-				MinAdvanceBookingDays:   3,
-				NoShowGraceMins:         15,
-				MaxConcurrentUsers:      8,
+				ResourceType:                      "gpu",
+				Name:                              "basic",
+				DisplayName:                       "GPU Basic",
+				Description:                       "16 GB NVIDIA T4 GPU",
+				InstanceType:                      "g4dn.xlarge",
+				GPUMemory:                         "16 GB",
+				MaxActiveBookings:                 1,
+				MaxBookingsPerWeek:                3,
+				AdvanceBookingDays:                30,
+				MinAdvanceBookingDays:             0,
+				NoShowGraceMins:                   15,
+				MaxConcurrentUsers:                28,
 				MaxContiguousSlotSelectionAllowed: 2,
-				RequiresCredits:         true,
-				RequiredRole:            "compute",
-				GPUType:                 "nvidia.com/gpu",
-				GPURequest:              1,
-				GPULimit:                1,
-				CPURequest:              "2",
-				CPULimit:                "3",
-				MemoryRequest:           "8Gi",
-				MemoryLimit:             "10Gi",
-				StorageSize:             "50Gi",
-				PreShutdownWarningMins:  15,
-				ShutdownGracePeriodMins: 5,
-				SortOrder:               2,
-				Slots: []SlotTemplate{
-					{Key: "advance_10:00", Label: "22h Session", StartTime: "10:00", EndTime: "08:00", DurationHours: 22, SpansMidnight: true},
-				},
-			},
-			{
-				ResourceType:        "gpu",
-				Name:                    "basic",
-				DisplayName:             "GPU Basic",
-				Description:             "16 GB NVIDIA T4 GPU",
-				InstanceType:            "g4dn.xlarge",
-				GPUMemory:               "16 GB",
-				MaxActiveBookings:       1,
-				MaxBookingsPerWeek:      3,
-				AdvanceBookingDays:      30,
-				MinAdvanceBookingDays:   0,
-				NoShowGraceMins:         15,
-				MaxConcurrentUsers:      28,
-				MaxContiguousSlotSelectionAllowed: 2,
-				RequiresCredits:         true,
-				RequiredRole:            "compute",
-				GPUType:                 "nvidia.com/gpu",
-				GPURequest:              1,
-				GPULimit:                1,
-				CPURequest:              "2",
-				CPULimit:                "3",
-				MemoryRequest:           "8Gi",
-				MemoryLimit:             "10Gi",
-				StorageSize:             "50Gi",
-				PreShutdownWarningMins:  15,
-				ShutdownGracePeriodMins: 5,
-				SortOrder:               10,
+				RequiresCredits:                   true,
+				RequiredRole:                      "compute",
+				GPUType:                           "nvidia.com/gpu",
+				GPURequest:                        1,
+				GPULimit:                          1,
+				CPURequest:                        "2",
+				CPULimit:                          "3",
+				MemoryRequest:                     "8Gi",
+				MemoryLimit:                       "10Gi",
+				StorageSize:                       "50Gi",
+				PreShutdownWarningMins:            15,
+				ShutdownGracePeriodMins:           5,
+				SortOrder:                         10,
 				Slots: []SlotTemplate{
 					{Key: "basic_08:00", Label: "4h Session", StartTime: "08:00", EndTime: "12:00", DurationHours: 4},
 					{Key: "basic_12:00", Label: "4h Session", StartTime: "12:00", EndTime: "16:00", DurationHours: 4},
