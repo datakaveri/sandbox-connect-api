@@ -160,6 +160,17 @@ func (app *application) createGPUBooking(w http.ResponseWriter, r *http.Request)
 	req.Category = strings.TrimSpace(strings.ToLower(req.Category))
 	req.SlotDate = strings.TrimSpace(req.SlotDate)
 	req.SlotKeys = normalizedSlotKeys(req.SlotKeys)
+
+	profile := app.env.NotebookConfig.SlotConfigProfile
+	category, ok := gpuconfig.GetGPUCategory(profile, req.Category)
+	if !ok {
+		sendError(w, logger, http.StatusBadRequest, "Invalid category")
+		return
+	}
+	if !category.IsBookable {
+		sendError(w, logger, http.StatusBadRequest, "Category does not use bookings or slots")
+		return
+	}
 	if len(req.SlotKeys) == 0 {
 		sendError(w, logger, http.StatusBadRequest, "slotKeys is required")
 		return
@@ -167,13 +178,6 @@ func (app *application) createGPUBooking(w http.ResponseWriter, r *http.Request)
 
 	if errorMessage, gotError := getErrorMessageForNotebookName(req.NotebookName); gotError {
 		sendError(w, logger, http.StatusUnprocessableEntity, errorMessage)
-		return
-	}
-
-	profile := app.env.NotebookConfig.SlotConfigProfile
-	category, ok := gpuconfig.GetGPUCategory(profile, req.Category)
-	if !ok {
-		sendError(w, logger, http.StatusBadRequest, "Invalid category")
 		return
 	}
 	// Category-aware access control:
@@ -669,6 +673,10 @@ func (app *application) listGPUAvailableSlots(w http.ResponseWriter, r *http.Req
 		sendError(w, logger, http.StatusBadRequest, "Invalid category")
 		return
 	}
+	if !category.IsBookable {
+		sendError(w, logger, http.StatusBadRequest, "Category does not use bookings or slots")
+		return
+	}
 	slotDate, err := parseSlotDateIST(dateStr)
 	if err != nil {
 		sendError(w, logger, http.StatusBadRequest, "date must be in YYYY-MM-DD format")
@@ -784,6 +792,10 @@ func (app *application) listGPUCalendarSlots(w http.ResponseWriter, r *http.Requ
 	category, ok := gpuconfig.GetGPUCategory(profile, categoryName)
 	if !ok {
 		sendError(w, logger, http.StatusBadRequest, "Invalid category")
+		return
+	}
+	if !category.IsBookable {
+		sendError(w, logger, http.StatusBadRequest, "Category does not use bookings or slots")
 		return
 	}
 	monthStart, err := time.ParseInLocation("2006-01", monthStr, istLocation())

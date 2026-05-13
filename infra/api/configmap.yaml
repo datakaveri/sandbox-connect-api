@@ -14,6 +14,8 @@ data:
   API_DEFAULT_GPU_REQUEST: "1"
   API_DEFAULT_GPU_LIMIT: "1"
   API_KUBEFLOW_URL: "https://sandbox.tgdex.telangana.gov.in"
+  API_JUPYTERLITE_BASE_URL: "/jupyterlite"
+  API_JUPYTERLITE_STATIC_DIR: "/app/jupyterlite"
   API_NOTEBOOK_LIST_LIMIT: "10"
   API_ADDRESS: "0.0.0.0:3000"
   API_KUBE_CONFIG_MODE: "cluster"

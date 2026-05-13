@@ -1429,6 +1429,11 @@ func (app *application) listGPUCategories(w http.ResponseWriter, r *http.Request
 			DisplayName:             c.DisplayName,
 			Description:             c.Description,
 			ResourceType:            c.ResourceType,
+			IsBookable:              c.IsBookable,
+			LaunchMode:              c.LaunchMode,
+			LaunchURL:               app.categoryLaunchURL(c),
+			PriceLabel:              c.PriceLabel,
+			Persistence:             c.Persistence,
 			RequiresCredits:         c.RequiresCredits,
 			InstanceType:            c.InstanceType,
 			GPUMemory:               c.GPUMemory,
@@ -1445,4 +1450,14 @@ func (app *application) listGPUCategories(w http.ResponseWriter, r *http.Request
 	}
 
 	sendResponseJson(w, logger, http.StatusOK, CategoriesResponse{Categories: categories})
+}
+
+func (app *application) categoryLaunchURL(category gpuconfig.GPUCategory) string {
+	if category.LaunchMode != "direct" {
+		return category.LaunchURL
+	}
+	if category.Name == "jupyter_lite" {
+		return app.jupyterLiteLaunchURL()
+	}
+	return category.LaunchURL
 }

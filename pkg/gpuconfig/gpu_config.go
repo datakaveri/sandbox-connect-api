@@ -10,13 +10,19 @@ type GPUSlotConfigProfile struct {
 }
 
 type GPUCategory struct {
-	// ResourceType determines whether this category provisions a CPU or GPU notebook.
-	// Allowed values: "cpu" | "gpu"
+	// ResourceType determines whether this category provisions a CPU/GPU notebook
+	// or launches a browser-only environment.
+	// Allowed values: "cpu" | "gpu" | "browser"
 	ResourceType string
 
 	Name                              string
 	DisplayName                       string
 	Description                       string
+	IsBookable                        bool
+	LaunchMode                        string
+	LaunchURL                         string
+	PriceLabel                        string
+	Persistence                       string
 	InstanceType                      string
 	GPUMemory                         string
 	MaxActiveBookings                 int
@@ -62,10 +68,24 @@ var GPUSlotConfigs = map[string]GPUSlotConfigProfile{
 	"production": {
 		Categories: []GPUCategory{
 			{
+				ResourceType: "browser",
+				Name:         "jupyter_lite",
+				DisplayName:  "Jupyter Lite (Free)",
+				Description:  "Browser-only JupyterLite environment powered by WebAssembly",
+				IsBookable:   false,
+				LaunchMode:   "direct",
+				LaunchURL:    "/jupyterlite/lab/index.html",
+				PriceLabel:   "Free",
+				Persistence:  "browser_local",
+				SortOrder:    0,
+				Slots:        []SlotTemplate{},
+			},
+			{
 				ResourceType: "cpu",
 				Name:         "cpu_basic",
 				DisplayName:  "CPU Basic",
 				Description:  "Standard CPU notebook",
+				IsBookable:   true,
 				InstanceType: "",
 				GPUMemory:    "",
 				// CPU booking rules
@@ -133,6 +153,7 @@ var GPUSlotConfigs = map[string]GPUSlotConfigProfile{
 				Name:                              "basic",
 				DisplayName:                       "GPU Basic",
 				Description:                       "16 GB NVIDIA T4 GPU",
+				IsBookable:                        true,
 				InstanceType:                      "g4dn.xlarge",
 				GPUMemory:                         "16 GB",
 				MaxActiveBookings:                 1,
@@ -185,10 +206,26 @@ func ValidateGPUSlotConfigProfile(profile string) error {
 		seenCategory[category.Name] = struct{}{}
 
 		switch category.ResourceType {
-		case "cpu", "gpu":
+		case "cpu", "gpu", "browser":
 			// ok
 		default:
 			return fmt.Errorf("category %s has invalid ResourceType: %q", category.Name, category.ResourceType)
+		}
+
+		if category.IsBookable && category.LaunchMode == "direct" {
+			return fmt.Errorf("category %s cannot be both bookable and direct launch", category.Name)
+		}
+		if !category.IsBookable {
+			if category.ResourceType != "browser" {
+				return fmt.Errorf("non-bookable category %s must use ResourceType browser", category.Name)
+			}
+			if category.LaunchMode != "direct" {
+				return fmt.Errorf("browser category %s must use LaunchMode direct", category.Name)
+			}
+			if category.LaunchURL == "" {
+				return fmt.Errorf("browser category %s has empty LaunchURL", category.Name)
+			}
+			continue
 		}
 
 		// InstanceType + GPU fields are required only for GPU categories.

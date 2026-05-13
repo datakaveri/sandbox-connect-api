@@ -15,6 +15,8 @@ curl "$SANDBOX_API_URL/v1/categories" \
 
 Choose a category name from the response, such as `cpu_basic`, `basic`, or `advance`.
 
+If a category has `isBookable: false`, open its `launchUrl` instead of creating a booking. For example, `jupyter_lite` is a free browser-only category.
+
 ## 2. Check Slot Availability
 
 ```bash

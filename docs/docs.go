@@ -897,6 +897,9 @@ const docTemplate = `{
         "main.AvailableSlot": {
             "type": "object",
             "properties": {
+                "alreadyBooked": {
+                    "type": "boolean"
+                },
                 "availability": {
                     "type": "string"
                 },
@@ -1073,6 +1076,18 @@ const docTemplate = `{
                 "instanceType": {
                     "type": "string"
                 },
+                "isBookable": {
+                    "description": "IsBookable indicates whether clients should use booking and slot APIs.",
+                    "type": "boolean"
+                },
+                "launchMode": {
+                    "description": "LaunchMode is direct for browser-only categories that open without booking.",
+                    "type": "string"
+                },
+                "launchUrl": {
+                    "description": "LaunchURL opens direct-launch browser categories such as Jupyter Lite.",
+                    "type": "string"
+                },
                 "maxActiveBookings": {
                     "type": "integer"
                 },
@@ -1091,13 +1106,21 @@ const docTemplate = `{
                 "noShowGraceMins": {
                     "type": "integer"
                 },
+                "persistence": {
+                    "description": "Persistence describes where files/settings are stored, e.g. browser_local.",
+                    "type": "string"
+                },
                 "preShutdownWarningMins": {
                     "type": "integer"
+                },
+                "priceLabel": {
+                    "type": "string"
                 },
                 "requiresCredits": {
                     "type": "boolean"
                 },
                 "resourceType": {
+                    "description": "ResourceType is one of cpu, gpu, or browser.",
                     "type": "string"
                 },
                 "shutdownGracePeriodMins": {

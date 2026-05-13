@@ -22,6 +22,7 @@ const sidebars = {
       items: [
         'getting-started/authentication',
         'getting-started/create-profile',
+        'getting-started/launch-jupyter-lite',
         'getting-started/create-a-booking',
         'getting-started/open-your-notebook',
       ],

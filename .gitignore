@@ -8,6 +8,9 @@
 /build/
 /bin/
 /dist/
+/jupyterlite/
+/.cache/
+/.jupyterlite.doit.db
 
 # Compiled Go binaries
 /api

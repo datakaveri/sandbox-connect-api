@@ -12,15 +12,18 @@ A category describes the sandbox shape and booking rules. The current production
 
 | Category | Resource | Description | Access |
 | --- | --- | --- | --- |
+| `jupyter_lite` | Browser | Free JupyterLite environment running in the browser with WebAssembly | No booking or compute role required |
 | `cpu_basic` | CPU | Standard CPU notebook | No compute role required |
 | `basic` | GPU | 16 GB NVIDIA T4 GPU | Requires `compute` role and credits |
 | `advance` | GPU | 40 GB NVIDIA A100 GPU | Requires `compute` role and credits |
 
 Use `GET /v1/categories` to discover the active categories for the deployment.
 
+Categories with `isBookable: false`, such as `jupyter_lite`, do not use slot or booking APIs. Open their `launchUrl` directly.
+
 ## Slot Keys
 
-Each category has slot templates. A booking request must include at least one slot key:
+Each bookable CPU/GPU category has slot templates. A booking request must include at least one slot key:
 
 ```json
 {

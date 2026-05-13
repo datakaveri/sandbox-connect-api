@@ -15,6 +15,8 @@ type ApiEnv struct {
 	Address              string `env:"API_ADDRESS,required"`
 	KubeConfigPath       string `env:"API_KUBE_CONFIG_PATH" envDefault:""`
 	KubeConfigMode       string `env:"API_KUBE_CONFIG_MODE" envDefault:"cluster"`
+	JupyterLiteBaseURL   string `env:"API_JUPYTERLITE_BASE_URL" envDefault:"/jupyterlite"`
+	JupyterLiteStaticDir string `env:"API_JUPYTERLITE_STATIC_DIR" envDefault:"jupyterlite"`
 	POSTGRES_URL         string `env:"API_POSTGRES_URL,required"`
 	KeycloakURL          string `env:"API_KEYCLOAK_URL,required"`
 	KeycloakRealm        string `env:"API_KEYCLOAK_REALM,required"`
@@ -223,10 +225,20 @@ type SlotTemplateResponse struct {
 }
 
 type CategoryResponse struct {
-	Name                    string                 `json:"name"`
-	DisplayName             string                 `json:"displayName"`
-	Description             string                 `json:"description"`
-	ResourceType            string                 `json:"resourceType"`
+	Name        string `json:"name"`
+	DisplayName string `json:"displayName"`
+	Description string `json:"description"`
+	// ResourceType is one of cpu, gpu, or browser.
+	ResourceType string `json:"resourceType"`
+	// IsBookable indicates whether clients should use booking and slot APIs.
+	IsBookable bool `json:"isBookable"`
+	// LaunchMode is direct for browser-only categories that open without booking.
+	LaunchMode string `json:"launchMode,omitempty"`
+	// LaunchURL opens direct-launch browser categories such as Jupyter Lite.
+	LaunchURL  string `json:"launchUrl,omitempty"`
+	PriceLabel string `json:"priceLabel,omitempty"`
+	// Persistence describes where files/settings are stored, e.g. browser_local.
+	Persistence             string                 `json:"persistence,omitempty"`
 	RequiresCredits         bool                   `json:"requiresCredits"`
 	InstanceType            string                 `json:"instanceType"`
 	GPUMemory               string                 `json:"gpuMemory"`

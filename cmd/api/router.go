@@ -2,14 +2,24 @@ package main
 
 import (
 	"html/template"
+	"mime"
 	"net/http"
+	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 )
 
 func (app *application) router() http.Handler {
 	rootMux := http.NewServeMux()
+
+	_ = mime.AddExtensionType(".wasm", "application/wasm")
+	jupyterLiteBasePath := app.jupyterLiteBasePath()
+	rootMux.HandleFunc(jupyterLiteBasePath, func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, jupyterLiteBasePath+"/", http.StatusMovedPermanently)
+	})
+	rootMux.Handle(jupyterLiteBasePath+"/", app.jupyterLiteStaticHandler())
 
 	// Serve API documentation with ReDoc (no auth required)
 	rootMux.HandleFunc("/v1/apis/", app.serveReDoc)
@@ -53,6 +63,73 @@ func (app *application) router() http.Handler {
 	handler = app.enableCORS(handler)
 	handler = loggingMiddleware(handler)
 	return http.MaxBytesHandler(handler, int64(app.env.MaxBodySizeInMB)<<20)
+}
+
+func (app *application) jupyterLiteBasePath() string {
+	base := strings.TrimSpace(app.env.JupyterLiteBaseURL)
+	if base == "" {
+		base = "/jupyterlite"
+	}
+	if u, err := url.Parse(base); err == nil && u.IsAbs() {
+		base = u.Path
+	}
+	if base == "" || base == "/" {
+		base = "/jupyterlite"
+	}
+	base = "/" + strings.Trim(base, "/")
+	return base
+}
+
+func (app *application) jupyterLiteLaunchURL() string {
+	base := strings.TrimRight(strings.TrimSpace(app.env.JupyterLiteBaseURL), "/")
+	if base == "" {
+		base = "/jupyterlite"
+	}
+	return base + "/lab/index.html"
+}
+
+func (app *application) jupyterLiteStaticHandler() http.Handler {
+	basePath := app.jupyterLiteBasePath()
+	fs := http.Dir(app.env.JupyterLiteStaticDir)
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rel := strings.TrimPrefix(r.URL.Path, basePath)
+		rel = "/" + strings.TrimLeft(rel, "/")
+		if rel == "/" {
+			rel = "/index.html"
+		}
+		name := strings.TrimPrefix(path.Clean(rel), "/")
+
+		file, err := fs.Open(name)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		defer file.Close()
+
+		stat, err := file.Stat()
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		if stat.IsDir() {
+			file.Close()
+			name = path.Join(name, "index.html")
+			file, err = fs.Open(name)
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			defer file.Close()
+			stat, err = file.Stat()
+			if err != nil || stat.IsDir() {
+				http.NotFound(w, r)
+				return
+			}
+		}
+
+		http.ServeContent(w, r, name, stat.ModTime(), file)
+	})
 }
 
 // Template for ReDoc UI
