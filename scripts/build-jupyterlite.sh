@@ -27,8 +27,10 @@ if [[ -n "${PYTHON_BIN}" ]]; then
   python -m pip install --upgrade pip
   python -m pip install \
     jupyterlite-core==0.7.5 \
-    jupyterlite-pyodide-kernel==0.7.2
+    jupyterlite-pyodide-kernel==0.7.2 \
+    jupyter-server==2.18.2
   jupyter lite build \
+    --contents="${ROOT_DIR}/jupyterlite-content/files" \
     --output-dir="${OUTPUT_DIR}" \
     --pyodide="${PYODIDE_URL}"
   exit 0
@@ -42,7 +44,7 @@ if command -v docker >/dev/null 2>&1; then
     -e HOST_UID="$(id -u)" \
     -e HOST_GID="$(id -g)" \
     python:3.12-slim \
-    sh -lc 'python -m pip install --no-cache-dir jupyterlite-core==0.7.5 jupyterlite-pyodide-kernel==0.7.2 && jupyter lite build --output-dir=/work/jupyterlite --pyodide="${PYODIDE_URL}" && { chown -R "${HOST_UID}:${HOST_GID}" /work/jupyterlite /work/.cache /work/.jupyterlite.doit.db 2>/dev/null || true; }'
+    sh -lc 'python -m pip install --no-cache-dir jupyterlite-core==0.7.5 jupyterlite-pyodide-kernel==0.7.2 jupyter-server==2.18.2 && jupyter lite build --contents=/work/jupyterlite-content/files --output-dir=/work/jupyterlite --pyodide="${PYODIDE_URL}" && { chown -R "${HOST_UID}:${HOST_GID}" /work/jupyterlite /work/.cache /work/.jupyterlite.doit.db 2>/dev/null || true; }'
   exit 0
 fi
 
