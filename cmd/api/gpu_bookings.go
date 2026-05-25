@@ -19,6 +19,10 @@ import (
 
 var activeBookingStatuses = []string{"scheduled", "ready", "active", "shutting_down"}
 
+// Weekly quota counts completed sessions as consumed quota.
+// Expired is excluded because it is used for both no-show expiry and ready-booking reset/cleanup.
+var weeklyQuotaBookingStatuses = []string{"scheduled", "ready", "active", "shutting_down", "completed"}
+
 func istLocation() *time.Location {
 	loc, err := time.LoadLocation("Asia/Kolkata")
 	if err != nil {
@@ -39,8 +43,16 @@ func parseClockIST(slotDate time.Time, hhmm string) (time.Time, error) {
 	return time.Date(slotDate.Year(), slotDate.Month(), slotDate.Day(), t.Hour(), t.Minute(), 0, 0, istLocation()), nil
 }
 
+func bookingStatusSQLList(statuses []string) string {
+	return "'" + strings.Join(statuses, "','") + "'"
+}
+
 func activeStatusSQLList() string {
-	return "'" + strings.Join(activeBookingStatuses, "','") + "'"
+	return bookingStatusSQLList(activeBookingStatuses)
+}
+
+func weeklyQuotaStatusSQLList() string {
+	return bookingStatusSQLList(weeklyQuotaBookingStatuses)
 }
 
 func bookingDurationHours(profile, category string, slotKeys []string, slotStart, slotEnd time.Time) float64 {
@@ -385,7 +397,7 @@ func (app *application) createGPUBooking(w http.ResponseWriter, r *http.Request)
 		  AND status IN (%s)
 		  AND slot_date >= date_trunc('week', $3::date)::date
 		  AND slot_date < (date_trunc('week', $3::date) + interval '7 days')::date
-	`, activeStatusSQLList())
+	`, weeklyQuotaStatusSQLList())
 	err = tx.QueryRow(ctx, weekCountQuery, userInfo.Sub, req.Category, slotDate.Format("2006-01-02")).Scan(&weekCount)
 	if err != nil {
 		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
@@ -393,24 +405,6 @@ func (app *application) createGPUBooking(w http.ResponseWriter, r *http.Request)
 	}
 	if weekCount >= category.MaxBookingsPerWeek {
 		sendError(w, logger, http.StatusBadRequest, "Weekly booking limit exceeded")
-		return
-	}
-
-	var hasUpcoming int
-	upcomingQuery := fmt.Sprintf(`
-		SELECT COUNT(1)
-		FROM bookings
-		WHERE user_id = $1
-		  AND status IN (%s)
-		  AND slot_start > $2
-	`, activeStatusSQLList())
-	err = tx.QueryRow(ctx, upcomingQuery, userInfo.Sub, nowIST).Scan(&hasUpcoming)
-	if err != nil {
-		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
-		return
-	}
-	if hasUpcoming > 0 {
-		sendError(w, logger, http.StatusBadRequest, "You already have an upcoming booking")
 		return
 	}
 
