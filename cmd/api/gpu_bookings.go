@@ -141,7 +141,15 @@ func isContiguousSelection(keys []string, ordered []gpuconfig.SlotTemplate) bool
 
 // createGPUBooking godoc
 // @Summary      Create slot booking
-// @Description  Creates a CPU or GPU booking from code-defined categories and slot templates (API_GPU_SLOT_CONFIG_PROFILE)
+// @Description  Creates a CPU or GPU booking from code-defined categories and slot templates selected by SLOT_CONFIG_PROFILE.
+// @Description
+// @Description  New bookings are inserted as `scheduled`. Lifecycle automation moves `scheduled` bookings to `ready` at slot start, then to `active` once the Kubeflow Notebook reports ready replicas, then to `shutting_down` near slot end, and finally to `completed` at slot end.
+// @Description
+// @Description  Booking limits are enforced as two separate rules.
+// @Description  MaxActiveBookings counts scheduled, ready, active, and shutting_down bookings for the same user and category. When reached, the API returns 400 with "Active booking limit exceeded".
+// @Description  MaxBookingsPerWeek counts scheduled, ready, active, shutting_down, and completed bookings for the same user, category, and selected week. When reached, the API returns 400 with "Weekly booking limit exceeded".
+// @Description  Cancelled bookings do not count toward either limit. Expired bookings do not count toward weekly quota because expired can mean either no-show expiry after the booking became ready, or reset/cleanup of a stuck ready booking. Scheduled bookings reset before resources are ready become cancelled, not expired.
+// @Description  The previous "You already have an upcoming booking" restriction has been removed. Users may create multiple future bookings within MaxActiveBookings, MaxBookingsPerWeek, slot availability, and duplicate booking rules.
 // @Tags         bookings
 // @Accept       json
 // @Produce      json
@@ -457,7 +465,9 @@ func (app *application) createGPUBooking(w http.ResponseWriter, r *http.Request)
 
 // listGPUBookings godoc
 // @Summary      List user bookings
-// @Description  Lists CPU and GPU slot bookings for the current user with optional status filter and pagination
+// @Description  Lists CPU and GPU slot bookings for the current user with optional status filter and pagination.
+// @Description  The `status` filter accepts comma-separated lifecycle states: `scheduled`, `ready`, `active`, `shutting_down`, `completed`, `cancelled`, `expired`, or `all` to disable filtering.
+// @Description  `notebookUrl` is returned only when the booking is `active` and the linked notebook resource has been applied.
 // @Tags         bookings
 // @Produce      json
 // @Param        status  query   string  false  "Comma-separated status filter, or 'all' to omit filtering"
@@ -886,7 +896,8 @@ func (app *application) listGPUCalendarSlots(w http.ResponseWriter, r *http.Requ
 
 // cancelGPUBooking godoc
 // @Summary      Cancel scheduled booking
-// @Description  Cancels a scheduled booking for the current user (scheduled only; use terminate for ready/active)
+// @Description  Cancels a `scheduled` booking for the current user before resources are ready.
+// @Description  Cancel changes `scheduled` to `cancelled`. It does not operate on `ready`, `active`, or `shutting_down`; use terminate for those states.
 // @Tags         bookings
 // @Produce      json
 // @Param        id  path  int  true  "Booking ID"
@@ -945,7 +956,8 @@ func (app *application) cancelGPUBooking(w http.ResponseWriter, r *http.Request)
 
 // extendGPUBooking godoc
 // @Summary      Extend active booking by one slot
-// @Description  Extends an active booking to the next contiguous slot if available
+// @Description  Extends an `active` booking to the next contiguous slot if that slot has capacity, the category has not reached its contiguous-slot limit, and the booking has not already been extended.
+// @Description  The booking remains `active`; `slot_keys`, `slot_end`, `shutdown_warning_sent_at`, and `extension_used` are updated so lifecycle timing follows the new end time.
 // @Tags         bookings
 // @Produce      json
 // @Param        id  path  int  true  "Booking ID"
@@ -1122,7 +1134,9 @@ func (app *application) extendGPUBooking(w http.ResponseWriter, r *http.Request)
 
 // resetGPUBooking godoc
 // @Summary      Reset stuck booking
-// @Description  Marks a booking as cancelled/expired and best-effort deletes any linked notebook/PVC.
+// @Description  Resets only `scheduled` or `ready` bookings that are stuck or need cleanup.
+// @Description  `scheduled` resets become `cancelled` and unlink any notebook id. `ready` resets become `expired`, set session and cleanup timestamps, unlink the notebook, and best-effort delete the linked Notebook/PVC.
+// @Description  Reset does not apply to `active`, `shutting_down`, `completed`, `cancelled`, or already `expired` bookings.
 // @Tags         bookings
 // @Produce      json
 // @Param        id  path  int  true  "Booking ID"
@@ -1280,7 +1294,9 @@ func (app *application) resetGPUBooking(w http.ResponseWriter, r *http.Request) 
 
 // terminateGPUBooking godoc
 // @Summary      End booking session early
-// @Description  Marks a ready, active, or shutting_down booking completed and best-effort deletes the linked notebook/PVC. Use cancel for scheduled only.
+// @Description  Ends a `ready`, `active`, or `shutting_down` booking early and marks it `completed`.
+// @Description  Terminate sets session and cleanup timestamps, unlinks the notebook, and best-effort deletes the linked Notebook/PVC. If the booking is already `completed`, the endpoint returns success without changing it.
+// @Description  Use cancel or reset for `scheduled` bookings; terminate does not apply to `cancelled` or `expired` bookings.
 // @Tags         bookings
 // @Produce      json
 // @Param        id  path  int  true  "Booking ID"

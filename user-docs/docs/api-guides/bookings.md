@@ -40,3 +40,13 @@ Bookings are the main user workflow for creating sandbox notebooks.
 ## Opening a Notebook
 
 `GET /v1/bookings` includes `notebookUrl` only for active bookings whose notebook has been provisioned. Use that URL to open the session.
+
+## Status-Based Actions
+
+| Current status | User action |
+| --- | --- |
+| `scheduled` | Cancel if you no longer need the slot. |
+| `ready` | Wait for the notebook to become active, or terminate/reset if it is stuck. |
+| `active` | Open the notebook URL, extend to the next slot if available, or terminate early. |
+| `shutting_down` | Save work. You can still terminate early, but extension is no longer available. |
+| `completed`, `cancelled`, `expired` | No further user action is available; these are history states. |

@@ -30,16 +30,30 @@ func jsonResponse(w http.ResponseWriter, statusCode int, data any) {
 }
 func sendResponse(w http.ResponseWriter, logger *slog.Logger, status int, userMessage string) {
 	formattedMessage := formatMessage(userMessage)
+	if status >= http.StatusBadRequest {
+		sendErrorResponse(w, logger, status, formattedMessage)
+		return
+	}
+
 	message := map[string]string{"message": formattedMessage}
 	logger.Info("Request Status",
 		"status", status)
 	jsonResponse(w, status, message)
 }
+
 func sendError(w http.ResponseWriter, logger *slog.Logger, status int, userMessage string) {
-	formattedMessage := formatMessage(userMessage)
-	message := map[string]string{"detail": formattedMessage, "type": "error"}
+	sendErrorResponse(w, logger, status, formatMessage(userMessage))
+}
+
+func sendErrorResponse(w http.ResponseWriter, logger *slog.Logger, status int, formattedMessage string) {
+	title := http.StatusText(status)
+	if title == "" {
+		title = "Error"
+	}
+	message := map[string]string{"title": title, "detail": formattedMessage, "type": "error"}
 	logger.Warn("Request Status",
 		"status", status,
+		"title", title,
 		"detail", formattedMessage,
 		"type", "error")
 	jsonResponse(w, status, message)

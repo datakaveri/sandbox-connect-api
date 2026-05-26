@@ -35,14 +35,16 @@ When multiple slot keys are provided, they must be contiguous and in chronologic
 
 ## Booking Statuses
 
-Common booking statuses include:
+A booking normally moves through `scheduled`, `ready`, `active`, `shutting_down`, and `completed`. It can also end as `cancelled` or `expired`.
 
 | Status | Meaning |
 | --- | --- |
-| `scheduled` | The booking is accepted and waiting for its slot |
-| `ready` | The notebook is provisioned and ready to open |
-| `active` | The booked session is currently active |
-| `shutting_down` | The lifecycle job is ending the session |
-| `completed` | The booking finished normally |
-| `cancelled` | The booking was cancelled before it became active |
-| `expired` | The booking expired or was reset |
+| `scheduled` | Your booking is accepted and waiting for its slot start time. You can cancel it before resources are prepared. |
+| `ready` | The platform has linked notebook resources and is waiting for the notebook to become runnable. If it stays here too long, it may expire as a no-show. |
+| `active` | The notebook session is running. This is the state where `GET /v1/bookings` can include `notebookUrl`. |
+| `shutting_down` | The session is close to its end time. Save work and prepare to stop using the notebook. |
+| `completed` | The session ended normally at the slot end time or was terminated early. It remains visible in booking history. |
+| `cancelled` | The booking ended before notebook resources were ready, usually because you cancelled it or reset a scheduled booking. |
+| `expired` | A ready booking did not become active within the no-show grace period, or a ready booking was reset during cleanup. Scheduled bookings that are reset become `cancelled`, not `expired`. |
+
+`scheduled`, `ready`, `active`, and `shutting_down` count as current bookings while they are in progress. `cancelled` and `expired` do not consume current booking capacity.

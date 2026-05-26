@@ -25,7 +25,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Lists CPU and GPU slot bookings for the current user with optional status filter and pagination",
+                "description": "Lists CPU and GPU slot bookings for the current user with optional status filter and pagination.\nThe ` + "`" + `status` + "`" + ` filter accepts comma-separated lifecycle states: ` + "`" + `scheduled` + "`" + `, ` + "`" + `ready` + "`" + `, ` + "`" + `active` + "`" + `, ` + "`" + `shutting_down` + "`" + `, ` + "`" + `completed` + "`" + `, ` + "`" + `cancelled` + "`" + `, ` + "`" + `expired` + "`" + `, or ` + "`" + `all` + "`" + ` to disable filtering.\n` + "`" + `notebookUrl` + "`" + ` is returned only when the booking is ` + "`" + `active` + "`" + ` and the linked notebook resource has been applied.",
                 "produces": [
                     "application/json"
                 ],
@@ -86,7 +86,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates a CPU or GPU booking from code-defined categories and slot templates (API_GPU_SLOT_CONFIG_PROFILE)",
+                "description": "Creates a CPU or GPU booking from code-defined categories and slot templates selected by SLOT_CONFIG_PROFILE.\n\nNew bookings are inserted as ` + "`" + `scheduled` + "`" + `. Lifecycle automation moves ` + "`" + `scheduled` + "`" + ` bookings to ` + "`" + `ready` + "`" + ` at slot start, then to ` + "`" + `active` + "`" + ` once the Kubeflow Notebook reports ready replicas, then to ` + "`" + `shutting_down` + "`" + ` near slot end, and finally to ` + "`" + `completed` + "`" + ` at slot end.\n\nBooking limits are enforced as two separate rules.\nMaxActiveBookings counts scheduled, ready, active, and shutting_down bookings for the same user and category. When reached, the API returns 400 with \"Active booking limit exceeded\".\nMaxBookingsPerWeek counts scheduled, ready, active, shutting_down, and completed bookings for the same user, category, and selected week. When reached, the API returns 400 with \"Weekly booking limit exceeded\".\nCancelled bookings do not count toward either limit. Expired bookings do not count toward weekly quota because expired can mean either no-show expiry after the booking became ready, or reset/cleanup of a stuck ready booking. Scheduled bookings reset before resources are ready become cancelled, not expired.\nThe previous \"You already have an upcoming booking\" restriction has been removed. Users may create multiple future bookings within MaxActiveBookings, MaxBookingsPerWeek, slot availability, and duplicate booking rules.",
                 "consumes": [
                     "application/json"
                 ],
@@ -167,7 +167,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Cancels a scheduled booking for the current user (scheduled only; use terminate for ready/active)",
+                "description": "Cancels a ` + "`" + `scheduled` + "`" + ` booking for the current user before resources are ready.\nCancel changes ` + "`" + `scheduled` + "`" + ` to ` + "`" + `cancelled` + "`" + `. It does not operate on ` + "`" + `ready` + "`" + `, ` + "`" + `active` + "`" + `, or ` + "`" + `shutting_down` + "`" + `; use terminate for those states.",
                 "produces": [
                     "application/json"
                 ],
@@ -231,7 +231,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Extends an active booking to the next contiguous slot if available",
+                "description": "Extends an ` + "`" + `active` + "`" + ` booking to the next contiguous slot if that slot has capacity, the category has not reached its contiguous-slot limit, and the booking has not already been extended.\nThe booking remains ` + "`" + `active` + "`" + `; ` + "`" + `slot_keys` + "`" + `, ` + "`" + `slot_end` + "`" + `, ` + "`" + `shutdown_warning_sent_at` + "`" + `, and ` + "`" + `extension_used` + "`" + ` are updated so lifecycle timing follows the new end time.",
                 "produces": [
                     "application/json"
                 ],
@@ -295,7 +295,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Marks a booking as cancelled/expired and best-effort deletes any linked notebook/PVC.",
+                "description": "Resets only ` + "`" + `scheduled` + "`" + ` or ` + "`" + `ready` + "`" + ` bookings that are stuck or need cleanup.\n` + "`" + `scheduled` + "`" + ` resets become ` + "`" + `cancelled` + "`" + ` and unlink any notebook id. ` + "`" + `ready` + "`" + ` resets become ` + "`" + `expired` + "`" + `, set session and cleanup timestamps, unlink the notebook, and best-effort delete the linked Notebook/PVC.\nReset does not apply to ` + "`" + `active` + "`" + `, ` + "`" + `shutting_down` + "`" + `, ` + "`" + `completed` + "`" + `, ` + "`" + `cancelled` + "`" + `, or already ` + "`" + `expired` + "`" + ` bookings.",
                 "produces": [
                     "application/json"
                 ],
@@ -353,7 +353,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Marks a ready, active, or shutting_down booking completed and best-effort deletes the linked notebook/PVC. Use cancel for scheduled only.",
+                "description": "Ends a ` + "`" + `ready` + "`" + `, ` + "`" + `active` + "`" + `, or ` + "`" + `shutting_down` + "`" + ` booking early and marks it ` + "`" + `completed` + "`" + `.\nTerminate sets session and cleanup timestamps, unlinks the notebook, and best-effort deletes the linked Notebook/PVC. If the booking is already ` + "`" + `completed` + "`" + `, the endpoint returns success without changing it.\nUse cancel or reset for ` + "`" + `scheduled` + "`" + ` bookings; terminate does not apply to ` + "`" + `cancelled` + "`" + ` or ` + "`" + `expired` + "`" + ` bookings.",
                 "produces": [
                     "application/json"
                 ],
@@ -1202,6 +1202,11 @@ const docTemplate = `{
                     "type": "string",
                     "example": "string"
                 },
+                "title": {
+                    "description": "Error title",
+                    "type": "string",
+                    "example": "Bad Request"
+                },
                 "type": {
                     "type": "string",
                     "example": "error"
@@ -1216,6 +1221,11 @@ const docTemplate = `{
                     "description": "Error message",
                     "type": "string",
                     "example": "string"
+                },
+                "title": {
+                    "description": "Error title",
+                    "type": "string",
+                    "example": "Unauthorized"
                 },
                 "type": {
                     "type": "string",
@@ -1232,6 +1242,11 @@ const docTemplate = `{
                     "type": "string",
                     "example": "string"
                 },
+                "title": {
+                    "description": "Error title",
+                    "type": "string",
+                    "example": "Forbidden"
+                },
                 "type": {
                     "type": "string",
                     "example": "error"
@@ -1246,6 +1261,11 @@ const docTemplate = `{
                     "description": "Error message",
                     "type": "string",
                     "example": "string"
+                },
+                "title": {
+                    "description": "Error title",
+                    "type": "string",
+                    "example": "Not Found"
                 },
                 "type": {
                     "type": "string",
@@ -1262,6 +1282,11 @@ const docTemplate = `{
                     "type": "string",
                     "example": "string"
                 },
+                "title": {
+                    "description": "Error title",
+                    "type": "string",
+                    "example": "Conflict"
+                },
                 "type": {
                     "type": "string",
                     "example": "error"
@@ -1276,6 +1301,11 @@ const docTemplate = `{
                     "description": "Error message",
                     "type": "string",
                     "example": "string"
+                },
+                "title": {
+                    "description": "Error title",
+                    "type": "string",
+                    "example": "Unprocessable Entity"
                 },
                 "type": {
                     "type": "string",
@@ -1292,6 +1322,11 @@ const docTemplate = `{
                     "type": "string",
                     "example": "string"
                 },
+                "title": {
+                    "description": "Error title",
+                    "type": "string",
+                    "example": "Too Many Requests"
+                },
                 "type": {
                     "type": "string",
                     "example": "error"
@@ -1306,6 +1341,11 @@ const docTemplate = `{
                     "description": "Error message",
                     "type": "string",
                     "example": "string"
+                },
+                "title": {
+                    "description": "Error title",
+                    "type": "string",
+                    "example": "Internal Server Error"
                 },
                 "type": {
                     "type": "string",
@@ -1578,7 +1618,7 @@ var SwaggerInfo = &swag.Spec{
 	BasePath:         "/",
 	Schemes:          []string{"http", "https"},
 	Title:            "Sandbox Connect API",
-	Description:      "API for sandbox notebooks (lifecycle via bookings) and profiles. Create CPU/GPU notebooks with POST /v1/bookings; worker provisions resources at slot time.",
+	Description:      "API for sandbox notebooks (lifecycle via bookings) and profiles. Create CPU/GPU notebooks with POST /v1/bookings; the slot lifecycle service provisions and cleans up resources at the booked slot times.\n\nBooking lifecycle states:\n- `scheduled`: booking is accepted and counts against slot capacity, active-booking limits, and weekly quota. No notebook resource is linked yet. Users can cancel scheduled bookings, or reset them to cancelled if cleanup is needed before provisioning.\n- `ready`: slot start has arrived and a notebook metadata row is linked. The worker/lifecycle path is waiting for the Kubeflow Notebook resource to report ready replicas. Users can terminate ready bookings, or reset stuck ready bookings to expired.\n- `active`: the notebook is running and usable. `GET /v1/bookings` returns `notebookUrl` only for active bookings whose notebook resource has been applied. Active bookings can be extended to the next contiguous slot when capacity, category limits, and the one-extension rule allow.\n- `shutting_down`: the booking is inside the category pre-shutdown warning window before `slotEnd`. It remains an active-capacity state and may still be terminated; the lifecycle service will mark it completed at slot end.\n- `completed`: the session ended normally, either at `slotEnd` or through terminate. Completed bookings remain in history; automatic cleanup deletes notebook/PVC resources after the category shutdown grace period unless terminate already cleaned them.\n- `cancelled`: terminal state for scheduled bookings cancelled by the user, reset before resources were ready, or cancelled by lifecycle because the category configuration was invalid. Cancelled bookings do not consume active capacity.\n- `expired`: terminal state for ready bookings that never became active before the category no-show grace period, or ready bookings reset during cleanup. Scheduled bookings reset before resources are ready become cancelled, not expired.\n\nActive-capacity checks treat `scheduled`, `ready`, `active`, and `shutting_down` as active booking states. Weekly quota counts the same active booking states plus `completed`; `cancelled` and `expired` do not count toward active capacity, and `expired` is excluded from weekly quota.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

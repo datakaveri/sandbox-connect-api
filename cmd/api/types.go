@@ -450,6 +450,8 @@ type SwaggerExistsResponse struct {
 // Error400 represents a 400 Bad Request error response
 // @Description Response for bad request errors
 type Error400 struct {
+	// Error title
+	Title string `json:"title" example:"Bad Request"`
 	// Error message
 	Detail string `json:"detail" example:"string"`
 	Type   string `json:"type" example:"error"`
@@ -458,6 +460,8 @@ type Error400 struct {
 // Error401 represents a 401 Unauthorized error response
 // @Description Response for authentication errors
 type Error401 struct {
+	// Error title
+	Title string `json:"title" example:"Unauthorized"`
 	// Error message
 	Detail string `json:"detail" example:"string"`
 	Type   string `json:"type" example:"error"`
@@ -466,6 +470,8 @@ type Error401 struct {
 // Error403 represents a 403 Forbidden error response
 // @Description Response for permission errors
 type Error403 struct {
+	// Error title
+	Title string `json:"title" example:"Forbidden"`
 	// Error message
 	Detail string `json:"detail" example:"string"`
 	Type   string `json:"type" example:"error"`
@@ -474,6 +480,8 @@ type Error403 struct {
 // Error404 represents a 404 Not Found error response
 // @Description Response for resource not found errors
 type Error404 struct {
+	// Error title
+	Title string `json:"title" example:"Not Found"`
 	// Error message
 	Detail string `json:"detail" example:"string"`
 	Type   string `json:"type" example:"error"`
@@ -482,6 +490,8 @@ type Error404 struct {
 // Error422 represents a 422 Unprocessable Entity error response
 // @Description Response for invalid request body errors
 type Error422 struct {
+	// Error title
+	Title string `json:"title" example:"Unprocessable Entity"`
 	// Error message
 	Detail string `json:"detail" example:"string"`
 	Type   string `json:"type" example:"error"`
@@ -490,6 +500,8 @@ type Error422 struct {
 // Error429 represents a 429 Too Many Requests error response
 // @Description Response for rate limiting errors
 type Error429 struct {
+	// Error title
+	Title string `json:"title" example:"Too Many Requests"`
 	// Error message
 	Detail string `json:"detail" example:"string"`
 	Type   string `json:"type" example:"error"`
@@ -498,6 +510,8 @@ type Error429 struct {
 // Error500 represents a 500 Internal Server Error response
 // @Description Response for internal server errors
 type Error500 struct {
+	// Error title
+	Title string `json:"title" example:"Internal Server Error"`
 	// Error message
 	Detail string `json:"detail" example:"string"`
 	Type   string `json:"type" example:"error"`
@@ -520,6 +534,8 @@ type SwaggerHealthResponse struct {
 // Error409 represents a 409 Conflict error response
 // @Description Response for resource conflict errors
 type Error409 struct {
+	// Error title
+	Title string `json:"title" example:"Conflict"`
 	// Error message
 	Detail string `json:"detail" example:"string"`
 	Type   string `json:"type" example:"error"`

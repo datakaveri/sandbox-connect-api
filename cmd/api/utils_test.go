@@ -1,9 +1,49 @@
 package main
 
 import (
+	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"sandbox-backend-service/pkg/constants"
 	"testing"
 )
+
+func TestSendErrorIncludesTitle(t *testing.T) {
+	rec := httptest.NewRecorder()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	sendError(rec, logger, http.StatusBadRequest, "active booking limit exceeded")
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", rec.Code)
+	}
+
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if body["title"] != "Bad Request" {
+		t.Fatalf("expected title Bad Request, got %q", body["title"])
+	}
+	if body["detail"] != "Active booking limit exceeded" {
+		t.Fatalf("expected formatted detail, got %q", body["detail"])
+	}
+	if body["type"] != "error" {
+		t.Fatalf("expected type error, got %q", body["type"])
+	}
+
+	rec = httptest.NewRecorder()
+	sendResponse(rec, logger, http.StatusUnauthorized, "unauthorized")
+	body = map[string]string{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("failed to decode sendResponse error response: %v", err)
+	}
+	if body["title"] != "Unauthorized" || body["detail"] != "Unauthorized" || body["type"] != "error" {
+		t.Fatalf("expected sendResponse error shape with title/detail/type, got %#v", body)
+	}
+}
 
 func TestDetermineNotebookState(t *testing.T) {
 
