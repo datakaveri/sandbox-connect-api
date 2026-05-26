@@ -319,16 +319,5 @@ func isValidIP(ip string) bool {
 		return false
 	}
 
-	// Reject link-local addresses
-	if parsedIP.IsLinkLocalUnicast() || parsedIP.IsLinkLocalMulticast() {
-		return false
-	}
-
-	// Check for private IP ranges (you might want to allow these depending on your setup)
-	if parsedIP.IsPrivate() {
-		// Uncomment the line below if you want to reject private IPs
-		// return false
-	}
-
 	return true
 }
