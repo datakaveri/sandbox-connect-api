@@ -99,7 +99,17 @@ definitions:
         items:
           $ref: '#/definitions/main.BookingListItem'
         type: array
-      nextOffset:
+      hasNext:
+        type: boolean
+      hasPrevious:
+        type: boolean
+      page:
+        type: integer
+      size:
+        type: integer
+      totalCount:
+        type: integer
+      totalPages:
         type: integer
     type: object
   main.CalendarDay:

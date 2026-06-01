@@ -1005,7 +1005,22 @@ const docTemplate = `{
                         "$ref": "#/definitions/main.BookingListItem"
                     }
                 },
-                "nextOffset": {
+                "hasNext": {
+                    "type": "boolean"
+                },
+                "hasPrevious": {
+                    "type": "boolean"
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "size": {
+                    "type": "integer"
+                },
+                "totalCount": {
+                    "type": "integer"
+                },
+                "totalPages": {
                     "type": "integer"
                 }
             }

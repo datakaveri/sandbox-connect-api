@@ -18,3 +18,6 @@
 
 .env
 .env.test
+
+# Postman local environments may contain access tokens or deployment-specific values.
+postman/*.local.postman_environment.json

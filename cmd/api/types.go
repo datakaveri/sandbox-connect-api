@@ -303,8 +303,13 @@ type BookingListItem struct {
 }
 
 type BookingsListResponse struct {
-	Bookings   []BookingListItem `json:"bookings"`
-	NextOffset int               `json:"nextOffset"`
+	Bookings    []BookingListItem `json:"bookings"`
+	Page        int               `json:"page"`
+	Size        int               `json:"size"`
+	TotalCount  int               `json:"totalCount"`
+	TotalPages  int               `json:"totalPages"`
+	HasNext     bool              `json:"hasNext"`
+	HasPrevious bool              `json:"hasPrevious"`
 }
 
 type AvailableSlot struct {

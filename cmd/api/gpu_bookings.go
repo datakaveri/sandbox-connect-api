@@ -512,6 +512,7 @@ func (app *application) listGPUBookings(w http.ResponseWriter, r *http.Request) 
 	//   optional $2 = status[] (if status filter provided)
 	//   then $n-1 = limit, $n = offset
 	args := []any{userInfo.Sub}
+	whereClause := "WHERE b.user_id = $1"
 	query := `
 		SELECT b.id, b.notebook_name, b.category_name, b.slot_key, b.slot_keys, b.status,
 		       b.slot_date, b.slot_start, b.slot_end, b.created_at,
@@ -528,7 +529,6 @@ func (app *application) listGPUBookings(w http.ResponseWriter, r *http.Request) 
 			ORDER BY id DESC
 			LIMIT 1
 		) n ON true
-		WHERE b.user_id = $1
 	`
 	if statusFilter := strings.TrimSpace(r.URL.Query().Get("status")); statusFilter != "" {
 		statuses := strings.Split(statusFilter, ",")
@@ -546,17 +546,25 @@ func (app *application) listGPUBookings(w http.ResponseWriter, r *http.Request) 
 		}
 		if len(cleaned) > 0 {
 			// Cast to varchar[] to avoid any inference issues (status is VARCHAR).
-			query += fmt.Sprintf(" AND b.status = ANY($%d::varchar[])", len(args)+1)
+			whereClause += fmt.Sprintf(" AND b.status = ANY($%d::varchar[])", len(args)+1)
 			args = append(args, cleaned)
 		}
 	}
 
-	args = append(args, limit, offset)
+	var totalCount int
+	countQuery := "SELECT COUNT(*) FROM bookings b " + whereClause
+	if err := app.pgPool.Pool.QueryRow(r.Context(), countQuery, args...).Scan(&totalCount); err != nil {
+		sendError(w, logger, http.StatusInternalServerError, "Failed to list bookings")
+		return
+	}
+
+	listArgs := append(append([]any{}, args...), limit, offset)
+	query += " " + whereClause
 	// Newest bookings first so recent active/completed/cancelled items are visible
 	// on the first page when clients request status=all with a small limit.
-	query += fmt.Sprintf(" ORDER BY b.created_at DESC, b.id DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+	query += fmt.Sprintf(" ORDER BY b.created_at DESC, b.id DESC LIMIT $%d OFFSET $%d", len(listArgs)-1, len(listArgs))
 
-	rows, err := app.pgPool.Pool.Query(r.Context(), query, args...)
+	rows, err := app.pgPool.Pool.Query(r.Context(), query, listArgs...)
 	if err != nil {
 		sendError(w, logger, http.StatusInternalServerError, "Failed to list bookings")
 		return
@@ -635,11 +643,21 @@ func (app *application) listGPUBookings(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	nextOffset := -1
-	if len(bookings) == limit {
-		nextOffset = offset + limit
+	page := (offset / limit) + 1
+	totalPages := 0
+	if totalCount > 0 {
+		totalPages = (totalCount + limit - 1) / limit
 	}
-	sendResponseJson(w, logger, http.StatusOK, BookingsListResponse{Bookings: bookings, NextOffset: nextOffset})
+
+	sendResponseJson(w, logger, http.StatusOK, BookingsListResponse{
+		Bookings:    bookings,
+		Page:        page,
+		Size:        limit,
+		TotalCount:  totalCount,
+		TotalPages:  totalPages,
+		HasNext:     offset+limit < totalCount,
+		HasPrevious: offset > 0 && totalCount > 0,
+	})
 }
 
 // listGPUAvailableSlots godoc
