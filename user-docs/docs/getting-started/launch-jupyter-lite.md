@@ -15,9 +15,34 @@ curl "$SANDBOX_API_URL/v1/categories" \
 
 Find the `jupyter_lite` category. It has `isBookable: false`, `resourceType: "browser"`, and a `launchUrl`.
 
-## 2. Open the Launch URL
+## 2. Create a JupyterLite Launch Session
 
-Open the returned `launchUrl` while signed in. The JupyterLite static files require a valid bearer token, but do not require KYC verification. The URL is usually:
+A browser navigation cannot attach an `Authorization` header by itself. Before opening the launch URL, the application should create a JupyterLite launch session using the logged-in user's bearer token:
+
+```bash
+curl -X POST "$SANDBOX_API_URL/v1/jupyterlite/session" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  --cookie-jar jupyterlite.cookies
+```
+
+The API validates the bearer token and sets an HttpOnly cookie for JupyterLite. The cookie is used only when the browser loads JupyterLite static files. KYC verification is not required for this free browser-only mode.
+
+Frontend flow:
+
+```js
+await fetch(`${SANDBOX_API_URL}/v1/jupyterlite/session`, {
+  method: "POST",
+  headers: { Authorization: `Bearer ${accessToken}` },
+  credentials: "include",
+});
+window.open(jupyterLiteLaunchUrl, "_blank", "noopener,noreferrer");
+```
+
+If a user opens the JupyterLite URL directly without this session cookie, the API returns `401 Unauthorized` with `Missing authorization header`.
+
+## 3. Open the Launch URL
+
+Open the returned `launchUrl`. The URL is usually:
 
 ```text
 /jupyterlite/lab/index.html
@@ -25,7 +50,7 @@ Open the returned `launchUrl` while signed in. The JupyterLite static files requ
 
 Do not call slot, calendar, or booking endpoints for this category.
 
-## 3. Open the Demo Notebook
+## 4. Open the Demo Notebook
 
 The JupyterLite workspace includes a demo notebook named:
 

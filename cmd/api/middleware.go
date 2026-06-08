@@ -99,19 +99,23 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 		logger := getLogger(r)
 
 		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" && app.isJupyterLiteRequestPath(r.URL.Path) {
+			if cookie, err := r.Cookie(jupyterLiteAuthCookieName); err == nil && cookie.Value != "" {
+				authHeader = "Bearer " + cookie.Value
+			}
+		}
 		if authHeader == "" {
 			logger.Warn("Missing authorization header")
 			sendError(w, logger, http.StatusUnauthorized, "Missing authorization header")
 			return
 		}
 
-		parts := strings.Split(authHeader, " ")
-		if len(parts) != 2 || parts[0] != "Bearer" {
+		tokenString, ok := bearerTokenFromAuthorizationHeader(authHeader)
+		if !ok {
 			logger.Warn("Invalid authorization header format")
 			sendError(w, logger, http.StatusUnauthorized, "Invalid authorization header format")
 			return
 		}
-		tokenString := parts[1]
 
 		formattedPublicKey := app.env.KeycloakPublicKey
 		if !strings.Contains(formattedPublicKey, "BEGIN PUBLIC KEY") {
@@ -202,10 +206,9 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 
 		// Check KYC verification
 		needKYC := app.env.KYCEnabled
-		jupyterLiteBasePath := app.jupyterLiteBasePath()
 		if r.URL.Path == "/v1/profile/create" ||
-			r.URL.Path == jupyterLiteBasePath ||
-			strings.HasPrefix(r.URL.Path, jupyterLiteBasePath+"/") {
+			r.URL.Path == "/v1/jupyterlite/session" ||
+			app.isJupyterLiteRequestPath(r.URL.Path) {
 			needKYC = false
 		}
 		if needKYC && !jwtPayload.KycVerified {

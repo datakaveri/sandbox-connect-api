@@ -11,6 +11,8 @@ import (
 	"strings"
 )
 
+const jupyterLiteAuthCookieName = "sandbox_jupyterlite_auth"
+
 func (app *application) router() http.Handler {
 	rootMux := http.NewServeMux()
 
@@ -44,6 +46,7 @@ func (app *application) router() http.Handler {
 	apiMux.HandleFunc("PATCH /v1/bookings/{id}/terminate", app.terminateGPUBooking)
 	apiMux.HandleFunc("GET /v1/slots/available", app.listGPUAvailableSlots)
 	apiMux.HandleFunc("GET /v1/slots/calendar", app.listGPUCalendarSlots)
+	apiMux.HandleFunc("POST /v1/jupyterlite/session", app.createJupyterLiteSession)
 
 	// Profile routes
 	apiMux.HandleFunc("POST /v1/profile/create", app.createProfile)
@@ -86,6 +89,56 @@ func (app *application) jupyterLiteLaunchURL() string {
 		base = "/jupyterlite"
 	}
 	return base + "/lab/index.html"
+}
+
+func bearerTokenFromAuthorizationHeader(authHeader string) (string, bool) {
+	parts := strings.Split(authHeader, " ")
+	if len(parts) != 2 || parts[0] != "Bearer" || parts[1] == "" {
+		return "", false
+	}
+	return parts[1], true
+}
+
+func (app *application) isJupyterLiteRequestPath(requestPath string) bool {
+	basePath := app.jupyterLiteBasePath()
+	return requestPath == basePath || strings.HasPrefix(requestPath, basePath+"/")
+}
+
+func requestIsHTTPS(r *http.Request) bool {
+	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+}
+
+// @Summary      Create JupyterLite launch session
+// @Description  Validates the current bearer token and sets an HttpOnly cookie so browser navigations to JupyterLite can authenticate without putting the token in the URL.
+// @Tags         jupyterlite
+// @Produce      json
+// @Success      200  {object}  JupyterLiteSessionResponse
+// @Failure      401  {object}  Error401
+// @Failure      429  {object}  Error429
+// @Failure      500  {object}  Error500
+// @Security     BearerAuth
+// @Router       /v1/jupyterlite/session [post]
+func (app *application) createJupyterLiteSession(w http.ResponseWriter, r *http.Request) {
+	logger := getLogger(r)
+	tokenString, ok := bearerTokenFromAuthorizationHeader(r.Header.Get("Authorization"))
+	if !ok {
+		sendError(w, logger, http.StatusUnauthorized, "Invalid authorization header format")
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     jupyterLiteAuthCookieName,
+		Value:    tokenString,
+		Path:     "/",
+		MaxAge:   3600,
+		HttpOnly: true,
+		Secure:   requestIsHTTPS(r),
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	sendResponseJson(w, logger, http.StatusOK, JupyterLiteSessionResponse{
+		LaunchURL: app.jupyterLiteLaunchURL(),
+	})
 }
 
 func (app *application) jupyterLiteStaticHandler() http.Handler {

@@ -290,7 +290,7 @@ docker push ghcr.io/datakaveri/tgdex-sandbox-credit-sync-cron:tgdex-1.0.0
 
 JupyterLite is bundled into the API image built by `infra/api/Dockerfile`. The Dockerfile has a `jupyterlite-builder` stage that copies `jupyterlite-content/files`, runs `jupyter lite build`, and places the generated static site at `/app/jupyterlite` in the final API image. The API config serves that directory through `API_JUPYTERLITE_STATIC_DIR=/app/jupyterlite` and `API_JUPYTERLITE_BASE_URL=/jupyterlite`.
 
-When JupyterLite notebooks, sample data, Pyodide version, or JupyterLite package versions change, rebuild and push only the API image, then roll out the API deployment. There is no separate JupyterLite Dockerfile or Kubernetes workload. If the public URL has a prefix such as `/api/jupyterlite`, make sure ingress or gateway routing forwards the request to the API service with the path expected by `API_JUPYTERLITE_BASE_URL`.
+When JupyterLite notebooks, sample data, Pyodide version, or JupyterLite package versions change, rebuild and push only the API image, then roll out the API deployment. There is no separate JupyterLite Dockerfile or Kubernetes workload. If the public URL has a prefix such as `/api/jupyterlite`, make sure ingress or gateway routing forwards the request to the API service with the path expected by `API_JUPYTERLITE_BASE_URL`. The frontend should call `POST /v1/jupyterlite/session` with the bearer token and `credentials: "include"` before opening JupyterLite so the API can set the HttpOnly launch cookie.
 
 2. RBAC Setup
 Apply rbac.yaml to create the required roles and rolebindings:

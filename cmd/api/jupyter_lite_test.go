@@ -72,7 +72,7 @@ func configureTestAuth(t *testing.T, app *application) string {
 		Azp:           app.env.KeycloakClientID,
 		EmailVerified: true,
 		KycVerified:   false,
-		Email:         "test.com",
+		Email:         "test@example.com",
 	})
 	tokenString, err := token.SignedString(privateKey)
 	if err != nil {
@@ -195,11 +195,35 @@ func TestJupyterLiteStaticRouteRequiresAuth(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodGet, "/jupyterlite/lab/index.html", nil)
+	req = httptest.NewRequest(http.MethodPost, "/v1/jupyterlite/session", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-Forwarded-Proto", "https")
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("expected authenticated index status 200, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected session status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("expected one session cookie, got %d", len(cookies))
+	}
+	cookie := cookies[0]
+	if cookie.Name != jupyterLiteAuthCookieName || !cookie.HttpOnly || !cookie.Secure || cookie.Path != "/" {
+		t.Fatalf("unexpected JupyterLite auth cookie: %#v", cookie)
+	}
+	var sessionResp JupyterLiteSessionResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &sessionResp); err != nil {
+		t.Fatalf("failed to decode session response: %v", err)
+	}
+	if sessionResp.LaunchURL != "/jupyterlite/lab/index.html" {
+		t.Fatalf("unexpected launch URL: %q", sessionResp.LaunchURL)
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/jupyterlite/lab/index.html", nil)
+	req.AddCookie(cookie)
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected cookie-authenticated index status 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 	if contentType := rec.Header().Get("Content-Type"); !bytes.Contains([]byte(contentType), []byte("text/html")) {
 		t.Fatalf("expected HTML content type, got %q", contentType)
@@ -207,10 +231,10 @@ func TestJupyterLiteStaticRouteRequiresAuth(t *testing.T) {
 
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet, "/jupyterlite/kernel.wasm", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.AddCookie(cookie)
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("expected authenticated wasm status 200, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected cookie-authenticated wasm status 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 	if contentType := rec.Header().Get("Content-Type"); contentType != "application/wasm" {
 		t.Fatalf("expected application/wasm content type, got %q", contentType)

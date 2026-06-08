@@ -349,7 +349,7 @@ API_JUPYTERLITE_BASE_URL: "/jupyterlite"
 API_JUPYTERLITE_STATIC_DIR: "/app/jupyterlite"
 ```
 
-Ingress or gateway routing must send the JupyterLite base path to the API service. If the public URL uses a prefix such as `/api/jupyterlite/lab/index.html`, configure the gateway to strip `/api` before forwarding, or set `API_JUPYTERLITE_BASE_URL` to the path that the API receives. The API route is protected by bearer-token authentication; no separate JupyterLite auth service is deployed.
+Ingress or gateway routing must send the JupyterLite base path to the API service. If the public URL uses a prefix such as `/api/jupyterlite/lab/index.html`, configure the gateway to strip `/api` before forwarding, or set `API_JUPYTERLITE_BASE_URL` to the path that the API receives. The API route is protected by bearer-token authentication; no separate JupyterLite auth service is deployed. For app-launched browser tabs, the frontend must first call `POST /v1/jupyterlite/session` with the normal bearer token and `credentials: "include"`; the API sets an HttpOnly cookie that browser navigations and JupyterLite asset requests can send automatically. Direct opens without that cookie still return `401 Unauthorized`.
 
 JupyterLite is therefore deployed with the API image, not as a separate notebook, worker, or cron image. If DevOps changes JupyterLite notebooks, sample files, Pyodide version, or JupyterLite package versions, rebuild and push the API image and roll out the API deployment. Worker and cron images do not need to be rebuilt for JupyterLite content changes.
 

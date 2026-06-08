@@ -373,6 +373,12 @@ definitions:
       status:
         type: string
     type: object
+  main.JupyterLiteSessionResponse:
+    properties:
+      launchUrl:
+        example: /jupyterlite/lab/index.html
+        type: string
+    type: object
   main.NotebookBooking:
     properties:
       category:
@@ -849,6 +855,35 @@ paths:
       summary: List booking categories and slot templates
       tags:
       - bookings
+  /v1/jupyterlite/session:
+    post:
+      description: Validates the current bearer token and sets an HttpOnly cookie
+        so browser navigations to JupyterLite can authenticate without putting the
+        token in the URL.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.JupyterLiteSessionResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/main.Error401'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/main.Error429'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/main.Error500'
+      security:
+      - BearerAuth: []
+      summary: Create JupyterLite launch session
+      tags:
+      - jupyterlite
   /v1/notebook/check-exists/{notebook_name}:
     get:
       description: Checks if a notebook with the given name exists

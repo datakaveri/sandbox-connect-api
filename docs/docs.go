@@ -447,6 +447,49 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/jupyterlite/session": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Validates the current bearer token and sets an HttpOnly cookie so browser navigations to JupyterLite can authenticate without putting the token in the URL.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "jupyterlite"
+                ],
+                "summary": "Create JupyterLite launch session",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/main.JupyterLiteSessionResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error401"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error429"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error500"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/notebook/check-exists/{notebook_name}": {
             "get": {
                 "security": [
@@ -1387,6 +1430,15 @@ const docTemplate = `{
                 },
                 "status": {
                     "type": "string"
+                }
+            }
+        },
+        "main.JupyterLiteSessionResponse": {
+            "type": "object",
+            "properties": {
+                "launchUrl": {
+                    "type": "string",
+                    "example": "/jupyterlite/lab/index.html"
                 }
             }
         },

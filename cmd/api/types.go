@@ -224,6 +224,10 @@ type SlotTemplateResponse struct {
 	SpansMidnight bool    `json:"spansMidnight"`
 }
 
+type JupyterLiteSessionResponse struct {
+	LaunchURL string `json:"launchUrl" example:"/jupyterlite/lab/index.html"`
+}
+
 type CategoryResponse struct {
 	Name        string `json:"name"`
 	DisplayName string `json:"displayName"`
