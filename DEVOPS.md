@@ -340,7 +340,22 @@ docker build -f infra/cron/slot-lifecycle/Dockerfile -t <registry>/slot-lifecycl
 docker build -f infra/cron/profile-credit-sync/Dockerfile -t <registry>/profile-credit-sync:<tag> .
 ```
 
-All images are two-stage builds: `golang:1.24-alpine` for building, `alpine:3.18` for runtime. Update the `image:` field in the relevant deployment/cronjob YAML before applying.
+The API image is a multi-stage build. In addition to the Go builder and Alpine runtime stages, `infra/api/Dockerfile` includes a `python:3.12-slim AS jupyterlite-builder` stage for JupyterLite. That stage installs `jupyterlite-core`, `jupyterlite-pyodide-kernel`, and `jupyter-server`, copies bundled workspace files from `jupyterlite-content/files`, and runs `jupyter lite build --contents=/lite/files --output-dir=/app/jupyterlite`.
+
+The final API runtime image copies those generated static assets into `/app/jupyterlite`. The API deployment serves them using:
+
+```yaml
+API_JUPYTERLITE_BASE_URL: "/jupyterlite"
+API_JUPYTERLITE_STATIC_DIR: "/app/jupyterlite"
+```
+
+Ingress or gateway routing must send the JupyterLite base path to the API service. If the public URL uses a prefix such as `/api/jupyterlite/lab/index.html`, configure the gateway to strip `/api` before forwarding, or set `API_JUPYTERLITE_BASE_URL` to the path that the API receives. The API route is protected by bearer-token authentication; no separate JupyterLite auth service is deployed.
+
+JupyterLite is therefore deployed with the API image, not as a separate notebook, worker, or cron image. If DevOps changes JupyterLite notebooks, sample files, Pyodide version, or JupyterLite package versions, rebuild and push the API image and roll out the API deployment. Worker and cron images do not need to be rebuilt for JupyterLite content changes.
+
+For local asset generation, `scripts/build-jupyterlite.sh` runs the same JupyterLite build into a local `jupyterlite/` directory. Production deployment should still use the assets generated inside `infra/api/Dockerfile`.
+
+All non-API service images are two-stage builds: `golang:1.24-alpine` for building, `alpine:3.18` for runtime. Update the `image:` field in the relevant deployment/cronjob YAML before applying.
 
 ---
 
