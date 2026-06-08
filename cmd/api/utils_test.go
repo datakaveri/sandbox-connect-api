@@ -6,7 +6,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"sandbox-backend-service/pkg/constants"
+	"sandbox-backend-service/pkg/gpuconfig"
 	"testing"
 )
 
@@ -150,6 +152,63 @@ func TestMaxContinuousSlotSelectionMessage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := maxContinuousSlotSelectionMessage(tt.limit); got != tt.want {
 				t.Fatalf("expected %q, got %q", tt.want, got)
+			}
+		})
+	}
+}
+
+func TestOrderedContiguousSlotKeys(t *testing.T) {
+	slotDate, err := parseSlotDateIST("2026-06-08")
+	if err != nil {
+		t.Fatalf("failed to parse slot date: %v", err)
+	}
+	category, ok := gpuconfig.GetGPUCategory("production", "cpu_basic")
+	if !ok {
+		t.Fatal("expected cpu_basic category")
+	}
+	ordered, err := orderedTemplatesByStart(slotDate, category.Slots)
+	if err != nil {
+		t.Fatalf("failed to order slot templates: %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		input  []string
+		want   []string
+		wantOK bool
+	}{
+		{
+			name:   "already ordered contiguous slots",
+			input:  []string{"cpu_basic_16:00", "cpu_basic_20:00"},
+			want:   []string{"cpu_basic_16:00", "cpu_basic_20:00"},
+			wantOK: true,
+		},
+		{
+			name:   "reversed contiguous slots are canonicalized",
+			input:  []string{"cpu_basic_20:00", "cpu_basic_16:00"},
+			want:   []string{"cpu_basic_16:00", "cpu_basic_20:00"},
+			wantOK: true,
+		},
+		{
+			name:   "gapped slots are rejected",
+			input:  []string{"cpu_basic_12:00", "cpu_basic_20:00"},
+			wantOK: false,
+		},
+		{
+			name:   "duplicate slots are rejected",
+			input:  []string{"cpu_basic_16:00", "cpu_basic_16:00"},
+			wantOK: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, gotOK := orderedContiguousSlotKeys(tt.input, ordered)
+			if gotOK != tt.wantOK {
+				t.Fatalf("expected ok=%v, got %v", tt.wantOK, gotOK)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("expected %#v, got %#v", tt.want, got)
 			}
 		})
 	}

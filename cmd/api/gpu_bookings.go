@@ -132,28 +132,46 @@ func orderedTemplatesByStart(slotDate time.Time, templates []gpuconfig.SlotTempl
 	return ordered, nil
 }
 
-func isContiguousSelection(keys []string, ordered []gpuconfig.SlotTemplate) bool {
+func orderedContiguousSlotKeys(keys []string, ordered []gpuconfig.SlotTemplate) ([]string, bool) {
 	if len(keys) == 0 {
-		return false
+		return nil, false
 	}
 	indexByKey := make(map[string]int, len(ordered))
 	for i, s := range ordered {
 		indexByKey[s.Key] = i
 	}
-	firstIndex, ok := indexByKey[keys[0]]
-	if !ok {
-		return false
-	}
-	for i := 1; i < len(keys); i++ {
-		nextIndex, ok := indexByKey[keys[i]]
+
+	selected := make(map[int]struct{}, len(keys))
+	minIndex := len(ordered)
+	maxIndex := -1
+	for _, key := range keys {
+		nextIndex, ok := indexByKey[key]
 		if !ok {
-			return false
+			return nil, false
 		}
-		if nextIndex != firstIndex+i {
-			return false
+		if _, exists := selected[nextIndex]; exists {
+			return nil, false
+		}
+		selected[nextIndex] = struct{}{}
+		if nextIndex < minIndex {
+			minIndex = nextIndex
+		}
+		if nextIndex > maxIndex {
+			maxIndex = nextIndex
 		}
 	}
-	return true
+	if maxIndex-minIndex+1 != len(keys) {
+		return nil, false
+	}
+
+	out := make([]string, 0, len(keys))
+	for i := minIndex; i <= maxIndex; i++ {
+		if _, ok := selected[i]; !ok {
+			return nil, false
+		}
+		out = append(out, ordered[i].Key)
+	}
+	return out, true
 }
 
 // createGPUBooking godoc
@@ -240,10 +258,12 @@ func (app *application) createGPUBooking(w http.ResponseWriter, r *http.Request)
 		sendError(w, logger, http.StatusBadRequest, "Invalid slot configuration for category")
 		return
 	}
-	if !isContiguousSelection(req.SlotKeys, orderedTemplates) {
-		sendError(w, logger, http.StatusBadRequest, "Selected slots must be contiguous and in chronological order")
+	orderedSlotKeys, ok := orderedContiguousSlotKeys(req.SlotKeys, orderedTemplates)
+	if !ok {
+		sendError(w, logger, http.StatusBadRequest, "Selected slots must be contiguous")
 		return
 	}
+	req.SlotKeys = orderedSlotKeys
 	templateByKey := make(map[string]gpuconfig.SlotTemplate, len(category.Slots))
 	for _, s := range category.Slots {
 		templateByKey[s.Key] = s
