@@ -202,7 +202,10 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 
 		// Check KYC verification
 		needKYC := app.env.KYCEnabled
-		if r.URL.Path == "/v1/profile/create" {
+		jupyterLiteBasePath := app.jupyterLiteBasePath()
+		if r.URL.Path == "/v1/profile/create" ||
+			r.URL.Path == jupyterLiteBasePath ||
+			strings.HasPrefix(r.URL.Path, jupyterLiteBasePath+"/") {
 			needKYC = false
 		}
 		if needKYC && !jwtPayload.KycVerified {

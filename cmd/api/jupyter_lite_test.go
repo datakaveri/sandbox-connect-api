@@ -3,12 +3,19 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 func requestWithLoggerContext(method, target string, body []byte) *http.Request {
@@ -41,6 +48,37 @@ func testJupyterLiteApp(staticDir string) *application {
 		},
 		rateLimiter: NewIPRateLimiter(100, 60),
 	}
+}
+
+func configureTestAuth(t *testing.T, app *application) string {
+	t.Helper()
+
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("failed to generate private key: %v", err)
+	}
+	publicKeyDER, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		t.Fatalf("failed to marshal public key: %v", err)
+	}
+
+	app.env.KeycloakClientID = "sandbox-connect-test"
+	app.env.KeycloakPublicKey = string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: publicKeyDER}))
+
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, &JWTPayload{
+		Exp:           time.Now().Add(time.Hour).Unix(),
+		Iat:           time.Now().Unix(),
+		Sub:           "00000000-0000-0000-0000-000000000001",
+		Azp:           app.env.KeycloakClientID,
+		EmailVerified: true,
+		KycVerified:   false,
+		Email:         "test.com",
+	})
+	tokenString, err := token.SignedString(privateKey)
+	if err != nil {
+		t.Fatalf("failed to sign token: %v", err)
+	}
+	return tokenString
 }
 
 func TestListGPUCategoriesIncludesJupyterLite(t *testing.T) {
@@ -132,7 +170,7 @@ func TestSlotEndpointsRejectJupyterLite(t *testing.T) {
 	})
 }
 
-func TestJupyterLiteStaticRoute(t *testing.T) {
+func TestJupyterLiteStaticRouteRequiresAuth(t *testing.T) {
 	staticDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(staticDir, "lab"), 0755); err != nil {
 		t.Fatalf("failed to create lab dir: %v", err)
@@ -145,12 +183,23 @@ func TestJupyterLiteStaticRoute(t *testing.T) {
 	}
 
 	app := testJupyterLiteApp(staticDir)
+	app.env.KYCEnabled = true
+	token := configureTestAuth(t, app)
+	handler := app.router()
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/jupyterlite/lab/index.html", nil)
-	app.router().ServeHTTP(rec, req)
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthenticated index status 401, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/jupyterlite/lab/index.html", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("expected index status 200, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected authenticated index status 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 	if contentType := rec.Header().Get("Content-Type"); !bytes.Contains([]byte(contentType), []byte("text/html")) {
 		t.Fatalf("expected HTML content type, got %q", contentType)
@@ -158,9 +207,10 @@ func TestJupyterLiteStaticRoute(t *testing.T) {
 
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet, "/jupyterlite/kernel.wasm", nil)
-	app.router().ServeHTTP(rec, req)
+	req.Header.Set("Authorization", "Bearer "+token)
+	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("expected wasm status 200, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected authenticated wasm status 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 	if contentType := rec.Header().Get("Content-Type"); contentType != "application/wasm" {
 		t.Fatalf("expected application/wasm content type, got %q", contentType)

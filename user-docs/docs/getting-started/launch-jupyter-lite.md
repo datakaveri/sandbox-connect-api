@@ -17,7 +17,7 @@ Find the `jupyter_lite` category. It has `isBookable: false`, `resourceType: "br
 
 ## 2. Open the Launch URL
 
-Open the returned `launchUrl`, usually:
+Open the returned `launchUrl` while signed in. The JupyterLite static files require a valid bearer token, but do not require KYC verification. The URL is usually:
 
 ```text
 /jupyterlite/lab/index.html

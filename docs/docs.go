@@ -999,29 +999,22 @@ const docTemplate = `{
         "main.BookingsListResponse": {
             "type": "object",
             "properties": {
-                "bookings": {
+                "paginationInfo": {
+                    "$ref": "#/definitions/main.PaginationInfo"
+                },
+                "result": {
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/main.BookingListItem"
                     }
                 },
-                "hasNext": {
-                    "type": "boolean"
+                "title": {
+                    "type": "string",
+                    "example": "Success"
                 },
-                "hasPrevious": {
-                    "type": "boolean"
-                },
-                "page": {
-                    "type": "integer"
-                },
-                "size": {
-                    "type": "integer"
-                },
-                "totalCount": {
-                    "type": "integer"
-                },
-                "totalPages": {
-                    "type": "integer"
+                "type": {
+                    "type": "string",
+                    "example": "dx:controlPlane:success"
                 }
             }
         },
@@ -1565,6 +1558,29 @@ const docTemplate = `{
                 },
                 "templateName": {
                     "type": "string"
+                }
+            }
+        },
+        "main.PaginationInfo": {
+            "type": "object",
+            "properties": {
+                "hasNext": {
+                    "type": "boolean"
+                },
+                "hasPrevious": {
+                    "type": "boolean"
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "size": {
+                    "type": "integer"
+                },
+                "totalCount": {
+                    "type": "integer"
+                },
+                "totalPages": {
+                    "type": "integer"
                 }
             }
         },

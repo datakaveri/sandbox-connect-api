@@ -23,6 +23,6 @@ GPU sandboxes are intended for accelerated workloads. GPU categories can require
 
 ## Jupyter Lite Free Mode
 
-`jupyter_lite` is a free browser-only option. It runs JupyterLite in the user's browser with WebAssembly, so it does not create Kubernetes resources, consume compute credits, or use bookings and slots.
+`jupyter_lite` is a free browser-only option for logged-in users. It runs JupyterLite in the user's browser with WebAssembly, so it does not create Kubernetes resources, consume compute credits, or use bookings and slots.
 
 Files and settings are stored in browser-local storage. They are not backed up by Sandbox Connect, so users should download important notebooks when they need a copy outside that browser profile.

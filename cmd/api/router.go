@@ -16,10 +16,10 @@ func (app *application) router() http.Handler {
 
 	_ = mime.AddExtensionType(".wasm", "application/wasm")
 	jupyterLiteBasePath := app.jupyterLiteBasePath()
-	rootMux.HandleFunc(jupyterLiteBasePath, func(w http.ResponseWriter, r *http.Request) {
+	rootMux.Handle(jupyterLiteBasePath, app.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, jupyterLiteBasePath+"/", http.StatusMovedPermanently)
-	})
-	rootMux.Handle(jupyterLiteBasePath+"/", app.jupyterLiteStaticHandler())
+	})))
+	rootMux.Handle(jupyterLiteBasePath+"/", app.authMiddleware(app.jupyterLiteStaticHandler()))
 
 	// Serve API documentation with ReDoc (no auth required)
 	rootMux.HandleFunc("/v1/apis/", app.serveReDoc)

@@ -95,22 +95,18 @@ definitions:
     type: object
   main.BookingsListResponse:
     properties:
-      bookings:
+      paginationInfo:
+        $ref: '#/definitions/main.PaginationInfo'
+      result:
         items:
           $ref: '#/definitions/main.BookingListItem'
         type: array
-      hasNext:
-        type: boolean
-      hasPrevious:
-        type: boolean
-      page:
-        type: integer
-      size:
-        type: integer
-      totalCount:
-        type: integer
-      totalPages:
-        type: integer
+      title:
+        example: Success
+        type: string
+      type:
+        example: dx:controlPlane:success
+        type: string
     type: object
   main.CalendarDay:
     properties:
@@ -491,6 +487,21 @@ definitions:
         type: string
       templateName:
         type: string
+    type: object
+  main.PaginationInfo:
+    properties:
+      hasNext:
+        type: boolean
+      hasPrevious:
+        type: boolean
+      page:
+        type: integer
+      size:
+        type: integer
+      totalCount:
+        type: integer
+      totalPages:
+        type: integer
     type: object
   main.SlotTemplateResponse:
     properties:

@@ -349,9 +349,9 @@
                   "    pm.expect([200]).to.include(pm.response.code);",
                   "});",
                   "const data = pm.response.json();",
-                  "if (Array.isArray(data.bookings) && data.bookings.length > 0) {",
-                  "    pm.environment.set(\"booking_id\", String(data.bookings[0].id));",
-                  "    if (data.bookings[0].notebookName) pm.environment.set(\"notebook_name\", data.bookings[0].notebookName);",
+                  "if (Array.isArray(data.result) && data.result.length > 0) {",
+                  "    pm.environment.set(\"booking_id\", String(data.result[0].id));",
+                  "    if (data.result[0].notebookName) pm.environment.set(\"notebook_name\", data.result[0].notebookName);",
                   "}"
                 ]
               }

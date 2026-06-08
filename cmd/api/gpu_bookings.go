@@ -650,13 +650,17 @@ func (app *application) listGPUBookings(w http.ResponseWriter, r *http.Request) 
 	}
 
 	sendResponseJson(w, logger, http.StatusOK, BookingsListResponse{
-		Bookings:    bookings,
-		Page:        page,
-		Size:        limit,
-		TotalCount:  totalCount,
-		TotalPages:  totalPages,
-		HasNext:     offset+limit < totalCount,
-		HasPrevious: offset > 0 && totalCount > 0,
+		Type:  "dx:controlPlane:success",
+		Title: "Success",
+		PaginationInfo: PaginationInfo{
+			Page:        page,
+			Size:        limit,
+			TotalCount:  totalCount,
+			TotalPages:  totalPages,
+			HasNext:     offset+limit < totalCount,
+			HasPrevious: offset > 0 && totalCount > 0,
+		},
+		Result: bookings,
 	})
 }
 

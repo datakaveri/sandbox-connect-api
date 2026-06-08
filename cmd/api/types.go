@@ -302,14 +302,20 @@ type BookingListItem struct {
 	CreatedAt    string   `json:"createdAt"`
 }
 
+type PaginationInfo struct {
+	Page        int  `json:"page"`
+	Size        int  `json:"size"`
+	TotalCount  int  `json:"totalCount"`
+	TotalPages  int  `json:"totalPages"`
+	HasNext     bool `json:"hasNext"`
+	HasPrevious bool `json:"hasPrevious"`
+}
+
 type BookingsListResponse struct {
-	Bookings    []BookingListItem `json:"bookings"`
-	Page        int               `json:"page"`
-	Size        int               `json:"size"`
-	TotalCount  int               `json:"totalCount"`
-	TotalPages  int               `json:"totalPages"`
-	HasNext     bool              `json:"hasNext"`
-	HasPrevious bool              `json:"hasPrevious"`
+	Type           string            `json:"type" example:"dx:controlPlane:success"`
+	Title          string            `json:"title" example:"Success"`
+	PaginationInfo PaginationInfo    `json:"paginationInfo"`
+	Result         []BookingListItem `json:"result"`
 }
 
 type AvailableSlot struct {
