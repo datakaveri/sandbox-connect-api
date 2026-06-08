@@ -122,3 +122,35 @@ func TestValidateNotebookName(t *testing.T) {
 		})
 	}
 }
+
+func TestMaxContinuousSlotSelectionMessage(t *testing.T) {
+	tests := []struct {
+		name  string
+		limit int
+		want  string
+	}{
+		{
+			name:  "two slot limit",
+			limit: 2,
+			want:  "You can select a maximum of two continuous slots. Please reduce your selection to two slots or fewer.",
+		},
+		{
+			name:  "single slot limit",
+			limit: 1,
+			want:  "You can select a maximum of one continuous slot. Please reduce your selection to one slot or fewer.",
+		},
+		{
+			name:  "numeric fallback",
+			limit: 3,
+			want:  "You can select a maximum of 3 continuous slots. Please reduce your selection to 3 slots or fewer.",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := maxContinuousSlotSelectionMessage(tt.limit); got != tt.want {
+				t.Fatalf("expected %q, got %q", tt.want, got)
+			}
+		})
+	}
+}

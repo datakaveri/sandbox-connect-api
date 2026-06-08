@@ -92,6 +92,23 @@ func normalizedSlotKeys(keys []string) []string {
 	return out
 }
 
+func maxContinuousSlotSelectionMessage(limit int) string {
+	limitText := strconv.Itoa(limit)
+	switch limit {
+	case 1:
+		limitText = "one"
+	case 2:
+		limitText = "two"
+	}
+
+	slotWord := "slots"
+	if limit == 1 {
+		slotWord = "slot"
+	}
+
+	return fmt.Sprintf("You can select a maximum of %s continuous %s. Please reduce your selection to %s %s or fewer.", limitText, slotWord, limitText, slotWord)
+}
+
 func orderedTemplatesByStart(slotDate time.Time, templates []gpuconfig.SlotTemplate) ([]gpuconfig.SlotTemplate, error) {
 	type item struct {
 		slot      gpuconfig.SlotTemplate
@@ -215,7 +232,7 @@ func (app *application) createGPUBooking(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if len(req.SlotKeys) > category.MaxContiguousSlotSelectionAllowed {
-		sendError(w, logger, http.StatusBadRequest, "Selected slots exceed max contiguous slot selection limit")
+		sendError(w, logger, http.StatusBadRequest, maxContinuousSlotSelectionMessage(category.MaxContiguousSlotSelectionAllowed))
 		return
 	}
 	orderedTemplates, err := orderedTemplatesByStart(slotDate, category.Slots)
