@@ -66,6 +66,11 @@ func loggingMiddleware(next http.Handler) http.Handler {
 
 func (app *application) rateLimitMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if app.isJupyterLiteRequestPath(r.URL.Path) && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		// IP-based rate limiting (protection against unauthenticated attacks)
 		ip := getClientIP(r)
 		logger := getLogger(r)

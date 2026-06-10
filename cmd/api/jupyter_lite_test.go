@@ -240,3 +240,53 @@ func TestJupyterLiteStaticRouteRequiresAuth(t *testing.T) {
 		t.Fatalf("expected application/wasm content type, got %q", contentType)
 	}
 }
+
+func TestJupyterLiteStaticAssetsBypassRateLimit(t *testing.T) {
+	staticDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(staticDir, "lab"), 0755); err != nil {
+		t.Fatalf("failed to create lab dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(staticDir, "lab", "index.html"), []byte("<!doctype html><title>JupyterLite</title>"), 0644); err != nil {
+		t.Fatalf("failed to write index: %v", err)
+	}
+
+	app := testJupyterLiteApp(staticDir)
+	app.rateLimiter = NewIPRateLimiter(1, 60)
+	token := configureTestAuth(t, app)
+	handler := app.router()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/jupyterlite/session", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected first session request status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("expected one session cookie, got %d", len(cookies))
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/jupyterlite/lab/index.html", nil)
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthenticated static request to remain auth-protected with status 401, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/jupyterlite/lab/index.html", nil)
+	req.AddCookie(cookies[0])
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected authenticated static request to bypass exhausted rate limit with status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/v1/jupyterlite/session", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected second session request to remain rate-limited with status 429, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
