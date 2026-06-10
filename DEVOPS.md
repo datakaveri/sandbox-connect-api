@@ -188,7 +188,7 @@ kubectl apply -f infra/cron/slot-lifecycle/deployment.yaml
 
 Runs as a long-lived **Deployment** (`replicas: 1`). Ticks every 5 seconds (configurable via `SLOT_LIFECYCLE_TICK_INTERVAL_SECS`). Has a liveness probe that checks `/tmp/slot-lifecycle-alive` was written within 90 seconds.
 
-> **Note:** There is also a legacy `cronjob.yaml` in the same directory. Do **not** apply both — use `deployment.yaml` only. If you previously ran the CronJob, delete it first:
+> **Note:** If a cluster previously ran the old slot-lifecycle CronJob, delete it so only the Deployment is active:
 > ```bash
 > kubectl delete cronjob slot-lifecycle -n sandbox
 > ```
