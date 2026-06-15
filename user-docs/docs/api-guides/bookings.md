@@ -24,9 +24,16 @@ Bookings are the main user workflow for creating sandbox notebooks.
   "notebookName": "demo-cpu-01",
   "category": "cpu_basic",
   "slotDate": "2026-04-28",
-  "slotKeys": ["cpu_basic_08:00"]
+  "slotKeys": ["cpu_basic_08:00"],
+  "fileUrl": "https://example.com/data/input.csv",
+  "gitUrl": "https://github.com/datakaveri/example-notebooks.git",
+  "gitAccessToken": "github_pat_..."
 }
 ```
+
+`fileUrl`, `gitUrl`, and `gitAccessToken` are optional. When provided, the worker downloads the file and/or clones the GitHub repository into the notebook PVC before the Kubeflow Notebook starts. `gitAccessToken` is only needed for private GitHub repositories.
+
+When `gitAccessToken` is supplied, the API creates or updates an internal Kubernetes Secret in the user's namespace and stores only that Secret name with the booking metadata. Operators can alternatively pass `gitTokenSecretName` to reference a pre-created Secret containing key `token`.
 
 ## Rules
 
@@ -36,6 +43,10 @@ Bookings are the main user workflow for creating sandbox notebooks.
 - `slotKeys` must be valid for the selected category.
 - Multiple slot keys must be contiguous and chronological.
 - GPU categories can require the `compute` role and credit eligibility.
+- `fileUrl` and `gitUrl` must be HTTPS URLs without embedded credentials.
+- `gitUrl` must be a GitHub URL in v1.
+- `gitAccessToken` and `gitTokenSecretName` require `gitUrl`; use only one of them.
+- `gitTokenSecretName`, when used directly, must reference an existing Secret in the user namespace.
 
 ## Opening a Notebook
 

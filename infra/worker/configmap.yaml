@@ -7,6 +7,7 @@ data:
   WORKER_CPU_NOTEBOOK_IMAGE: "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:latest"
   WORKER_GPU_NOTEBOOK_IMAGE: "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-gpu-notebook:latest"
   WORKER_INIT_CONTAINER_IMAGE: "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/demo-notebook-file:mahaagx"
+  WORKER_RUNTIME_INJECTOR_IMAGE: "alpine/git:2.45.2"
   WORKER_IMAGE_PULL_ENABLED: "true"
   WORKER_ECR_SECRET_NAME: "v2-registry-cred"
   WORKER_GPU_NODE_INSTANCE_TYPES: "g4dn.xlarge,p4d.24xlarge,p5.48xlarge"

@@ -143,7 +143,8 @@ func stepScheduledToReady(ctx context.Context, pool *db.PgPool, logger *slog.Log
 
 	// Select only (not updating yet) to keep transaction scope per booking.
 	query := fmt.Sprintf(`
-		SELECT id, user_id, category_name, slot_key, notebook_name, slot_date, slot_start, slot_end
+		SELECT id, user_id, category_name, slot_key, notebook_name, slot_date, slot_start, slot_end,
+		       file_url, git_url, git_token_secret_name
 		FROM bookings
 		WHERE status = 'scheduled'
 		  AND slot_start <= %s
@@ -169,6 +170,9 @@ func stepScheduledToReady(ctx context.Context, pool *db.PgPool, logger *slog.Log
 			&b.SlotDate,
 			&b.SlotStart,
 			&b.SlotEnd,
+			&b.FileURL,
+			&b.GitURL,
+			&b.GitTokenSecretName,
 		); err != nil {
 			return err
 		}
@@ -225,13 +229,13 @@ func processBookingToReady(ctx context.Context, pool *db.PgPool, logger *slog.Lo
 			user_id, name, namespace, pvc_name, storage_size,
 			cpu_request, cpu_limit, memory_request, memory_limit,
 			gpu_type, gpu_request, gpu_limit, instance_type, template_name,
-			booking_id
+			booking_id, file_url, git_url, git_token_secret_name
 		)
 		VALUES (
 			$1, $2, $3, $4, $5,
 			$6, $7, $8, $9,
 			$10, $11, $12, $13, $14,
-			$15
+			$15, $16, $17, $18
 		)
 		ON CONFLICT (name, namespace) DO NOTHING
 		RETURNING id
@@ -256,6 +260,9 @@ func processBookingToReady(ctx context.Context, pool *db.PgPool, logger *slog.Lo
 		category.InstanceType,
 		nil,
 		b.ID,
+		b.FileURL,
+		b.GitURL,
+		b.GitTokenSecretName,
 	).Scan(&notebookID)
 
 	if err != nil {
@@ -272,9 +279,12 @@ func processBookingToReady(ctx context.Context, pool *db.PgPool, logger *slog.Lo
 			if _, err2 := tx.Exec(
 				ctx,
 				`UPDATE notebooks
-				 SET booking_id=$1
-				 WHERE id=$2 AND booking_id IS NULL`,
-				b.ID, notebookID,
+				 SET booking_id=COALESCE(booking_id, $1),
+				     file_url=COALESCE(file_url, $3),
+				     git_url=COALESCE(git_url, $4),
+				     git_token_secret_name=COALESCE(git_token_secret_name, $5)
+				 WHERE id=$2`,
+				b.ID, notebookID, b.FileURL, b.GitURL, b.GitTokenSecretName,
 			); err2 != nil {
 				return err2
 			}
@@ -339,14 +349,14 @@ func stepReadyToActiveOrNoShow(ctx context.Context, pool *db.PgPool, k8sClient *
 	for rows.Next() {
 		selected++
 		var (
-			bookingID         int64
-			notebookID        int64
-			userID            string
-			category          string
-			notebookName      string
-			namespace         string
-			pvcName           string
-			noShowAnchorStr   string
+			bookingID       int64
+			notebookID      int64
+			userID          string
+			category        string
+			notebookName    string
+			namespace       string
+			pvcName         string
+			noShowAnchorStr string
 		)
 		if err := rows.Scan(
 			&bookingID, &notebookID, &userID, &category,
@@ -473,8 +483,8 @@ func stepActiveToShuttingDown(ctx context.Context, pool *db.PgPool, logger *slog
 	for rows.Next() {
 		selected++
 		var (
-			bookingID   int64
-			category    string
+			bookingID int64
+			category  string
 		)
 		if err := rows.Scan(&bookingID, &category); err != nil {
 			return err
@@ -798,4 +808,3 @@ func deleteNotebookAndPVC(ctx context.Context, k8sClient *k8s.K8sClient, namespa
 	}
 	return nil
 }
-

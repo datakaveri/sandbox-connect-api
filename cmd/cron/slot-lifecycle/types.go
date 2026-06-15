@@ -30,13 +30,16 @@ type CronEnv struct {
 }
 
 type GPUBookingRow struct {
-	ID          int64
-	UserID      string
-	Category    string
-	SlotKey     string
-	Notebook    string
-	SlotDate    time.Time
-	SlotStart   time.Time
-	SlotEnd     time.Time
-	CurrentStat string
+	ID                 int64
+	UserID             string
+	Category           string
+	SlotKey            string
+	Notebook           string
+	SlotDate           time.Time
+	SlotStart          time.Time
+	SlotEnd            time.Time
+	CurrentStat        string
+	FileURL            *string
+	GitURL             *string
+	GitTokenSecretName *string
 }

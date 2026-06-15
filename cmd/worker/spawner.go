@@ -39,10 +39,18 @@ func (app *application) worker(ctx context.Context) {
 		logger:   logger,
 	}
 	logger.Info("Spawning notebook")
-	//uploadPodName := notebook.Name + "-upload-pod-" + uuid.New().String()
+	runtimeInjectionPodName := ""
+	if notebook.HasRuntimeAssets() {
+		runtimeInjectionPodName = newRuntimeInjectionPodName(notebook.Name)
+	}
 	cleanupResources := func(failed *bool) {
 		if *failed {
 			logger.Info("Cleaning up resources due to failure")
+			if runtimeInjectionPodName != "" {
+				if err := worker.DeleteRuntimeInjectionPod(runtimeInjectionPodName); err != nil {
+					logger.Error("Failed to delete runtime injection pod during cleanup", "error", err)
+				}
+			}
 			if err := worker.DeleteNotebook(); err != nil {
 				logger.Error("Failed to delete notebook during cleanup", "error", err)
 			}
@@ -92,44 +100,37 @@ func (app *application) worker(ctx context.Context) {
 			return
 		}
 	*/
-	/*
-		var presignedUrl *string
-		if notebook.TemplateName != nil {
-			var err error
-			presignedUrl, err = app.s3Client.GetPresignedUrl(app.env.S3_TEMPLATE_BUCKET_NAME, getTemplateKey(*notebook.TemplateName))
-			if err != nil {
-				logger.Error("failed to get presigned url", "error", err)
-				return
-			}
-			if err := worker.CreateUploadFileToPVPod(uploadPodName, *presignedUrl); err != nil {
-				logger.Error("failed to apply pod manifest", "error", err)
-				queryErr := worker.NotebookStatusUpdate(notebook.ID, constants.StatusPVCUploadApplyFailed)
-				if queryErr != nil {
-					logger.Error("failed to update notebook status", "error", queryErr, "status", constants.StatusPVCUploadApplyFailed)
-				}
-				return
-			}
-			queryErr := worker.NotebookStatusUpdate(notebook.ID, constants.StatusPVCUploadApplied)
+	if notebook.HasRuntimeAssets() {
+		if err := worker.CreateRuntimeInjectionPod(runtimeInjectionPodName); err != nil {
+			logger.Error("failed to create runtime injection pod", "error", err)
+			queryErr := worker.NotebookStatusUpdate(notebook.ID, constants.StatusRuntimeInjectionApplyFailed)
 			if queryErr != nil {
-				logger.Error("failed to update notebook status", "error", queryErr, "status", constants.StatusPVCUploadApplied)
+				logger.Error("failed to update notebook status", "error", queryErr, "status", constants.StatusRuntimeInjectionApplyFailed)
 			}
-			err = worker.CheckStatusOfUploadFilePod(uploadPodName)
-			if err != nil {
-				logger.Error("failed to complete the pod", "error", err)
-				queryErr := worker.NotebookStatusUpdate(notebook.ID, constants.StatusPVCUploadFailed)
-				if queryErr != nil {
-					logger.Error("failed to update notebook status", "error", queryErr, "status", constants.StatusPVCUploadFailed)
-				}
-				return
-			}
-			queryErr = worker.NotebookStatusUpdate(notebook.ID, constants.StatusPVCUploadSuccessful)
-			if queryErr != nil {
-				logger.Error("failed to update notebook status", "error", queryErr, "status", constants.StatusPVCUploadSuccessful)
-				return
-			}
-			logger.Info("PVC uploaded successfully")
+			return
 		}
-	*/
+		if err := worker.NotebookStatusUpdate(notebook.ID, constants.StatusRuntimeInjectionApplied); err != nil {
+			logger.Error("failed to update notebook status", "error", err, "status", constants.StatusRuntimeInjectionApplied)
+			return
+		}
+		if err := worker.WaitRuntimeInjectionPod(runtimeInjectionPodName); err != nil {
+			logger.Error("runtime injection pod failed", "error", err)
+			queryErr := worker.NotebookStatusUpdate(notebook.ID, constants.StatusRuntimeInjectionFailed)
+			if queryErr != nil {
+				logger.Error("failed to update notebook status", "error", queryErr, "status", constants.StatusRuntimeInjectionFailed)
+			}
+			return
+		}
+		if err := worker.NotebookStatusUpdate(notebook.ID, constants.StatusRuntimeInjectionSuccessful); err != nil {
+			logger.Error("failed to update notebook status", "error", err, "status", constants.StatusRuntimeInjectionSuccessful)
+			return
+		}
+		if err := worker.DeleteRuntimeInjectionPod(runtimeInjectionPodName); err != nil {
+			logger.Warn("failed to delete successful runtime injection pod", "error", err)
+		}
+		runtimeInjectionPodName = ""
+	}
+
 	err := worker.CreateNotebook()
 	if err != nil {
 		logger.Error("failed to apply notebook manifest", "error", err, "notebookStatus", constants.StatusNotebookApplyFailed)

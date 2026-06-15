@@ -920,6 +920,10 @@ const docTemplate = `{
                 "pvc-upload-applied",
                 "pvc-upload-apply-failed",
                 "pvc-upload-failed",
+                "runtime-injection-applied",
+                "runtime-injection-successful",
+                "runtime-injection-apply-failed",
+                "runtime-injection-failed",
                 "notebook-applied",
                 "notebook-apply-failed"
             ],
@@ -933,6 +937,10 @@ const docTemplate = `{
                 "StatusPVCUploadApplied",
                 "StatusPVCUploadApplyFailed",
                 "StatusPVCUploadFailed",
+                "StatusRuntimeInjectionApplied",
+                "StatusRuntimeInjectionSuccessful",
+                "StatusRuntimeInjectionApplyFailed",
+                "StatusRuntimeInjectionFailed",
                 "StatusNotebookApplied",
                 "StatusNotebookApplyFailed"
             ]
@@ -1195,6 +1203,18 @@ const docTemplate = `{
             ],
             "properties": {
                 "category": {
+                    "type": "string"
+                },
+                "fileUrl": {
+                    "type": "string"
+                },
+                "gitAccessToken": {
+                    "type": "string"
+                },
+                "gitTokenSecretName": {
+                    "type": "string"
+                },
+                "gitUrl": {
                     "type": "string"
                 },
                 "notebookName": {

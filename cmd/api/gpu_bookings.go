@@ -215,6 +215,10 @@ func (app *application) createGPUBooking(w http.ResponseWriter, r *http.Request)
 	req.Category = strings.TrimSpace(strings.ToLower(req.Category))
 	req.SlotDate = strings.TrimSpace(req.SlotDate)
 	req.SlotKeys = normalizedSlotKeys(req.SlotKeys)
+	if err := normalizeAndValidateRuntimeAssets(&req); err != nil {
+		sendError(w, logger, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	profile := app.env.NotebookConfig.SlotConfigProfile
 	category, ok := gpuconfig.GetGPUCategory(profile, req.Category)
@@ -347,6 +351,30 @@ func (app *application) createGPUBooking(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	if req.GitAccessToken != nil || req.GitTokenSecretName != nil {
+		if err := app.waitForNamespace(ctx, logger, namespace); err != nil {
+			logger.Error("namespace not ready for git token setup", "error", err, "namespace", namespace)
+			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+			return
+		}
+	}
+	if req.GitAccessToken != nil {
+		secretName := gitAccessTokenSecretName(req.NotebookName)
+		if err := app.createOrUpdateGitAccessTokenSecret(ctx, namespace, secretName, *req.GitAccessToken); err != nil {
+			logger.Error("failed to create git access token secret", "error", err, "namespace", namespace, "secret", secretName)
+			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+			return
+		}
+		req.GitTokenSecretName = &secretName
+	}
+	if req.GitTokenSecretName != nil {
+		if err := app.verifyGitTokenSecret(ctx, namespace, *req.GitTokenSecretName); err != nil {
+			logger.Warn("failed to verify git token secret", "error", err, "namespace", namespace, "secret", *req.GitTokenSecretName)
+			sendError(w, logger, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+
 	// Booking flow must ensure registry pull secret as well, otherwise
 	// scheduled->ready->worker path can hit ImagePullBackOff in user namespace.
 	if app.registrySecret.SecretType != "none" {
@@ -455,9 +483,11 @@ func (app *application) createGPUBooking(w http.ResponseWriter, r *http.Request)
 
 	insertQuery := `
 		INSERT INTO bookings (
-			user_id, category_name, resource_type, slot_key, slot_keys, notebook_name, slot_date, slot_start, slot_end, status
+			user_id, category_name, resource_type, slot_key, slot_keys, notebook_name, slot_date, slot_start, slot_end, status,
+			file_url, git_url, git_token_secret_name
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, 'scheduled'
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, 'scheduled',
+			$10, $11, $12
 		) RETURNING id
 	`
 	var bookingID int64
@@ -473,6 +503,9 @@ func (app *application) createGPUBooking(w http.ResponseWriter, r *http.Request)
 		slotDate.Format("2006-01-02"),
 		slotStart,
 		slotEnd,
+		req.FileURL,
+		req.GitURL,
+		req.GitTokenSecretName,
 	).Scan(&bookingID)
 	if err != nil {
 		if pgErr, ok := err.(*pgconn.PgError); ok && pgErr.Code == "23505" {

@@ -243,6 +243,7 @@ Runs every 15 minutes. Uses `ConcurrencyPolicy: Forbid`.
 | `WORKER_CPU_NOTEBOOK_IMAGE` | yes | — | Container image for CPU notebooks |
 | `WORKER_GPU_NOTEBOOK_IMAGE` | yes | — | Container image for GPU notebooks |
 | `WORKER_INIT_CONTAINER_IMAGE` | yes | — | Init container image |
+| `WORKER_RUNTIME_INJECTOR_IMAGE` | no | `alpine/git:2.45.2` | Image used by short-lived pods that download `fileUrl` and clone `gitUrl` into notebook PVCs |
 | `WORKER_S3_ENDPOINT` | yes | — | S3 endpoint URL |
 | `WORKER_S3_REGION` | yes | — | AWS region |
 | `WORKER_S3_ACCESS_KEY` | yes | — | AWS access key |
@@ -254,6 +255,12 @@ Runs every 15 minutes. Uses `ConcurrencyPolicy: Forbid`.
 | `WORKER_KUBE_CONFIG_MODE` | no | `cluster` | `cluster` or `local` |
 | `WORKER_IMAGE_PULL_ENABLED` | no | `false` | Pull images via ECR credentials |
 | `WORKER_ECR_SECRET_NAME` | no | — | K8s secret name for ECR pull |
+
+### Runtime Asset Injection
+
+Bookings can optionally include `fileUrl`, `gitUrl`, and `gitAccessToken`. The API creates or updates an internal Kubernetes Secret for `gitAccessToken`, stores only the Secret name on the booking, slot-lifecycle copies that metadata to the notebook row, and the worker runs a short-lived injection pod after PVC creation and before Notebook creation.
+
+Operators can still use `gitTokenSecretName` to reference a pre-created Secret in the user namespace. The Secret must contain key `token`.
 
 ### Slot Lifecycle
 

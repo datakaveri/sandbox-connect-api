@@ -85,6 +85,9 @@ CREATE TABLE bookings (
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS ready_at TIMESTAMPTZ;
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS slot_keys VARCHAR(50)[] NOT NULL DEFAULT '{}';
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS extension_used BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS file_url TEXT;
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS git_url TEXT;
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS git_token_secret_name VARCHAR(253);
 UPDATE bookings SET slot_keys = ARRAY[slot_key] WHERE slot_keys = '{}'::varchar[] OR slot_keys IS NULL;
 
 ALTER TABLE notebooks
@@ -130,4 +133,7 @@ CREATE UNIQUE INDEX idx_bookings_unique_user_notebook_name_active
     ON bookings(user_id, notebook_name)
     WHERE status IN ('scheduled', 'ready', 'active', 'shutting_down');
 
-ALTER TABLE notebooks ADD COLUMN image_name VARCHAR(512);
+ALTER TABLE notebooks ADD COLUMN IF NOT EXISTS image_name VARCHAR(512);
+ALTER TABLE notebooks ADD COLUMN IF NOT EXISTS file_url TEXT;
+ALTER TABLE notebooks ADD COLUMN IF NOT EXISTS git_url TEXT;
+ALTER TABLE notebooks ADD COLUMN IF NOT EXISTS git_token_secret_name VARCHAR(253);

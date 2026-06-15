@@ -37,23 +37,27 @@ type Env struct {
 	CPU_NODE_INSTANCE_TYPES string `env:"WORKER_CPU_NODE_INSTANCE_TYPES,required"`
 	IMAGE_PULL_ENABLED      bool   `env:"WORKER_IMAGE_PULL_ENABLED" envDefault:"false"`
 	ECR_SECRET_NAME         string `env:"WORKER_ECR_SECRET_NAME"`
+	RUNTIME_INJECTOR_IMAGE  string `env:"WORKER_RUNTIME_INJECTOR_IMAGE" envDefault:"alpine/git:2.45.2"`
 }
 type Notebook struct {
-	ID            int64   `json:"id"`
-	Name          string  `json:"name"`
-	Namespace     string  `json:"namespace"`
-	StorageSize   string  `json:"storage_size"`
-	PVCname       string  `json:"pvc_name"`
-	CPURequest    float64 `json:"cpu_request"`
-	CPULimit      float64 `json:"cpu_limit"`
-	MemoryRequest string  `json:"memory_request"`
-	MemoryLimit   string  `json:"memory_limit"`
-	GPUType       *string `json:"gpu_type"`
-	GPURequest    *int    `json:"gpu_request"`
-	GPULimit      *int    `json:"gpu_limit"`
-	InstanceType  *string `json:"instance_type"`
-	TemplateName  *string `json:"template_name"`
-	ImageName     *string `json:"image_name"`
+	ID                 int64   `json:"id"`
+	Name               string  `json:"name"`
+	Namespace          string  `json:"namespace"`
+	StorageSize        string  `json:"storage_size"`
+	PVCname            string  `json:"pvc_name"`
+	CPURequest         float64 `json:"cpu_request"`
+	CPULimit           float64 `json:"cpu_limit"`
+	MemoryRequest      string  `json:"memory_request"`
+	MemoryLimit        string  `json:"memory_limit"`
+	GPUType            *string `json:"gpu_type"`
+	GPURequest         *int    `json:"gpu_request"`
+	GPULimit           *int    `json:"gpu_limit"`
+	InstanceType       *string `json:"instance_type"`
+	TemplateName       *string `json:"template_name"`
+	ImageName          *string `json:"image_name"`
+	FileURL            *string `json:"file_url"`
+	GitURL             *string `json:"git_url"`
+	GitTokenSecretName *string `json:"git_token_secret_name"`
 }
 type worker struct {
 	app      *application

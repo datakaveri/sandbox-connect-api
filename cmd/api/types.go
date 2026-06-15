@@ -262,10 +262,14 @@ type CategoriesResponse struct {
 }
 
 type CreateBookingRequest struct {
-	NotebookName string   `json:"notebookName" validate:"required"`
-	Category     string   `json:"category" validate:"required"`
-	SlotKeys     []string `json:"slotKeys" validate:"required,min=1,dive,required"`
-	SlotDate     string   `json:"slotDate" validate:"required"`
+	NotebookName       string   `json:"notebookName" validate:"required"`
+	Category           string   `json:"category" validate:"required"`
+	SlotKeys           []string `json:"slotKeys" validate:"required,min=1,dive,required"`
+	SlotDate           string   `json:"slotDate" validate:"required"`
+	FileURL            *string  `json:"fileUrl" validate:"omitempty"`
+	GitURL             *string  `json:"gitUrl" validate:"omitempty"`
+	GitAccessToken     *string  `json:"gitAccessToken" validate:"omitempty"`
+	GitTokenSecretName *string  `json:"gitTokenSecretName" validate:"omitempty"`
 }
 
 type CreateBookingResponse struct {
