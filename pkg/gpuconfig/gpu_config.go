@@ -90,7 +90,7 @@ var GPUSlotConfigs = map[string]GPUSlotConfigProfile{
 				GPUMemory:    "",
 				// CPU booking rules
 				MaxActiveBookings:                 2,
-				MaxBookingsPerWeek:                7,
+				MaxBookingsPerWeek:                100,
 				AdvanceBookingDays:                30,
 				MinAdvanceBookingDays:             0,
 				NoShowGraceMins:                   15,
