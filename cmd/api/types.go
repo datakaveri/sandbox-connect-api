@@ -416,20 +416,20 @@ type ResourceAccess struct {
 }
 
 type JWTPayload struct {
-	Exp            int64          `json:"exp"`
-	Iat            int64          `json:"iat"`
-	Jti            string         `json:"jti"`
-	Iss            string         `json:"iss"`
-	Aud            string         `json:"aud"`
-	Sub            string         `json:"sub" validate:"required,uuid"`
-	Typ            string         `json:"typ"`
-	Azp            string         `json:"azp" validate:"required"`
-	EmailVerified  bool           `json:"email_verified"`
-	KycVerified    bool           `json:"kyc_verified"`
-	Name           string         `json:"name"`
-	Email          string         `json:"email" validate:"required,email"`
-	RealmAccess    RealmAccess    `json:"realm_access"`
-	ResourceAccess ResourceAccess `json:"resource_access"`
+	Exp            int64            `json:"exp"`
+	Iat            int64            `json:"iat"`
+	Jti            string           `json:"jti"`
+	Iss            string           `json:"iss"`
+	Aud            jwt.ClaimStrings `json:"aud"`
+	Sub            string           `json:"sub" validate:"required,uuid"`
+	Typ            string           `json:"typ"`
+	Azp            string           `json:"azp" validate:"required"`
+	EmailVerified  bool             `json:"email_verified"`
+	KycVerified    bool             `json:"kyc_verified"`
+	Name           string           `json:"name"`
+	Email          string           `json:"email" validate:"required,email"`
+	RealmAccess    RealmAccess      `json:"realm_access"`
+	ResourceAccess ResourceAccess   `json:"resource_access"`
 }
 
 func (p *JWTPayload) GetExpirationTime() (*jwt.NumericDate, error) {
@@ -459,10 +459,10 @@ func (p *JWTPayload) GetSubject() (string, error) {
 }
 
 func (p *JWTPayload) GetAudience() (jwt.ClaimStrings, error) {
-	if p.Aud == "" {
+	if len(p.Aud) == 0 {
 		return nil, nil
 	}
-	return jwt.ClaimStrings{p.Aud}, nil
+	return p.Aud, nil
 }
 
 type UserInfo struct {

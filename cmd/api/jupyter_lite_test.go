@@ -290,3 +290,44 @@ func TestJupyterLiteStaticAssetsBypassRateLimit(t *testing.T) {
 		t.Fatalf("expected second session request to remain rate-limited with status 429, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestJWTPayloadAudienceAcceptsStringAndArray(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload string
+		want    jwt.ClaimStrings
+	}{
+		{
+			name:    "string",
+			payload: `{"aud":"sandbox-connect"}`,
+			want:    jwt.ClaimStrings{"sandbox-connect"},
+		},
+		{
+			name:    "array",
+			payload: `{"aud":["sandbox-connect","account"]}`,
+			want:    jwt.ClaimStrings{"sandbox-connect", "account"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var claims JWTPayload
+			if err := json.Unmarshal([]byte(tt.payload), &claims); err != nil {
+				t.Fatalf("unmarshal JWT payload: %v", err)
+			}
+
+			got, err := claims.GetAudience()
+			if err != nil {
+				t.Fatalf("get audience: %v", err)
+			}
+			if len(got) != len(tt.want) {
+				t.Fatalf("audience = %#v, want %#v", got, tt.want)
+			}
+			for i := range tt.want {
+				if got[i] != tt.want[i] {
+					t.Fatalf("audience = %#v, want %#v", got, tt.want)
+				}
+			}
+		})
+	}
+}
