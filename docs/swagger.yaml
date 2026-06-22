@@ -510,6 +510,22 @@ definitions:
       templateName:
         type: string
     type: object
+  main.NotebookTokenRotationRequest:
+    properties:
+      refreshToken:
+        type: string
+    required:
+    - refreshToken
+    type: object
+  main.NotebookTokenSessionResponse:
+    properties:
+      bookingId:
+        type: integer
+      secretName:
+        type: string
+      status:
+        type: string
+    type: object
   main.PaginationInfo:
     properties:
       hasNext:
@@ -761,6 +777,103 @@ paths:
       security:
       - BearerAuth: []
       summary: Extend active booking by one slot
+      tags:
+      - bookings
+  /v1/bookings/{id}/notebook-token-session:
+    post:
+      description: Exchanges the caller access token for a notebook-specific delegated
+        refresh token and stores it in a notebook-scoped Kubernetes Secret. Browser
+        refresh tokens are never accepted or stored.
+      parameters:
+      - description: Booking ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.NotebookTokenSessionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/main.Error400'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/main.Error401'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/main.Error404'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/main.Error429'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/main.Error500'
+      security:
+      - BearerAuth: []
+      summary: Create notebook token session
+      tags:
+      - bookings
+    put:
+      consumes:
+      - application/json
+      description: Replaces the notebook refresh token after Keycloak rotation. This
+        route accepts only a delegated notebook-client access token belonging to the
+        booking owner.
+      parameters:
+      - description: Booking ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Rotated refresh token
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/main.NotebookTokenRotationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.NotebookTokenSessionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/main.Error400'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/main.Error401'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/main.Error404'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/main.Error422'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/main.Error429'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/main.Error500'
+      security:
+      - BearerAuth: []
+      summary: Persist notebook refresh-token rotation
       tags:
       - bookings
   /v1/bookings/{id}/reset:

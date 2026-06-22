@@ -406,6 +406,10 @@ func stepReadyToActiveOrNoShow(ctx context.Context, pool *db.PgPool, k8sClient *
 		}
 
 		// Delete notebook + PVC (best-effort), then mark booking expired.
+		if err := deletePlatformTokenSecret(ctx, k8sClient, namespace, notebookName); err != nil {
+			k8sDeleteErrors++
+			logger.Error("failed deleting platform token secret for no-show", "booking_id", bookingID, "error", err)
+		}
 		if err := deleteNotebookAndPVC(ctx, k8sClient, namespace, notebookName, pvcName); err != nil {
 			k8sDeleteErrors++
 			logger.Error("failed deleting resources for no-show", "booking_id", bookingID, "error", err)
@@ -688,6 +692,11 @@ func stepCleanupCompleted(ctx context.Context, pool *db.PgPool, k8sClient *k8s.K
 		if now.Before(cleanupAt) {
 			waitingGrace++
 			continue
+		}
+
+		if err := deletePlatformTokenSecret(ctx, k8sClient, namespace, notebookName); err != nil {
+			deleteErrors++
+			logger.Error("failed deleting platform token secret for cleanup", "booking_id", bookingID, "error", err)
 		}
 
 		if err := deleteNotebookAndPVC(ctx, k8sClient, namespace, notebookName, pvcName); err != nil {

@@ -10,11 +10,13 @@ import (
 // auditedEndpoints maps "METHOD /path" to a human-readable action name.
 // Only these endpoints produce audit messages, and only on 2xx responses.
 var auditedEndpoints = map[string]string{
-	"POST /v1/bookings":                 "Create",
-	"PATCH /v1/bookings/{id}/cancel":    "Cancel",
-	"PATCH /v1/bookings/{id}/extend":    "Extend",
-	"PATCH /v1/bookings/{id}/reset":     "Reset",
-	"PATCH /v1/bookings/{id}/terminate": "Terminate",
+	"POST /v1/bookings":                             "Create",
+	"POST /v1/bookings/{id}/notebook-token-session": "CreateNotebookTokenSession",
+	"PUT /v1/bookings/{id}/notebook-token-session":  "RotateNotebookTokenSession",
+	"PATCH /v1/bookings/{id}/cancel":                "Cancel",
+	"PATCH /v1/bookings/{id}/extend":                "Extend",
+	"PATCH /v1/bookings/{id}/reset":                 "Reset",
+	"PATCH /v1/bookings/{id}/terminate":             "Terminate",
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +109,9 @@ func (app *application) auditMiddleware(next http.Handler) http.Handler {
 
 		// Capture request metadata before the handler runs
 		authToken := r.Header.Get("Authorization")
+		if strings.HasSuffix(r.URL.Path, "/notebook-token-session") {
+			authToken = ""
+		}
 		ipAddress := getClientIP(r)
 		userAgent := r.UserAgent()
 		api := r.URL.Path
@@ -187,7 +192,7 @@ func getAuditAction(method, path string) string {
 		return action
 	}
 
-	if method == http.MethodPatch {
+	if method == http.MethodPatch || method == http.MethodPost || method == http.MethodPut {
 		parts := strings.Split(strings.Trim(path, "/"), "/")
 		if len(parts) == 4 && parts[0] == "v1" && parts[1] == "bookings" && parts[2] != "" {
 			key = method + " /v1/bookings/{id}/" + parts[3]

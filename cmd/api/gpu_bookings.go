@@ -1366,6 +1366,7 @@ func (app *application) resetGPUBooking(w http.ResponseWriter, r *http.Request) 
 
 	if nbFound {
 		// Best-effort K8s deletion (do not fail the API if K8s is already gone).
+		_ = app.deletePlatformTokenSecret(context.Background(), nbNS, nbName)
 		_ = app.deleteNotebookFromK8s(context.Background(), logger, nbNS, nbName)
 		_ = app.deletePVCFromK8s(context.Background(), logger, nbNS, nbPVC)
 
@@ -1507,6 +1508,7 @@ func (app *application) terminateGPUBooking(w http.ResponseWriter, r *http.Reque
 	}
 
 	if nbFound {
+		_ = app.deletePlatformTokenSecret(context.Background(), nbNS, nbName)
 		_ = app.deleteNotebookFromK8s(context.Background(), logger, nbNS, nbName)
 		_ = app.deletePVCFromK8s(context.Background(), logger, nbNS, nbPVC)
 		_, _ = app.pgPool.Pool.Exec(context.Background(), `

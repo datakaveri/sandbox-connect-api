@@ -171,19 +171,38 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 			"jti", jwtPayload.Jti,
 		)
 
-		if jwtPayload.Azp == "" || jwtPayload.Azp != app.env.KeycloakClientID {
+		expectedClientID := app.env.KeycloakClientID
+		isNotebookTokenRotation := app.isNotebookTokenRotationRequest(r)
+		if isNotebookTokenRotation {
+			expectedClientID = app.env.PlatformTokenNotebookClientID
+		}
+		if jwtPayload.Azp == "" || jwtPayload.Azp != expectedClientID {
 			logger.Warn("Authentication failed: Invalid client ID",
 				"provided_client_id", jwtPayload.Azp,
-				"expected_client_id", app.env.KeycloakClientID,
+				"expected_client_id", expectedClientID,
 				"user_id", jwtPayload.Sub,
 				"email", jwtPayload.Email,
 			)
 			sendError(w, logger, http.StatusUnauthorized, "Invalid client")
 			return
 		}
+		if isNotebookTokenRotation && jwtPayload.Iss != app.platformTokenIssuer() {
+			logger.Warn("Authentication failed: Invalid token issuer",
+				"provided_issuer", jwtPayload.Iss,
+				"expected_issuer", app.platformTokenIssuer(),
+				"user_id", jwtPayload.Sub,
+			)
+			sendError(w, logger, http.StatusUnauthorized, "Invalid token issuer")
+			return
+		}
 
 		currentTime := time.Now().Unix()
 		exp, _ := jwtPayload.GetExpirationTime()
+		if isNotebookTokenRotation && exp == nil {
+			logger.Warn("Authentication failed: Missing token expiry", "user_id", jwtPayload.Sub)
+			sendError(w, logger, http.StatusUnauthorized, "Invalid token expiry")
+			return
+		}
 		if exp != nil && exp.Unix() < currentTime {
 			logger.Warn("Authentication failed: Token expired",
 				"exp", exp.Unix(),
@@ -229,9 +248,10 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 		}
 
 		userInfo := UserInfo{
-			Sub:   jwtPayload.Sub,
-			Email: jwtPayload.Email,
-			Roles: jwtPayload.RealmAccess.Roles,
+			Sub:      jwtPayload.Sub,
+			Email:    jwtPayload.Email,
+			Roles:    jwtPayload.RealmAccess.Roles,
+			ClientID: jwtPayload.Azp,
 		}
 
 		// Debug: Log successful authentication with user context

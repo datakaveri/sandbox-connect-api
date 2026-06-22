@@ -44,6 +44,8 @@ func (app *application) router() http.Handler {
 	apiMux.HandleFunc("PATCH /v1/bookings/{id}/extend", app.extendGPUBooking)
 	apiMux.HandleFunc("PATCH /v1/bookings/{id}/reset", app.resetGPUBooking)
 	apiMux.HandleFunc("PATCH /v1/bookings/{id}/terminate", app.terminateGPUBooking)
+	apiMux.HandleFunc("POST /v1/bookings/{id}/notebook-token-session", app.createNotebookTokenSession)
+	apiMux.HandleFunc("PUT /v1/bookings/{id}/notebook-token-session", app.rotateNotebookTokenSession)
 	apiMux.HandleFunc("GET /v1/slots/available", app.listGPUAvailableSlots)
 	apiMux.HandleFunc("GET /v1/slots/calendar", app.listGPUCalendarSlots)
 	apiMux.HandleFunc("POST /v1/jupyterlite/session", app.createJupyterLiteSession)

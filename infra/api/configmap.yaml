@@ -26,6 +26,11 @@ data:
   API_KEYCLOAK_URL: "https://idp.tgdex.telangana.gov.in/auth"
   API_KEYCLOAK_REALM: "tgdex"
   API_KEYCLOAK_CLIENT_ID: "angular-tgdex-client"
+  # Notebook delegation and sidecar refresh use the same confidential client.
+  API_PLATFORM_TOKEN_EXCHANGE_CLIENT_ID: "sandbox-notebook"
+  API_PLATFORM_TOKEN_NOTEBOOK_CLIENT_ID: "sandbox-notebook"
+  API_PLATFORM_TOKEN_EXCHANGE_SCOPE: "openid profile email"
+  API_PLATFORM_TOKEN_EXCHANGE_AUDIENCE: ""
   API_TIMEOUT_SECS: "60"
   API_IDLE_TIMEOUT_SECS: "120"
   API_MAX_BODY_SIZE_IN_MB: "5"

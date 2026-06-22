@@ -33,11 +33,16 @@ type Env struct {
 	GPU_NODE_INSTANCE_TYPE string `env:"WORKER_GPU_NODE_INSTANCE_TYPE" envDefault:""`
 	// GPU_NODE_INSTANCE_TYPES is a comma-separated list of allowed GPU node instance types.
 	// Worker uses it only as a fallback when notebook.instance_type is not set in DB.
-	GPU_NODE_INSTANCE_TYPES string `env:"WORKER_GPU_NODE_INSTANCE_TYPES" envDefault:""`
-	CPU_NODE_INSTANCE_TYPES string `env:"WORKER_CPU_NODE_INSTANCE_TYPES,required"`
-	IMAGE_PULL_ENABLED      bool   `env:"WORKER_IMAGE_PULL_ENABLED" envDefault:"false"`
-	ECR_SECRET_NAME         string `env:"WORKER_ECR_SECRET_NAME"`
-	RUNTIME_INJECTOR_IMAGE  string `env:"WORKER_RUNTIME_INJECTOR_IMAGE" envDefault:"alpine/git:2.45.2"`
+	GPU_NODE_INSTANCE_TYPES               string `env:"WORKER_GPU_NODE_INSTANCE_TYPES" envDefault:""`
+	CPU_NODE_INSTANCE_TYPES               string `env:"WORKER_CPU_NODE_INSTANCE_TYPES,required"`
+	IMAGE_PULL_ENABLED                    bool   `env:"WORKER_IMAGE_PULL_ENABLED" envDefault:"false"`
+	ECR_SECRET_NAME                       string `env:"WORKER_ECR_SECRET_NAME"`
+	RUNTIME_INJECTOR_IMAGE                string `env:"WORKER_RUNTIME_INJECTOR_IMAGE" envDefault:"alpine/git:2.45.2"`
+	PLATFORM_TOKEN_SIDECAR_IMAGE          string `env:"WORKER_PLATFORM_TOKEN_SIDECAR_IMAGE" envDefault:""`
+	PLATFORM_FILE_API_BASE_URL            string `env:"WORKER_PLATFORM_FILE_API_BASE_URL" envDefault:""`
+	PLATFORM_KEYCLOAK_TOKEN_URL           string `env:"WORKER_PLATFORM_KEYCLOAK_TOKEN_URL" envDefault:""`
+	PLATFORM_KEYCLOAK_CLIENT_ID           string `env:"WORKER_PLATFORM_KEYCLOAK_CLIENT_ID" envDefault:"sandbox-notebook"`
+	PLATFORM_SANDBOX_CONNECT_API_BASE_URL string `env:"WORKER_PLATFORM_SANDBOX_CONNECT_API_BASE_URL" envDefault:""`
 }
 type Notebook struct {
 	ID                 int64   `json:"id"`
@@ -58,6 +63,7 @@ type Notebook struct {
 	FileURL            *string `json:"file_url"`
 	GitURL             *string `json:"git_url"`
 	GitTokenSecretName *string `json:"git_token_secret_name"`
+	BookingID          *int64  `json:"booking_id"`
 }
 type worker struct {
 	app      *application

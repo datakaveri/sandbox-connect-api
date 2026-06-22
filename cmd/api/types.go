@@ -12,29 +12,35 @@ import (
 )
 
 type ApiEnv struct {
-	Address              string `env:"API_ADDRESS,required"`
-	KubeConfigPath       string `env:"API_KUBE_CONFIG_PATH" envDefault:""`
-	KubeConfigMode       string `env:"API_KUBE_CONFIG_MODE" envDefault:"cluster"`
-	JupyterLiteBaseURL   string `env:"API_JUPYTERLITE_BASE_URL" envDefault:"/jupyterlite"`
-	JupyterLiteStaticDir string `env:"API_JUPYTERLITE_STATIC_DIR" envDefault:"jupyterlite"`
-	POSTGRES_URL         string `env:"API_POSTGRES_URL,required"`
-	KeycloakURL          string `env:"API_KEYCLOAK_URL,required"`
-	KeycloakRealm        string `env:"API_KEYCLOAK_REALM,required"`
-	KeycloakClientID     string `env:"API_KEYCLOAK_CLIENT_ID,required"`
-	KeycloakPublicKey    string `env:"API_KEYCLOAK_PUBLIC_KEY,required"`
-	CORS_ORIGINS         string `env:"API_CORS_ORIGINS"`
-	KYCEnabled           bool   `env:"API_KYC_ENABLED,required"`
-	RateLimit            int    `env:"API_RATE_LIMIT"`
-	RateWindowSecs       int    `env:"API_RATE_WINDOW_SECS"`
-	TimeoutInSecs        int    `env:"API_TIMEOUT_SECS"`
-	IdleTimeoutSecs      int    `env:"API_IDLE_TIMEOUT_SECS"`
-	MaxBodySizeInMB      int    `env:"API_MAX_BODY_SIZE_IN_MB"`
-	WriteTimeoutSecs     int    `env:"API_WRITE_TIMEOUT_SECS"`
-	ReadTimeoutSecs      int    `env:"API_READ_TIMEOUT_SECS"`
-	Version              string `env:"API_VERSION,required"`
-	NotebookConfig       NotebookConfig
-	RegistrySecretConfig RegistrySecretConfig
-	RabbitMQConfig       RabbitMQConfig
+	Address                           string `env:"API_ADDRESS,required"`
+	KubeConfigPath                    string `env:"API_KUBE_CONFIG_PATH" envDefault:""`
+	KubeConfigMode                    string `env:"API_KUBE_CONFIG_MODE" envDefault:"cluster"`
+	JupyterLiteBaseURL                string `env:"API_JUPYTERLITE_BASE_URL" envDefault:"/jupyterlite"`
+	JupyterLiteStaticDir              string `env:"API_JUPYTERLITE_STATIC_DIR" envDefault:"jupyterlite"`
+	POSTGRES_URL                      string `env:"API_POSTGRES_URL,required"`
+	KeycloakURL                       string `env:"API_KEYCLOAK_URL,required"`
+	KeycloakRealm                     string `env:"API_KEYCLOAK_REALM,required"`
+	KeycloakClientID                  string `env:"API_KEYCLOAK_CLIENT_ID,required"`
+	KeycloakPublicKey                 string `env:"API_KEYCLOAK_PUBLIC_KEY,required"`
+	PlatformTokenExchangeClientID     string `env:"API_PLATFORM_TOKEN_EXCHANGE_CLIENT_ID" envDefault:"sandbox-notebook"`
+	PlatformTokenExchangeClientSecret string `env:"API_PLATFORM_TOKEN_EXCHANGE_CLIENT_SECRET" envDefault:""`
+	PlatformTokenNotebookClientID     string `env:"API_PLATFORM_TOKEN_NOTEBOOK_CLIENT_ID" envDefault:"sandbox-notebook"`
+	PlatformTokenExchangeTokenURL     string `env:"API_PLATFORM_TOKEN_EXCHANGE_TOKEN_URL" envDefault:""`
+	PlatformTokenExchangeScope        string `env:"API_PLATFORM_TOKEN_EXCHANGE_SCOPE" envDefault:"openid profile email"`
+	PlatformTokenExchangeAudience     string `env:"API_PLATFORM_TOKEN_EXCHANGE_AUDIENCE" envDefault:""`
+	CORS_ORIGINS                      string `env:"API_CORS_ORIGINS"`
+	KYCEnabled                        bool   `env:"API_KYC_ENABLED,required"`
+	RateLimit                         int    `env:"API_RATE_LIMIT"`
+	RateWindowSecs                    int    `env:"API_RATE_WINDOW_SECS"`
+	TimeoutInSecs                     int    `env:"API_TIMEOUT_SECS"`
+	IdleTimeoutSecs                   int    `env:"API_IDLE_TIMEOUT_SECS"`
+	MaxBodySizeInMB                   int    `env:"API_MAX_BODY_SIZE_IN_MB"`
+	WriteTimeoutSecs                  int    `env:"API_WRITE_TIMEOUT_SECS"`
+	ReadTimeoutSecs                   int    `env:"API_READ_TIMEOUT_SECS"`
+	Version                           string `env:"API_VERSION,required"`
+	NotebookConfig                    NotebookConfig
+	RegistrySecretConfig              RegistrySecretConfig
+	RabbitMQConfig                    RabbitMQConfig
 }
 
 // RabbitMQConfig holds the RabbitMQ connection configuration for audit message publishing.
@@ -283,6 +289,16 @@ type CreateBookingResponse struct {
 	ResourceType string   `json:"resourceType"`
 }
 
+type NotebookTokenRotationRequest struct {
+	RefreshToken string `json:"refreshToken" validate:"required"`
+}
+
+type NotebookTokenSessionResponse struct {
+	BookingID  int64  `json:"bookingId"`
+	Status     string `json:"status"`
+	SecretName string `json:"secretName"`
+}
+
 type ExtendBookingResponse struct {
 	BookingID int64    `json:"bookingId"`
 	Status    string   `json:"status"`
@@ -450,9 +466,10 @@ func (p *JWTPayload) GetAudience() (jwt.ClaimStrings, error) {
 }
 
 type UserInfo struct {
-	Sub   string   `json:"sub" validate:"required,uuid"`
-	Email string   `json:"email" validate:"required,email"`
-	Roles []string `json:"roles"`
+	Sub      string   `json:"sub" validate:"required,uuid"`
+	Email    string   `json:"email" validate:"required,email"`
+	Roles    []string `json:"roles"`
+	ClientID string   `json:"clientId"`
 }
 
 type userContextKey string

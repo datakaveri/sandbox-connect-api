@@ -94,6 +94,22 @@ Notebook lifecycle writes are intentionally not exposed; use booking cancel, ter
 | `/notebook/status/{notebook_name}` | GET | Get notebook status  | 200 OK |
 | `/profile/create` | POST   | Create a new Kubeflow user profile/namespace | 201 Created      |
 
+## Notebook Download Token Sessions
+
+CPU notebook downloads use a delegated Keycloak session; browser refresh tokens are never sent to Sandbox Connect.
+
+1. Configure one confidential notebook client. Use the same client ID for `API_PLATFORM_TOKEN_EXCHANGE_CLIENT_ID`, `API_PLATFORM_TOKEN_NOTEBOOK_CLIENT_ID`, and `WORKER_PLATFORM_KEYCLOAK_CLIENT_ID`. Store its secret in `api-creds`.
+2. Enable Standard Token Exchange and **Allow refresh token in Standard Token Exchange** on that client. The exchanged access token must contain this client as `azp`, and the response must include a refresh token.
+3. Keep the delegated subject unchanged and add any file-service audience through an allowed client scope; the optional `audience` parameter only filters existing audiences.
+4. Configure `WORKER_PLATFORM_KEYCLOAK_TOKEN_URL` for that same realm. Sandbox Connect copies the confidential client secret into the notebook token Secret, which is mounted only into the sidecar.
+5. Set the realm/client idle and maximum session lifetimes to cover the longest booking. Rotation cannot extend a session past Keycloak absolute limits.
+6. Add `sandbox-notebook` as an access-token audience on the browser client; Keycloak rejects exchange when the requester is outside the subject token audience.
+7. Keep full-scope inheritance disabled on the notebook client and explicitly scope only the file-service roles and claims it needs, such as `consumer`, `provider`, and organisation identifiers.
+
+The API authentication realm, sidecar token URL, and file API must form one compatible trust chain. Configure every deployment explicitly; do not reuse another environment's file API URL as a fallback.
+
+The frontend creates the session with a bodyless authenticated `POST /v1/bookings/{id}/notebook-token-session`. The sidecar persists rotated refresh tokens with `PUT` to the same path. Only notebook-client access tokens may use `PUT`.
+
 ## Notebook Status Categories
 
 When listing notebooks, the API categorizes them into different groups based on their status:

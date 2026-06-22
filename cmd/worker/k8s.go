@@ -486,39 +486,48 @@ fi
 		},
 	})
 
+	notebookContainer := map[string]any{
+		"name":  nb.Name,
+		"image": imageName,
+		"securityContext": map[string]any{
+			"privileged":               false,
+			"procMount":                "Default",
+			"allowPrivilegeEscalation": false,
+		},
+		"resources": map[string]any{
+			"requests": request,
+			"limits":   limit,
+		},
+		"volumeMounts": []any{
+			map[string]any{
+				"name":      "data-volume",
+				"mountPath": "/home/jovyan",
+			},
+		},
+	}
+	containers := []any{notebookContainer}
+	volumes := []any{
+		map[string]any{
+			"name": "data-volume",
+			"persistentVolumeClaim": map[string]any{
+				"claimName": nb.PVCname,
+			},
+		},
+	}
+	if w.platformTokenSidecarEnabled(notebookFlavor) {
+		notebookContainer["env"] = w.platformTokenNotebookEnv()
+		notebookContainer["volumeMounts"] = append(notebookContainer["volumeMounts"].([]any), platformTokenNotebookVolumeMount())
+		containers = append(containers, w.platformTokenSidecarContainer())
+		volumes = append(volumes, w.platformTokenVolumes()...)
+	}
+
 	// Build the notebook spec
 	specTemplateSpec := map[string]any{
-		"initContainers": initContainers,
-		"containers": []any{
-			map[string]any{
-				"name":  nb.Name,
-				"image": imageName,
-				"securityContext": map[string]any{
-					"privileged":               false,
-					"procMount":                "Default",
-					"allowPrivilegeEscalation": false,
-				},
-				"resources": map[string]any{
-					"requests": request,
-					"limits":   limit,
-				},
-				"volumeMounts": []any{
-					map[string]any{
-						"name":      "data-volume",
-						"mountPath": "/home/jovyan",
-					},
-				},
-			},
-		},
-		"volumes": []any{
-			map[string]any{
-				"name": "data-volume",
-				"persistentVolumeClaim": map[string]any{
-					"claimName": nb.PVCname,
-				},
-			},
-		},
-		"serviceAccountName": "default-editor",
+		"initContainers":               initContainers,
+		"containers":                   containers,
+		"volumes":                      volumes,
+		"serviceAccountName":           "default-editor",
+		"automountServiceAccountToken": false,
 	}
 
 	if w.app.env.IMAGE_PULL_ENABLED && w.app.env.ECR_SECRET_NAME != "" {

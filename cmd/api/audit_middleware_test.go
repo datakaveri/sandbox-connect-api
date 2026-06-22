@@ -16,6 +16,18 @@ func TestGetAuditAction(t *testing.T) {
 			want:   "Create",
 		},
 		{
+			name:   "create notebook token session",
+			method: "POST",
+			path:   "/v1/bookings/123/notebook-token-session",
+			want:   "CreateNotebookTokenSession",
+		},
+		{
+			name:   "rotate notebook token session",
+			method: "PUT",
+			path:   "/v1/bookings/123/notebook-token-session",
+			want:   "RotateNotebookTokenSession",
+		},
+		{
 			name:   "cancel booking",
 			method: "PATCH",
 			path:   "/v1/bookings/123/cancel",

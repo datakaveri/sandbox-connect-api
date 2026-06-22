@@ -8,6 +8,12 @@ data:
   WORKER_GPU_NOTEBOOK_IMAGE: "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-gpu-notebook:latest"
   WORKER_INIT_CONTAINER_IMAGE: "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/demo-notebook-file:mahaagx"
   WORKER_RUNTIME_INJECTOR_IMAGE: "alpine/git:2.45.2"
+  WORKER_PLATFORM_TOKEN_SIDECAR_IMAGE: "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/platform-token-sidecar:latest"
+  WORKER_PLATFORM_FILE_API_BASE_URL: "https://mahaagx.maharashtra.gov.in/files-connect-api"
+  # Must use the same realm and notebook client configured by the API token exchange.
+  WORKER_PLATFORM_KEYCLOAK_TOKEN_URL: "https://idp.tgdex.telangana.gov.in/auth/realms/tgdex/protocol/openid-connect/token"
+  WORKER_PLATFORM_KEYCLOAK_CLIENT_ID: "sandbox-notebook"
+  WORKER_PLATFORM_SANDBOX_CONNECT_API_BASE_URL: "https://api.sandbox.tgdex.telangana.gov.in"
   WORKER_IMAGE_PULL_ENABLED: "true"
   WORKER_ECR_SECRET_NAME: "v2-registry-cred"
   WORKER_GPU_NODE_INSTANCE_TYPES: "g4dn.xlarge,p4d.24xlarge,p5.48xlarge"
