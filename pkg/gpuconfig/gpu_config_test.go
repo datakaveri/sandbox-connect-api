@@ -81,3 +81,13 @@ func TestValidateGPUSlotConfigProfileRejectsInvalidResourceType(t *testing.T) {
 		t.Fatal("expected invalid resource type to fail validation")
 	}
 }
+
+func TestProductionCPUBasicMaxActiveBookings(t *testing.T) {
+	category, ok := GetGPUCategory("production", "cpu_basic")
+	if !ok {
+		t.Fatal("expected production cpu_basic category")
+	}
+	if category.MaxActiveBookings != 4 {
+		t.Fatalf("MaxActiveBookings = %d, want 4", category.MaxActiveBookings)
+	}
+}
