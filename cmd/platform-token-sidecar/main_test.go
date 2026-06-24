@@ -56,6 +56,33 @@ func TestAtomicWriteUsesRequestedMode(t *testing.T) {
 	}
 }
 
+func TestNextCheckIntervalAdaptsToTokenReadiness(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config{
+		RefreshTokenFile:     filepath.Join(dir, "refresh"),
+		AccessTokenFile:      filepath.Join(dir, "access"),
+		SecretWaitInterval:   time.Second,
+		RefreshRetryInterval: 5 * time.Second,
+		CheckInterval:        30 * time.Second,
+	}
+
+	if got := nextCheckInterval(cfg); got != time.Second {
+		t.Fatalf("interval while waiting for secret = %v, want 1s", got)
+	}
+	if err := os.WriteFile(cfg.RefreshTokenFile, []byte("refresh-token\n"), 0600); err != nil {
+		t.Fatalf("write refresh token: %v", err)
+	}
+	if got := nextCheckInterval(cfg); got != 5*time.Second {
+		t.Fatalf("interval while retrying refresh = %v, want 5s", got)
+	}
+	if err := os.WriteFile(cfg.AccessTokenFile, []byte("access-token\n"), 0600); err != nil {
+		t.Fatalf("write access token: %v", err)
+	}
+	if got := nextCheckInterval(cfg); got != 30*time.Second {
+		t.Fatalf("interval with ready token = %v, want 30s", got)
+	}
+}
+
 func TestRefreshIfNeededPersistsRotationBeforePublishingAccessToken(t *testing.T) {
 	userID := "00000000-0000-0000-0000-000000000001"
 	clientID := "sandbox-notebook"

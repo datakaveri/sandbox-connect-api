@@ -19,18 +19,20 @@ import (
 )
 
 type config struct {
-	TokenURL         string
-	ClientID         string
-	ClientSecretFile string
-	RefreshTokenFile string
-	AccessTokenFile  string
-	StatusFile       string
-	TokenSessionURL  string
-	ExpectedUserID   string
-	ExpectedClientID string
-	CheckInterval    time.Duration
-	RefreshSkew      time.Duration
-	RequestTimeout   time.Duration
+	TokenURL             string
+	ClientID             string
+	ClientSecretFile     string
+	RefreshTokenFile     string
+	AccessTokenFile      string
+	StatusFile           string
+	TokenSessionURL      string
+	ExpectedUserID       string
+	ExpectedClientID     string
+	CheckInterval        time.Duration
+	SecretWaitInterval   time.Duration
+	RefreshRetryInterval time.Duration
+	RefreshSkew          time.Duration
+	RequestTimeout       time.Duration
 }
 
 type tokenResponse struct {
@@ -56,6 +58,8 @@ func main() {
 
 func loadConfig() config {
 	checkInterval := durationFromEnv("CHECK_INTERVAL_SECONDS", 30) * time.Second
+	secretWaitInterval := durationFromEnv("SECRET_WAIT_INTERVAL_SECONDS", 1) * time.Second
+	refreshRetryInterval := durationFromEnv("REFRESH_RETRY_INTERVAL_SECONDS", 5) * time.Second
 	refreshSkew := durationFromEnv("REFRESH_SKEW_SECONDS", 60) * time.Second
 	requestTimeout := durationFromEnv("REQUEST_TIMEOUT_SECONDS", 10) * time.Second
 	accessTokenFile := strings.TrimSpace(os.Getenv("ACCESS_TOKEN_FILE"))
@@ -67,18 +71,20 @@ func loadConfig() config {
 		statusFile = filepath.Join(filepath.Dir(accessTokenFile), "status.json")
 	}
 	return config{
-		TokenURL:         strings.TrimSpace(os.Getenv("KEYCLOAK_TOKEN_URL")),
-		ClientID:         strings.TrimSpace(os.Getenv("KEYCLOAK_CLIENT_ID")),
-		ClientSecretFile: strings.TrimSpace(os.Getenv("KEYCLOAK_CLIENT_SECRET_FILE")),
-		RefreshTokenFile: strings.TrimSpace(os.Getenv("REFRESH_TOKEN_FILE")),
-		AccessTokenFile:  accessTokenFile,
-		StatusFile:       statusFile,
-		TokenSessionURL:  strings.TrimSpace(os.Getenv("TOKEN_SESSION_URL")),
-		ExpectedUserID:   strings.TrimSpace(os.Getenv("EXPECTED_USER_ID")),
-		ExpectedClientID: strings.TrimSpace(os.Getenv("EXPECTED_CLIENT_ID")),
-		CheckInterval:    checkInterval,
-		RefreshSkew:      refreshSkew,
-		RequestTimeout:   requestTimeout,
+		TokenURL:             strings.TrimSpace(os.Getenv("KEYCLOAK_TOKEN_URL")),
+		ClientID:             strings.TrimSpace(os.Getenv("KEYCLOAK_CLIENT_ID")),
+		ClientSecretFile:     strings.TrimSpace(os.Getenv("KEYCLOAK_CLIENT_SECRET_FILE")),
+		RefreshTokenFile:     strings.TrimSpace(os.Getenv("REFRESH_TOKEN_FILE")),
+		AccessTokenFile:      accessTokenFile,
+		StatusFile:           statusFile,
+		TokenSessionURL:      strings.TrimSpace(os.Getenv("TOKEN_SESSION_URL")),
+		ExpectedUserID:       strings.TrimSpace(os.Getenv("EXPECTED_USER_ID")),
+		ExpectedClientID:     strings.TrimSpace(os.Getenv("EXPECTED_CLIENT_ID")),
+		CheckInterval:        checkInterval,
+		SecretWaitInterval:   secretWaitInterval,
+		RefreshRetryInterval: refreshRetryInterval,
+		RefreshSkew:          refreshSkew,
+		RequestTimeout:       requestTimeout,
 	}
 }
 
@@ -113,9 +119,6 @@ func run(ctx context.Context, cfg config, logger *slog.Logger) error {
 		return errors.New("EXPECTED_CLIENT_ID is required")
 	}
 
-	ticker := time.NewTicker(cfg.CheckInterval)
-	defer ticker.Stop()
-
 	var currentRefreshToken string
 	var lastMountedRefreshToken string
 	for {
@@ -123,12 +126,26 @@ func run(ctx context.Context, cfg config, logger *slog.Logger) error {
 			logger.Warn("token refresh iteration failed", "error", err)
 		}
 
+		timer := time.NewTimer(nextCheckInterval(cfg))
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return ctx.Err()
-		case <-ticker.C:
+		case <-timer.C:
 		}
 	}
+}
+
+func nextCheckInterval(cfg config) time.Duration {
+	refreshToken, _ := readTrimmedFile(cfg.RefreshTokenFile)
+	if refreshToken == "" {
+		return cfg.SecretWaitInterval
+	}
+	accessToken, _ := readTrimmedFile(cfg.AccessTokenFile)
+	if accessToken == "" {
+		return cfg.RefreshRetryInterval
+	}
+	return cfg.CheckInterval
 }
 
 func refreshIfNeeded(ctx context.Context, cfg config, logger *slog.Logger, currentRefreshToken, lastMountedRefreshToken *string) error {

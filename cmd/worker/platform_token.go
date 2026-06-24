@@ -6,16 +6,18 @@ import (
 )
 
 const (
-	platformTokenSecretNameSuffix     = "-plt-token"
-	platformRefreshTokenVolumeName    = "platform-refresh-token"
-	platformTokenCacheVolumeName      = "platform-token-cache"
-	platformRefreshTokenMountPath     = "/var/run/sandbox-connect/refresh"
-	platformTokenCacheMountPath       = "/var/run/sandbox-connect/platform"
-	platformRefreshTokenFile          = "/var/run/sandbox-connect/refresh/refresh_token"
-	platformClientSecretFile          = "/var/run/sandbox-connect/refresh/client_secret"
-	platformAccessTokenFile           = "/var/run/sandbox-connect/platform/token"
-	defaultPlatformRefreshSkewSeconds = "60"
-	defaultPlatformCheckIntervalSecs  = "30"
+	platformTokenSecretNameSuffix           = "-plt-token"
+	platformRefreshTokenVolumeName          = "platform-refresh-token"
+	platformTokenCacheVolumeName            = "platform-token-cache"
+	platformRefreshTokenMountPath           = "/var/run/sandbox-connect/refresh"
+	platformTokenCacheMountPath             = "/var/run/sandbox-connect/platform"
+	platformRefreshTokenFile                = "/var/run/sandbox-connect/refresh/refresh_token"
+	platformClientSecretFile                = "/var/run/sandbox-connect/refresh/client_secret"
+	platformAccessTokenFile                 = "/var/run/sandbox-connect/platform/token"
+	defaultPlatformRefreshSkewSeconds       = "60"
+	defaultPlatformCheckIntervalSecs        = "30"
+	defaultPlatformSecretWaitIntervalSecs   = "1"
+	defaultPlatformRefreshRetryIntervalSecs = "5"
 )
 
 func platformTokenSecretName(notebookName string) string {
@@ -88,6 +90,8 @@ func (w *worker) platformTokenSidecarContainer() map[string]any {
 			map[string]any{"name": "EXPECTED_CLIENT_ID", "value": strings.TrimSpace(w.app.env.PLATFORM_KEYCLOAK_CLIENT_ID)},
 			map[string]any{"name": "REFRESH_SKEW_SECONDS", "value": defaultPlatformRefreshSkewSeconds},
 			map[string]any{"name": "CHECK_INTERVAL_SECONDS", "value": defaultPlatformCheckIntervalSecs},
+			map[string]any{"name": "SECRET_WAIT_INTERVAL_SECONDS", "value": defaultPlatformSecretWaitIntervalSecs},
+			map[string]any{"name": "REFRESH_RETRY_INTERVAL_SECONDS", "value": defaultPlatformRefreshRetryIntervalSecs},
 		},
 		"securityContext": map[string]any{
 			"privileged":               false,

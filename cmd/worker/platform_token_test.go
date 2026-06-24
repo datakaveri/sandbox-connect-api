@@ -82,6 +82,11 @@ func TestPlatformTokenPodFragments(t *testing.T) {
 	if envByName["KEYCLOAK_CLIENT_SECRET_FILE"] != platformClientSecretFile {
 		t.Fatalf("sidecar client secret file missing: %#v", envByName)
 	}
+	if envByName["SECRET_WAIT_INTERVAL_SECONDS"] != "1" ||
+		envByName["REFRESH_RETRY_INTERVAL_SECONDS"] != "5" ||
+		envByName["CHECK_INTERVAL_SECONDS"] != "30" {
+		t.Fatalf("unexpected sidecar polling intervals: %#v", envByName)
+	}
 	mounts := sidecar["volumeMounts"].([]any)
 	refreshMount := mounts[0].(map[string]any)
 	if refreshMount["name"] != platformRefreshTokenVolumeName || refreshMount["readOnly"] != true {
