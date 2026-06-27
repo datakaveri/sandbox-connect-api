@@ -34,6 +34,7 @@ type ApiEnv struct {
 	RateWindowSecs                    int    `env:"API_RATE_WINDOW_SECS"`
 	TimeoutInSecs                     int    `env:"API_TIMEOUT_SECS"`
 	IdleTimeoutSecs                   int    `env:"API_IDLE_TIMEOUT_SECS"`
+	BookingsEnabled                   bool   `env:"API_BOOKINGS_ENABLED" envDefault:"true"`
 	MaxBodySizeInMB                   int    `env:"API_MAX_BODY_SIZE_IN_MB"`
 	WriteTimeoutSecs                  int    `env:"API_WRITE_TIMEOUT_SECS"`
 	ReadTimeoutSecs                   int    `env:"API_READ_TIMEOUT_SECS"`
@@ -294,9 +295,10 @@ type NotebookTokenRotationRequest struct {
 }
 
 type NotebookTokenSessionResponse struct {
-	BookingID  int64  `json:"bookingId"`
-	Status     string `json:"status"`
-	SecretName string `json:"secretName"`
+	BookingID    int64  `json:"bookingId,omitempty"`
+	NotebookName string `json:"notebookName,omitempty"`
+	Status       string `json:"status"`
+	SecretName   string `json:"secretName"`
 }
 
 type ExtendBookingResponse struct {

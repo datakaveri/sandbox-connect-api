@@ -30,8 +30,7 @@ func (w *worker) platformTokenSidecarEnabled(notebookFlavor string) bool {
 		strings.TrimSpace(w.app.env.PLATFORM_FILE_API_BASE_URL) != "" &&
 		strings.TrimSpace(w.app.env.PLATFORM_KEYCLOAK_TOKEN_URL) != "" &&
 		strings.TrimSpace(w.app.env.PLATFORM_KEYCLOAK_CLIENT_ID) != "" &&
-		strings.TrimSpace(w.app.env.PLATFORM_SANDBOX_CONNECT_API_BASE_URL) != "" &&
-		w.notebook.BookingID != nil && *w.notebook.BookingID > 0
+		strings.TrimSpace(w.app.env.PLATFORM_SANDBOX_CONNECT_API_BASE_URL) != ""
 }
 
 func (w *worker) platformTokenVolumes() []any {
@@ -69,10 +68,11 @@ func (w *worker) platformTokenNotebookEnv() []any {
 }
 
 func (w *worker) platformTokenSessionURL() string {
-	return fmt.Sprintf("%s/v1/bookings/%d/notebook-token-session",
-		strings.TrimRight(strings.TrimSpace(w.app.env.PLATFORM_SANDBOX_CONNECT_API_BASE_URL), "/"),
-		*w.notebook.BookingID,
-	)
+	baseURL := strings.TrimRight(strings.TrimSpace(w.app.env.PLATFORM_SANDBOX_CONNECT_API_BASE_URL), "/")
+	if w.notebook.BookingID != nil && *w.notebook.BookingID > 0 {
+		return fmt.Sprintf("%s/v1/bookings/%d/notebook-token-session", baseURL, *w.notebook.BookingID)
+	}
+	return fmt.Sprintf("%s/v1/notebook/%s/notebook-token-session", baseURL, w.notebook.Name)
 }
 
 func (w *worker) platformTokenSidecarContainer() map[string]any {

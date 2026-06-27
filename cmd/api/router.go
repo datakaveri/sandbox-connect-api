@@ -37,17 +37,32 @@ func (app *application) router() http.Handler {
 	apiMux.HandleFunc("GET /v1/notebook/status/{notebook_name}", app.checkNotebookStatus)
 	apiMux.HandleFunc("GET /v1/notebook/instance-types", app.listGPUInstanceTypes)
 	apiMux.HandleFunc("GET /v1/notebook/gpu-instance-types", app.listGPUInstanceTypes)
-	apiMux.HandleFunc("GET /v1/categories", app.listGPUCategories)
-	apiMux.HandleFunc("POST /v1/bookings", app.createGPUBooking)
-	apiMux.HandleFunc("GET /v1/bookings", app.listGPUBookings)
-	apiMux.HandleFunc("PATCH /v1/bookings/{id}/cancel", app.cancelGPUBooking)
-	apiMux.HandleFunc("PATCH /v1/bookings/{id}/extend", app.extendGPUBooking)
-	apiMux.HandleFunc("PATCH /v1/bookings/{id}/reset", app.resetGPUBooking)
-	apiMux.HandleFunc("PATCH /v1/bookings/{id}/terminate", app.terminateGPUBooking)
-	apiMux.HandleFunc("POST /v1/bookings/{id}/notebook-token-session", app.createNotebookTokenSession)
-	apiMux.HandleFunc("PUT /v1/bookings/{id}/notebook-token-session", app.rotateNotebookTokenSession)
-	apiMux.HandleFunc("GET /v1/slots/available", app.listGPUAvailableSlots)
-	apiMux.HandleFunc("GET /v1/slots/calendar", app.listGPUCalendarSlots)
+	if app.env.BookingsEnabled {
+		apiMux.HandleFunc("GET /v1/categories", app.listGPUCategories)
+		apiMux.HandleFunc("POST /v1/bookings", app.createGPUBooking)
+		apiMux.HandleFunc("GET /v1/bookings", app.listGPUBookings)
+		apiMux.HandleFunc("PATCH /v1/bookings/{id}/cancel", app.cancelGPUBooking)
+		apiMux.HandleFunc("PATCH /v1/bookings/{id}/extend", app.extendGPUBooking)
+		apiMux.HandleFunc("PATCH /v1/bookings/{id}/reset", app.resetGPUBooking)
+		apiMux.HandleFunc("PATCH /v1/bookings/{id}/terminate", app.terminateGPUBooking)
+		apiMux.HandleFunc("POST /v1/bookings/{id}/notebook-token-session", app.createNotebookTokenSession)
+		apiMux.HandleFunc("PUT /v1/bookings/{id}/notebook-token-session", app.rotateNotebookTokenSession)
+		apiMux.HandleFunc("GET /v1/slots/available", app.listGPUAvailableSlots)
+		apiMux.HandleFunc("GET /v1/slots/calendar", app.listGPUCalendarSlots)
+	} else {
+		apiMux.HandleFunc("POST /v1/notebook/create", app.createNotebook)
+		apiMux.HandleFunc("PATCH /v1/notebook/start", app.startNotebook)
+		apiMux.HandleFunc("PATCH /v1/notebook/stop", app.stopNotebook)
+		apiMux.HandleFunc("DELETE /v1/notebook/delete", app.deleteNotebook)
+		apiMux.HandleFunc("POST /v1/notebook/{notebook_name}/notebook-token-session", app.createDirectNotebookTokenSession)
+		apiMux.HandleFunc("PUT /v1/notebook/{notebook_name}/notebook-token-session", app.rotateDirectNotebookTokenSession)
+		apiMux.HandleFunc("POST /v1/bookings/{id}/notebook-token-session", app.createNotebookTokenSession)
+		apiMux.HandleFunc("PUT /v1/bookings/{id}/notebook-token-session", app.rotateNotebookTokenSession)
+		apiMux.HandleFunc("/v1/bookings", app.bookingsDisabled)
+		apiMux.HandleFunc("/v1/bookings/", app.bookingsDisabled)
+		apiMux.HandleFunc("/v1/slots/", app.bookingsDisabled)
+		apiMux.HandleFunc("/v1/categories", app.bookingsDisabled)
+	}
 	apiMux.HandleFunc("POST /v1/jupyterlite/session", app.createJupyterLiteSession)
 
 	// Profile routes
@@ -68,6 +83,10 @@ func (app *application) router() http.Handler {
 	handler = app.enableCORS(handler)
 	handler = loggingMiddleware(handler)
 	return http.MaxBytesHandler(handler, int64(app.env.MaxBodySizeInMB)<<20)
+}
+
+func (app *application) bookingsDisabled(w http.ResponseWriter, r *http.Request) {
+	sendError(w, getLogger(r), http.StatusNotFound, "Bookings and scheduling are disabled")
 }
 
 func (app *application) jupyterLiteBasePath() string {

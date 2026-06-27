@@ -10,12 +10,17 @@ func TestPlatformTokenSidecarEnabledOnlyForConfiguredCPU(t *testing.T) {
 		PLATFORM_KEYCLOAK_TOKEN_URL:           "https://example.com/token",
 		PLATFORM_KEYCLOAK_CLIENT_ID:           "sandbox-notebook",
 		PLATFORM_SANDBOX_CONNECT_API_BASE_URL: "https://sandbox.example.com",
-	}}, notebook: Notebook{BookingID: &bookingID}}
+	}}, notebook: Notebook{Name: "direct-notebook", BookingID: &bookingID}}
 	if !w.platformTokenSidecarEnabled("cpu") {
 		t.Fatal("expected sidecar to be enabled for configured CPU notebook")
 	}
 	if w.platformTokenSidecarEnabled("gpu") {
 		t.Fatal("expected sidecar to be disabled for GPU notebook")
+	}
+
+	w.notebook.BookingID = nil
+	if !w.platformTokenSidecarEnabled("cpu") {
+		t.Fatal("expected sidecar to be enabled for configured direct CPU notebook")
 	}
 
 	w.app.env.PLATFORM_KEYCLOAK_TOKEN_URL = ""
@@ -75,6 +80,17 @@ func TestPlatformTokenPodFragments(t *testing.T) {
 	}
 	if envByName["TOKEN_SESSION_URL"] != "https://sandbox.example.com/v1/bookings/42/notebook-token-session" {
 		t.Fatalf("unexpected token session URL: %#v", envByName["TOKEN_SESSION_URL"])
+	}
+
+	w.notebook.BookingID = nil
+	directSidecar := w.platformTokenSidecarContainer()
+	directEnvByName := map[string]any{}
+	for _, item := range directSidecar["env"].([]any) {
+		env := item.(map[string]any)
+		directEnvByName[env["name"].(string)] = env["value"]
+	}
+	if directEnvByName["TOKEN_SESSION_URL"] != "https://sandbox.example.com/v1/notebook/demo-notebook/notebook-token-session" {
+		t.Fatalf("unexpected direct token session URL: %#v", directEnvByName["TOKEN_SESSION_URL"])
 	}
 	if envByName["EXPECTED_USER_ID"] != "user-123" || envByName["EXPECTED_CLIENT_ID"] != "sandbox-notebook" {
 		t.Fatalf("unexpected sidecar identity env: %#v", envByName)

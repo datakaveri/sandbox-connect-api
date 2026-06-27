@@ -6,6 +6,8 @@ title: Slots and Calendar
 
 Use slot APIs to show users which sessions can be booked before they submit a booking request.
 
+Slot and category APIs are available when `API_BOOKINGS_ENABLED=true`. When `API_BOOKINGS_ENABLED=false`, these routes return a structured `404` response because scheduling is disabled.
+
 ## Available Slots
 
 ```http

@@ -60,9 +60,23 @@ func (app *application) checkNotebookExists(w http.ResponseWriter, r *http.Reque
 	sendResponseJson(w, logger, http.StatusOK, map[string]bool{"exists": exists})
 }
 
-// Deprecated: direct notebook creation is not routed in this branch.
-// Public clients must create CPU/GPU sandboxes via POST /v1/bookings so the
-// booking lifecycle can manage scheduling, provisioning, and cleanup.
+// createNotebook godoc
+// @Summary      Create notebook directly
+// @Description  Creates a CPU or GPU notebook directly when API_BOOKINGS_ENABLED=false. The notebook stays live until stopped or deleted.
+// @Tags         notebook
+// @Accept       json
+// @Produce      json
+// @Param        notebook  body  NotebookRequest  true  "Notebook request"
+// @Success      201  {object}  SwaggerMessageResponse
+// @Failure      400  {object}  Error400
+// @Failure      401  {object}  Error401
+// @Failure      403  {object}  Error403
+// @Failure      409  {object}  Error409
+// @Failure      422  {object}  Error422
+// @Failure      429  {object}  Error429
+// @Failure      500  {object}  Error500
+// @Security     BearerAuth
+// @Router       /v1/notebook/create [post]
 func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
 	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
@@ -338,9 +352,22 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 	sendResponse(w, logger, http.StatusCreated, "Notebook creation is in process")
 }
 
-// Deprecated: notebook stop is no longer routed for public clients.
-// Booking-owned sessions must be ended with PATCH /v1/bookings/{id}/terminate
-// so capacity accounting and compute cleanup stay in the same lifecycle.
+// stopNotebook godoc
+// @Summary      Stop notebook
+// @Description  Stops a directly managed notebook by adding the Kubeflow stopped annotation. Available when API_BOOKINGS_ENABLED=false.
+// @Tags         notebook
+// @Accept       json
+// @Produce      json
+// @Param        notebook  body  StopNotebookRequest  true  "Notebook stop request"
+// @Success      200  {object}  SwaggerMessageResponse
+// @Failure      400  {object}  Error400
+// @Failure      401  {object}  Error401
+// @Failure      404  {object}  Error404
+// @Failure      422  {object}  Error422
+// @Failure      429  {object}  Error429
+// @Failure      500  {object}  Error500
+// @Security     BearerAuth
+// @Router       /v1/notebook/stop [patch]
 func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
 	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
@@ -398,9 +425,23 @@ func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
 	sendResponse(w, logger, http.StatusOK, "Notebook stopped successfully")
 }
 
-// Deprecated: notebook start is no longer routed for public clients.
-// Users must create a new session with POST /v1/bookings, or extend an active
-// booking with PATCH /v1/bookings/{id}/extend.
+// startNotebook godoc
+// @Summary      Start notebook
+// @Description  Starts a directly managed stopped notebook by removing the Kubeflow stopped annotation. Available when API_BOOKINGS_ENABLED=false.
+// @Tags         notebook
+// @Accept       json
+// @Produce      json
+// @Param        notebook  body  StartNotebookRequest  true  "Notebook start request"
+// @Success      200  {object}  SwaggerMessageResponse
+// @Failure      400  {object}  Error400
+// @Failure      401  {object}  Error401
+// @Failure      403  {object}  Error403
+// @Failure      404  {object}  Error404
+// @Failure      422  {object}  Error422
+// @Failure      429  {object}  Error429
+// @Failure      500  {object}  Error500
+// @Security     BearerAuth
+// @Router       /v1/notebook/start [patch]
 func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
 	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
@@ -567,8 +608,23 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 	sendResponse(w, logger, http.StatusOK, "Notebook started successfully")
 }
 
-// Deprecated: notebook delete is no longer routed for public clients.
-// Use booking terminate/reset so cleanup and capacity accounting remain booking-owned.
+// deleteNotebook godoc
+// @Summary      Delete notebook
+// @Description  Deletes a directly managed notebook and its PVC. Available when API_BOOKINGS_ENABLED=false.
+// @Tags         notebook
+// @Accept       json
+// @Produce      json
+// @Param        notebook  body  DeleteNotebookRequest  true  "Notebook delete request"
+// @Success      200  {object}  SwaggerMessageResponse
+// @Failure      400  {object}  Error400
+// @Failure      401  {object}  Error401
+// @Failure      404  {object}  Error404
+// @Failure      409  {object}  Error409
+// @Failure      422  {object}  Error422
+// @Failure      429  {object}  Error429
+// @Failure      500  {object}  Error500
+// @Security     BearerAuth
+// @Router       /v1/notebook/delete [delete]
 func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
 	userInfo, ok := r.Context().Value(UserContextKey).(UserInfo)
@@ -932,7 +988,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		notebooks = append(notebooks, nb)
-		if bookingID != nil {
+		if app.env.BookingsEnabled && bookingID != nil {
 			notebookBookingIDByNotebookID[nb.ID] = *bookingID
 		}
 	}
@@ -943,7 +999,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bookingByNotebookID := map[int64]*NotebookBooking{}
-	if len(notebookBookingIDByNotebookID) > 0 {
+	if app.env.BookingsEnabled && len(notebookBookingIDByNotebookID) > 0 {
 		notebookIDs := make([]int64, 0, len(notebookBookingIDByNotebookID))
 		for notebookID := range notebookBookingIDByNotebookID {
 			notebookIDs = append(notebookIDs, notebookID)
@@ -1238,7 +1294,7 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 		status.URL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, status.Namespace, status.Name, status.ImageName)
 	}
 
-	if bookingID != nil {
+	if app.env.BookingsEnabled && bookingID != nil {
 		profile := app.env.NotebookConfig.SlotConfigProfile
 		var booking NotebookBooking
 		var slotKey, categoryName string

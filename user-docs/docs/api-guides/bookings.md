@@ -6,6 +6,8 @@ title: Bookings
 
 Bookings are the main user workflow for creating sandbox notebooks.
 
+Booking APIs are available when `API_BOOKINGS_ENABLED=true`. When `API_BOOKINGS_ENABLED=false`, booking and scheduling routes return a structured `404` response; notebook token-session routes remain available for existing booking-owned notebooks, and direct notebooks should use the direct notebook token-session endpoints.
+
 ## Endpoints
 
 | Method | Endpoint | Purpose |
