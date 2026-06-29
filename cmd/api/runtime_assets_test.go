@@ -110,6 +110,74 @@ func TestNormalizeAndValidateRuntimeAssets(t *testing.T) {
 	}
 }
 
+func TestNormalizeAndValidateNotebookRuntimeAssets(t *testing.T) {
+	tests := []struct {
+		name    string
+		req     NotebookRequest
+		wantErr string
+	}{
+		{
+			name: "valid file and public github repo",
+			req: NotebookRequest{
+				FileURL: stringPtr(" https://example.com/data/input.csv "),
+				GitURL:  stringPtr("https://github.com/datakaveri/example.git"),
+			},
+		},
+		{
+			name: "access token requires git url",
+			req: NotebookRequest{
+				GitAccessToken: stringPtr("github_pat_test"),
+			},
+			wantErr: "gitAccessToken requires gitUrl",
+		},
+		{
+			name: "access token and token secret are mutually exclusive",
+			req: NotebookRequest{
+				GitURL:             stringPtr("https://github.com/datakaveri/private-repo"),
+				GitAccessToken:     stringPtr("github_pat_test"),
+				GitTokenSecretName: stringPtr("github-token"),
+			},
+			wantErr: "use either gitAccessToken or gitTokenSecretName, not both",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := normalizeAndValidateNotebookRuntimeAssets(&tt.req)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("expected error containing %q, got %v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestNormalizeAndValidateNotebookRuntimeAssetsTrimsValues(t *testing.T) {
+	req := NotebookRequest{
+		FileURL:        stringPtr(" https://example.com/input.csv "),
+		GitURL:         stringPtr(" https://github.com/datakaveri/repo.git "),
+		GitAccessToken: stringPtr(" github_pat_test "),
+	}
+
+	if err := normalizeAndValidateNotebookRuntimeAssets(&req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := *req.FileURL; got != "https://example.com/input.csv" {
+		t.Fatalf("fileUrl was not trimmed: %q", got)
+	}
+	if got := *req.GitURL; got != "https://github.com/datakaveri/repo.git" {
+		t.Fatalf("gitUrl was not trimmed: %q", got)
+	}
+	if got := *req.GitAccessToken; got != "github_pat_test" {
+		t.Fatalf("gitAccessToken was not trimmed: %q", got)
+	}
+}
+
 func TestNormalizeAndValidateRuntimeAssetsTrimsValues(t *testing.T) {
 	req := CreateBookingRequest{
 		FileURL:        stringPtr(" https://example.com/input.csv "),

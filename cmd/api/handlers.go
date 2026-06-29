@@ -93,6 +93,10 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		sendError(w, logger, http.StatusUnprocessableEntity, "Invalid body")
 		return
 	}
+	if err := normalizeAndValidateNotebookRuntimeAssets(&notebookReq); err != nil {
+		sendError(w, logger, http.StatusBadRequest, err.Error())
+		return
+	}
 	if errorMessage, gotError := getErrorMessageForNotebookName(notebookReq.Name); gotError {
 		logger.Error("invalid notebook name",
 			"notebook_name", notebookReq.Name,
@@ -184,6 +188,30 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		if err := app.ensureRegistrySecret(ctx, logger, namespace); err != nil {
 			logger.Error("failed to ensure registry secret for namespace", "error", err, "namespace", namespace)
 			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+			return
+		}
+	}
+
+	if notebookReq.GitAccessToken != nil || notebookReq.GitTokenSecretName != nil {
+		if err := app.waitForNamespace(ctx, logger, namespace); err != nil {
+			logger.Error("namespace not ready for git token setup", "error", err, "namespace", namespace)
+			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+			return
+		}
+	}
+	if notebookReq.GitAccessToken != nil {
+		secretName := gitAccessTokenSecretName(notebookReq.Name)
+		if err := app.createOrUpdateGitAccessTokenSecret(ctx, namespace, secretName, *notebookReq.GitAccessToken); err != nil {
+			logger.Error("failed to create git access token secret", "error", err, "namespace", namespace, "secret", secretName)
+			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+			return
+		}
+		notebookReq.GitTokenSecretName = &secretName
+	}
+	if notebookReq.GitTokenSecretName != nil {
+		if err := app.verifyGitTokenSecret(ctx, namespace, *notebookReq.GitTokenSecretName); err != nil {
+			logger.Warn("failed to verify git token secret", "error", err, "namespace", namespace, "secret", *notebookReq.GitTokenSecretName)
+			sendError(w, logger, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
@@ -306,23 +334,27 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 
 	var query string
 	if notebookReq.Type == "gpu" {
-		baseArgs = append(baseArgs, app.env.NotebookConfig.GPUStorageSize, app.env.NotebookConfig.GPUCPURequest, app.env.NotebookConfig.GPUCPULimit, app.env.NotebookConfig.GPUMemoryRequest, app.env.NotebookConfig.GPUMemoryLimit, app.env.NotebookConfig.GPUType, app.env.NotebookConfig.GPURequest, app.env.NotebookConfig.GPULimit, notebookReq.InstanceType, notebookReq.ImageName)
+		baseArgs = append(baseArgs, app.env.NotebookConfig.GPUStorageSize, app.env.NotebookConfig.GPUCPURequest, app.env.NotebookConfig.GPUCPULimit, app.env.NotebookConfig.GPUMemoryRequest, app.env.NotebookConfig.GPUMemoryLimit, app.env.NotebookConfig.GPUType, app.env.NotebookConfig.GPURequest, app.env.NotebookConfig.GPULimit, notebookReq.InstanceType, notebookReq.ImageName, notebookReq.FileURL, notebookReq.GitURL, notebookReq.GitTokenSecretName)
 		query = `
 			INSERT INTO notebooks (
 				user_id, name, namespace, pvc_name, storage_size,
 				cpu_request, cpu_limit, memory_request, memory_limit,
-				gpu_type, gpu_request, gpu_limit, instance_type, image_name
+				gpu_type, gpu_request, gpu_limit, instance_type, image_name,
+				file_url, git_url, git_token_secret_name
 			) VALUES (
-				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+				$15, $16, $17
 			) RETURNING id`
 	} else {
-		baseArgs = append(baseArgs, app.env.NotebookConfig.CPUStorageSize, app.env.NotebookConfig.CPURequest, app.env.NotebookConfig.CPULimit, app.env.NotebookConfig.MemoryRequest, app.env.NotebookConfig.MemoryLimit, notebookReq.ImageName)
+		baseArgs = append(baseArgs, app.env.NotebookConfig.CPUStorageSize, app.env.NotebookConfig.CPURequest, app.env.NotebookConfig.CPULimit, app.env.NotebookConfig.MemoryRequest, app.env.NotebookConfig.MemoryLimit, notebookReq.ImageName, notebookReq.FileURL, notebookReq.GitURL, notebookReq.GitTokenSecretName)
 		query = `
 		INSERT INTO notebooks (
 			user_id, name, namespace, pvc_name, storage_size,
-			cpu_request, cpu_limit, memory_request, memory_limit, image_name
+			cpu_request, cpu_limit, memory_request, memory_limit, image_name,
+			file_url, git_url, git_token_secret_name
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+			$11, $12, $13
 		) RETURNING id`
 	}
 	var notebookId int64

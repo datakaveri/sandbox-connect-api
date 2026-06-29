@@ -141,10 +141,14 @@ type NotebookConfig struct {
 }
 
 type NotebookRequest struct {
-	Name         string  `json:"name" validate:"required"`
-	Type         string  `json:"type" validate:"required"`
-	InstanceType string  `json:"instanceType" validate:"omitempty"`
-	ImageName    *string `json:"imageName" validate:"omitempty"`
+	Name               string  `json:"name" validate:"required"`
+	Type               string  `json:"type" validate:"required"`
+	InstanceType       string  `json:"instanceType" validate:"omitempty"`
+	ImageName          *string `json:"imageName" validate:"omitempty"`
+	FileURL            *string `json:"fileUrl" validate:"omitempty"`
+	GitURL             *string `json:"gitUrl" validate:"omitempty"`
+	GitAccessToken     *string `json:"gitAccessToken" validate:"omitempty"`
+	GitTokenSecretName *string `json:"gitTokenSecretName" validate:"omitempty"`
 }
 
 type NotebookStatus struct {

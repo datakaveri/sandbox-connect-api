@@ -2174,6 +2174,18 @@ const docTemplate = `{
                 "type"
             ],
             "properties": {
+                "fileUrl": {
+                    "type": "string"
+                },
+                "gitAccessToken": {
+                    "type": "string"
+                },
+                "gitTokenSecretName": {
+                    "type": "string"
+                },
+                "gitUrl": {
+                    "type": "string"
+                },
                 "imageName": {
                     "type": "string"
                 },

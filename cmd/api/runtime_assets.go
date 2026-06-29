@@ -51,38 +51,79 @@ func validateRuntimeAssetSecretName(name string) error {
 	return nil
 }
 
-func normalizeAndValidateRuntimeAssets(req *CreateBookingRequest) error {
-	req.FileURL = normalizeOptionalString(req.FileURL)
-	req.GitURL = normalizeOptionalString(req.GitURL)
-	req.GitAccessToken = normalizeOptionalString(req.GitAccessToken)
-	req.GitTokenSecretName = normalizeOptionalString(req.GitTokenSecretName)
+type runtimeAssetFields struct {
+	FileURL            *string
+	GitURL             *string
+	GitAccessToken     *string
+	GitTokenSecretName *string
+}
 
-	if req.FileURL != nil {
-		if err := validateRuntimeAssetURL(*req.FileURL, "fileUrl", false); err != nil {
+func normalizeAndValidateRuntimeAssetFields(fields *runtimeAssetFields) error {
+	fields.FileURL = normalizeOptionalString(fields.FileURL)
+	fields.GitURL = normalizeOptionalString(fields.GitURL)
+	fields.GitAccessToken = normalizeOptionalString(fields.GitAccessToken)
+	fields.GitTokenSecretName = normalizeOptionalString(fields.GitTokenSecretName)
+
+	if fields.FileURL != nil {
+		if err := validateRuntimeAssetURL(*fields.FileURL, "fileUrl", false); err != nil {
 			return err
 		}
 	}
-	if req.GitURL != nil {
-		if err := validateRuntimeAssetURL(*req.GitURL, "gitUrl", true); err != nil {
+	if fields.GitURL != nil {
+		if err := validateRuntimeAssetURL(*fields.GitURL, "gitUrl", true); err != nil {
 			return err
 		}
 	}
-	if req.GitAccessToken != nil {
-		if req.GitURL == nil {
+	if fields.GitAccessToken != nil {
+		if fields.GitURL == nil {
 			return fmt.Errorf("gitAccessToken requires gitUrl")
 		}
-		if req.GitTokenSecretName != nil {
+		if fields.GitTokenSecretName != nil {
 			return fmt.Errorf("use either gitAccessToken or gitTokenSecretName, not both")
 		}
 	}
-	if req.GitTokenSecretName != nil {
-		if req.GitURL == nil {
+	if fields.GitTokenSecretName != nil {
+		if fields.GitURL == nil {
 			return fmt.Errorf("gitTokenSecretName requires gitUrl")
 		}
-		if err := validateRuntimeAssetSecretName(*req.GitTokenSecretName); err != nil {
+		if err := validateRuntimeAssetSecretName(*fields.GitTokenSecretName); err != nil {
 			return err
 		}
 	}
+	return nil
+}
+
+func normalizeAndValidateRuntimeAssets(req *CreateBookingRequest) error {
+	fields := runtimeAssetFields{
+		FileURL:            req.FileURL,
+		GitURL:             req.GitURL,
+		GitAccessToken:     req.GitAccessToken,
+		GitTokenSecretName: req.GitTokenSecretName,
+	}
+	if err := normalizeAndValidateRuntimeAssetFields(&fields); err != nil {
+		return err
+	}
+	req.FileURL = fields.FileURL
+	req.GitURL = fields.GitURL
+	req.GitAccessToken = fields.GitAccessToken
+	req.GitTokenSecretName = fields.GitTokenSecretName
+	return nil
+}
+
+func normalizeAndValidateNotebookRuntimeAssets(req *NotebookRequest) error {
+	fields := runtimeAssetFields{
+		FileURL:            req.FileURL,
+		GitURL:             req.GitURL,
+		GitAccessToken:     req.GitAccessToken,
+		GitTokenSecretName: req.GitTokenSecretName,
+	}
+	if err := normalizeAndValidateRuntimeAssetFields(&fields); err != nil {
+		return err
+	}
+	req.FileURL = fields.FileURL
+	req.GitURL = fields.GitURL
+	req.GitAccessToken = fields.GitAccessToken
+	req.GitTokenSecretName = fields.GitTokenSecretName
 	return nil
 }
 

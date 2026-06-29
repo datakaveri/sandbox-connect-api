@@ -8,7 +8,7 @@ Notebook APIs can run in two modes.
 
 When `API_BOOKINGS_ENABLED=true`, notebooks are created by bookings and lifecycle actions are booking-owned. Use booking cancel, terminate, reset, or extend endpoints instead of mutating notebooks directly.
 
-When `API_BOOKINGS_ENABLED=false`, bookings and scheduling are disabled. Use the direct notebook endpoints to create, start, stop, inspect, list, delete, and manage notebook token sessions. Direct notebooks stay live until stopped or deleted.
+When `API_BOOKINGS_ENABLED=false`, bookings and scheduling are disabled. Use the direct notebook endpoints to create, start, stop, inspect, list, delete, and manage notebook token sessions. Direct notebooks stay live until stopped or deleted. Direct create also accepts `fileUrl`, `gitUrl`, `gitAccessToken`, and `gitTokenSecretName`; the worker injects those runtime assets into the notebook PVC before the notebook starts, matching booking-mode behavior.
 
 ## Endpoints
 
