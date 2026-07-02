@@ -94,6 +94,135 @@ func (w *worker) CreatePVC() error {
 	return err
 }
 
+// notebookImageProjectNotebookDir maps project-specific notebook images to the
+// folder they bake into the image. NHA images keep ps1/ps2/ps3 material in
+// separate folders, so the worker must copy the matching folder into the PVC.
+func notebookImageProjectNotebookDir(imageName string) string {
+	lowerImageName := strings.ToLower(imageName)
+	switch {
+	case strings.Contains(lowerImageName, "nha-ps1"):
+		return "ps1_notebooks"
+	case strings.Contains(lowerImageName, "nha-ps2"):
+		return "ps2_notebooks"
+	case strings.Contains(lowerImageName, "nha-ps3"):
+		return "ps3_notebooks"
+	default:
+		return ""
+	}
+}
+
+func buildInitImageDemoCopyScript(notebookFlavor string) string {
+	return fmt.Sprintf(`set -eu
+copy_demo_files() {
+  src_dir="$1"
+  dest_dir="$2"
+  if [ ! -d "$src_dir" ]; then
+    return 1
+  fi
+
+  copied_any=1
+  for f in "$src_dir"/*; do
+    if [ -f "$f" ]; then
+      copied_any=0
+      filename=$(basename "$f")
+      if [ ! -f "$dest_dir/$filename" ]; then
+        cp "$f" "$dest_dir/$filename"
+        chown 1000:1000 "$dest_dir/$filename"
+        chmod 644 "$dest_dir/$filename"
+        echo "[init] Copied $filename"
+      else
+        echo "[init] $filename already exists, skipping."
+      fi
+    fi
+  done
+  return "$copied_any"
+}
+
+# Init/demo image layouts:
+# - mahaagx-style images: /tmp/demo_notebooks/cpu or /tmp/demo_notebooks/gpu
+# - alternate flavor split: /tmp/cpu or /tmp/gpu
+# - cbr-style flat copy: demo_notebooks/* baked directly into /tmp
+SOURCE_DIR="/tmp/demo_notebooks/%s"
+FLAVOR_DIR="/tmp/%s"
+copy_demo_files "$SOURCE_DIR" /home/jovyan || true
+copy_demo_files "$FLAVOR_DIR" /home/jovyan || true
+copy_demo_files /tmp /home/jovyan || true
+`, notebookFlavor, notebookFlavor)
+}
+
+func buildNotebookImageDemoCopyScript(notebookFlavor, projectNotebookDir string) string {
+	return fmt.Sprintf(`set -eu
+copy_demo_files() {
+  src_dir="$1"
+  dest_dir="$2"
+  if [ ! -d "$src_dir" ]; then
+    return 1
+  fi
+
+  copied_any=1
+  for f in "$src_dir"/*; do
+    if [ -f "$f" ]; then
+      copied_any=0
+      filename=$(basename "$f")
+      if [ ! -f "$dest_dir/$filename" ]; then
+        cp "$f" "$dest_dir/$filename"
+        chown 1000:1000 "$dest_dir/$filename"
+        chmod 644 "$dest_dir/$filename"
+        echo "[init] Copied $filename"
+      else
+        echo "[init] $filename already exists, skipping."
+      fi
+    fi
+  done
+  return "$copied_any"
+}
+
+# The main container will mount the PVC at /home/jovyan, which shadows any files baked into the image.
+# This init container uses the SAME notebook image, mounts the PVC elsewhere, and copies demo files into the persistent volume.
+
+# 1. Legacy NHA images baked notebooks directly into /home/jovyan.
+if ls /home/jovyan/*.ipynb 1> /dev/null 2>&1; then
+  echo '[init] Extracting compiled .ipynb files from /home/jovyan to PVC...'
+  for f in /home/jovyan/*.ipynb; do
+    filename=$(basename "$f")
+    if [ ! -f "/mnt/data/$filename" ]; then
+      cp "$f" "/mnt/data/$filename"
+      chown 1000:1000 "/mnt/data/$filename"
+      chmod 644 "/mnt/data/$filename"
+    fi
+  done
+fi
+
+# Legacy NHA helper module, used by the skeletal notebooks.
+if [ -f "/home/jovyan/nha_client.py" ]; then
+  echo '[init] Extracting nha_client.py to PVC...'
+  if [ ! -f "/mnt/data/nha_client.py" ]; then
+    cp "/home/jovyan/nha_client.py" "/mnt/data/nha_client.py"
+    chown 1000:1000 "/mnt/data/nha_client.py"
+    chmod 644 "/mnt/data/nha_client.py"
+  fi
+fi
+
+# 2. Current NHA images keep each problem statement in ps1/ps2/ps3 folders.
+# The Go helper chooses one of ps1_notebooks, ps2_notebooks, or ps3_notebooks
+# from the image tag, then this script copies that folder from either common bake location.
+PROJECT_NOTEBOOK_DIR="%s"
+if [ -n "$PROJECT_NOTEBOOK_DIR" ]; then
+  copy_demo_files "/home/jovyan/$PROJECT_NOTEBOOK_DIR" /mnt/data || true
+  copy_demo_files "/tmp/$PROJECT_NOTEBOOK_DIR" /mnt/data || true
+fi
+
+# 3. MahaAGX/multikernel images may split demo files by CPU/GPU flavor.
+SOURCE_DIR="/tmp/demo_notebooks/%s"
+FLAVOR_DIR="/tmp/%s"
+copy_demo_files "$SOURCE_DIR" /mnt/data || true
+copy_demo_files "$FLAVOR_DIR" /mnt/data || true
+
+# 4. CBR/multikernel Dockerfiles can also copy demo_notebooks/* directly into /tmp.
+copy_demo_files /tmp /mnt/data || true
+`, projectNotebookDir, notebookFlavor, notebookFlavor)
+}
+
 /*
 func (w *worker) PVCWatcher() error {
 	namespace := w.notebook.Namespace
@@ -392,36 +521,7 @@ func (w *worker) CreateNotebook() error {
 		initContainers = append(initContainers, map[string]any{
 			"name":  "init-demo-ipynb",
 			"image": w.app.env.INIT_CONTAINER_IMAGE,
-			"command": []any{"/bin/sh", "-c", fmt.Sprintf(`
-SOURCE_DIR="/tmp/demo_notebooks/%s"
-if [ -d "$SOURCE_DIR" ]; then
-  echo "[init] Extracting files from $SOURCE_DIR to /home/jovyan..."
-  for f in "$SOURCE_DIR"/*; do
-    if [ -f "$f" ]; then
-      filename=$(basename "$f")
-      if [ ! -f "/home/jovyan/$filename" ]; then
-        cp "$f" "/home/jovyan/$filename"
-        chown 1000:1000 "/home/jovyan/$filename"
-        chmod 644 "/home/jovyan/$filename"
-        echo "[init] Copied $filename"
-      else
-        echo "[init] $filename already exists, skipping."
-      fi
-    fi
-  done
-else
-  echo "[init] Directory $SOURCE_DIR not found in init container image."
-  # Fallback to old behavior if the image hasn't been updated yet
-  if [ -f /tmp/demo.ipynb ] && [ ! -f /home/jovyan/demo.ipynb ]; then
-    cp /tmp/demo.ipynb /home/jovyan/demo.ipynb
-    chown 1000:1000 /home/jovyan/demo.ipynb
-  fi
-  if [ -f /tmp/requirements.txt ] && [ ! -f /home/jovyan/requirements.txt ]; then
-    cp /tmp/requirements.txt /home/jovyan/requirements.txt
-    chown 1000:1000 /home/jovyan/requirements.txt
-  fi
-fi
-`, notebookFlavor)},
+			"command": []any{"/bin/sh", "-c", buildInitImageDemoCopyScript(notebookFlavor)},
 			"volumeMounts": []any{
 				map[string]any{
 					"name":      "data-volume",
@@ -434,50 +534,7 @@ fi
 	initContainers = append(initContainers, map[string]any{
 		"name":  "extract-built-in-notebooks",
 		"image": imageName,
-		"command": []any{"/bin/sh", "-c", `
-# The main container will mount the PVC at /home/jovyan, which shadows any files baked into the image.
-# This init container uses the SAME notebook image, mounts the PVC elsewhere, and copies the baked files over into the persistent volume.
-
-# 1. Extract from /home/jovyan (for NHA images which bake files into /home/jovyan)
-if ls /home/jovyan/*.ipynb 1> /dev/null 2>&1; then
-  echo '[init] Extracting compiled .ipynb files from /home/jovyan to PVC...'
-  for f in /home/jovyan/*.ipynb; do
-    filename=$(basename "$f")
-    if [ ! -f "/mnt/data/$filename" ]; then
-      cp "$f" "/mnt/data/$filename"
-      chown 1000:1000 "/mnt/data/$filename"
-    fi
-  done
-fi
-
-if [ -f "/home/jovyan/nha_client.py" ]; then
-  echo '[init] Extracting nha_client.py to PVC...'
-  if [ ! -f "/mnt/data/nha_client.py" ]; then
-    cp "/home/jovyan/nha_client.py" "/mnt/data/nha_client.py"
-    chown 1000:1000 "/mnt/data/nha_client.py"
-  fi
-fi
-
-# 2. Extract from /tmp (for new CPU and GPU images which bake files into /tmp)
-if ls /tmp/*.ipynb 1> /dev/null 2>&1; then
-  echo '[init] Extracting compiled .ipynb files from /tmp to PVC...'
-  for f in /tmp/*.ipynb; do
-    filename=$(basename "$f")
-    if [ ! -f "/mnt/data/$filename" ]; then
-      cp "$f" "/mnt/data/$filename"
-      chown 1000:1000 "/mnt/data/$filename"
-    fi
-  done
-fi
-
-if [ -f "/tmp/requirements.txt" ]; then
-  echo '[init] Extracting requirements.txt from /tmp to PVC...'
-  if [ ! -f "/mnt/data/requirements.txt" ]; then
-    cp "/tmp/requirements.txt" "/mnt/data/requirements.txt"
-    chown 1000:1000 "/mnt/data/requirements.txt"
-  fi
-fi
-`},
+		"command": []any{"/bin/sh", "-c", buildNotebookImageDemoCopyScript(notebookFlavor, notebookImageProjectNotebookDir(imageName))},
 		"volumeMounts": []any{
 			map[string]any{
 				"name":      "data-volume",
