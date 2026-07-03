@@ -515,33 +515,38 @@ func (w *worker) CreateNotebook() error {
 
 	initContainers := []any{}
 
-	if imageName != "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps1-v3" &&
-		imageName != "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps2-v4" &&
-		imageName != "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps3-v3" {
+	if w.app.env.DISABLE_INIT {
+		logger.Info("init containers disabled via WORKER_DISABLE_INIT, skipping demo file setup")
+	} else {
+
+		if imageName != "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps1-v3" &&
+			imageName != "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps2-v4" &&
+			imageName != "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps3-v3" {
+			initContainers = append(initContainers, map[string]any{
+				"name":    "init-demo-ipynb",
+				"image":   w.app.env.INIT_CONTAINER_IMAGE,
+				"command": []any{"/bin/sh", "-c", buildInitImageDemoCopyScript(notebookFlavor)},
+				"volumeMounts": []any{
+					map[string]any{
+						"name":      "data-volume",
+						"mountPath": "/home/jovyan",
+					},
+				},
+			})
+		}
+
 		initContainers = append(initContainers, map[string]any{
-			"name":  "init-demo-ipynb",
-			"image": w.app.env.INIT_CONTAINER_IMAGE,
-			"command": []any{"/bin/sh", "-c", buildInitImageDemoCopyScript(notebookFlavor)},
+			"name":    "extract-built-in-notebooks",
+			"image":   imageName,
+			"command": []any{"/bin/sh", "-c", buildNotebookImageDemoCopyScript(notebookFlavor, notebookImageProjectNotebookDir(imageName))},
 			"volumeMounts": []any{
 				map[string]any{
 					"name":      "data-volume",
-					"mountPath": "/home/jovyan",
+					"mountPath": "/mnt/data",
 				},
 			},
 		})
 	}
-
-	initContainers = append(initContainers, map[string]any{
-		"name":  "extract-built-in-notebooks",
-		"image": imageName,
-		"command": []any{"/bin/sh", "-c", buildNotebookImageDemoCopyScript(notebookFlavor, notebookImageProjectNotebookDir(imageName))},
-		"volumeMounts": []any{
-			map[string]any{
-				"name":      "data-volume",
-				"mountPath": "/mnt/data",
-			},
-		},
-	})
 
 	notebookContainer := map[string]any{
 		"name":  nb.Name,

@@ -140,11 +140,17 @@ func contains(s []string, e string) bool {
 	return false
 }
 
-func generateNotebookURL(baseURL, namespace, notebookName string, imageName *string) string {
+func generateNotebookURL(baseURL, namespace, notebookName string, imageName *string, disableInit bool) string {
 	if baseURL == "" {
 		return ""
 	}
 	baseURL = strings.TrimSuffix(baseURL, "/")
+
+	// With init containers disabled there is no demo.ipynb on the PVC, so send
+	// users to the JupyterLab auto workspace instead of a missing file.
+	if disableInit {
+		return fmt.Sprintf("%s/notebook/%s/%s/lab/workspaces/auto-s", baseURL, namespace, notebookName)
+	}
 
 	fileName := "demo.ipynb"
 	if imageName != nil {

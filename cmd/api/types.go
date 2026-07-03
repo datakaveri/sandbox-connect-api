@@ -134,6 +134,11 @@ type NotebookConfig struct {
 	KubeFlowURL              string `env:"API_KUBEFLOW_URL,required"`
 	DefaultNotebookListLimit int    `env:"API_NOTEBOOK_LIST_LIMIT"`
 
+	// DisableInit mirrors WORKER_DISABLE_INIT: when init containers are skipped,
+	// no demo.ipynb exists on the PVC, so notebook URLs point to the JupyterLab
+	// auto workspace instead of a demo notebook file.
+	DisableInit bool `env:"API_DISABLE_INIT" envDefault:"false"`
+
 	MaxRunningCPU int `env:"API_MAX_RUNNING_CPU"`
 	MaxRunningGPU int `env:"API_MAX_RUNNING_GPU"`
 	MaxTotalCPU   int `env:"API_MAX_TOTAL_CPU"`

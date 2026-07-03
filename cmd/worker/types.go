@@ -29,6 +29,9 @@ type Env struct {
 	CPU_NOTEBOOK_IMAGE      string `env:"WORKER_CPU_NOTEBOOK_IMAGE,required"`
 	GPU_NOTEBOOK_IMAGE      string `env:"WORKER_GPU_NOTEBOOK_IMAGE,required"`
 	INIT_CONTAINER_IMAGE    string `env:"WORKER_INIT_CONTAINER_IMAGE,required"`
+	// DISABLE_INIT skips all notebook init containers (demo/built-in notebook copies),
+	// so the notebook pod starts with an empty home volume.
+	DISABLE_INIT bool `env:"WORKER_DISABLE_INIT" envDefault:"false"`
 	// GPU_NODE_INSTANCE_TYPE is kept for backward compatibility. Prefer WORKER_GPU_NODE_INSTANCE_TYPES.
 	GPU_NODE_INSTANCE_TYPE string `env:"WORKER_GPU_NODE_INSTANCE_TYPE" envDefault:""`
 	// GPU_NODE_INSTANCE_TYPES is a comma-separated list of allowed GPU node instance types.

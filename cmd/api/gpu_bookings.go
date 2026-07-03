@@ -688,7 +688,7 @@ func (app *application) listGPUBookings(w http.ResponseWriter, r *http.Request) 
 			nbName != nil &&
 			nbLatest != nil &&
 			*nbLatest == string(constants.StatusNotebookApplied) {
-			notebookURL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, *nbNamespace, *nbName, nbImageName)
+			notebookURL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, *nbNamespace, *nbName, nbImageName, app.env.NotebookConfig.DisableInit)
 		}
 
 		bookings = append(bookings, BookingListItem{
