@@ -24,9 +24,8 @@ func platformTokenSecretName(notebookName string) string {
 	return strings.TrimSpace(notebookName) + platformTokenSecretNameSuffix
 }
 
-func (w *worker) platformTokenSidecarEnabled(notebookFlavor string) bool {
-	return notebookFlavor == "cpu" &&
-		strings.TrimSpace(w.app.env.PLATFORM_TOKEN_SIDECAR_IMAGE) != "" &&
+func (w *worker) platformTokenSidecarEnabled() bool {
+	return strings.TrimSpace(w.app.env.PLATFORM_TOKEN_SIDECAR_IMAGE) != "" &&
 		strings.TrimSpace(w.app.env.PLATFORM_FILE_API_BASE_URL) != "" &&
 		strings.TrimSpace(w.app.env.PLATFORM_KEYCLOAK_TOKEN_URL) != "" &&
 		strings.TrimSpace(w.app.env.PLATFORM_KEYCLOAK_CLIENT_ID) != "" &&

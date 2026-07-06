@@ -576,7 +576,7 @@ func (w *worker) CreateNotebook() error {
 			},
 		},
 	}
-	if w.platformTokenSidecarEnabled(notebookFlavor) {
+	if w.platformTokenSidecarEnabled() {
 		notebookContainer["env"] = w.platformTokenNotebookEnv()
 		notebookContainer["volumeMounts"] = append(notebookContainer["volumeMounts"].([]any), platformTokenNotebookVolumeMount())
 		containers = append(containers, w.platformTokenSidecarContainer())

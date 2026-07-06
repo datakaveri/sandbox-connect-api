@@ -2,7 +2,7 @@ package main
 
 import "testing"
 
-func TestPlatformTokenSidecarEnabledOnlyForConfiguredCPU(t *testing.T) {
+func TestPlatformTokenSidecarEnabledWhenConfigured(t *testing.T) {
 	bookingID := int64(42)
 	w := worker{app: &application{env: Env{
 		PLATFORM_TOKEN_SIDECAR_IMAGE:          "token-sidecar:latest",
@@ -11,20 +11,17 @@ func TestPlatformTokenSidecarEnabledOnlyForConfiguredCPU(t *testing.T) {
 		PLATFORM_KEYCLOAK_CLIENT_ID:           "sandbox-notebook",
 		PLATFORM_SANDBOX_CONNECT_API_BASE_URL: "https://sandbox.example.com",
 	}}, notebook: Notebook{Name: "direct-notebook", BookingID: &bookingID}}
-	if !w.platformTokenSidecarEnabled("cpu") {
-		t.Fatal("expected sidecar to be enabled for configured CPU notebook")
-	}
-	if w.platformTokenSidecarEnabled("gpu") {
-		t.Fatal("expected sidecar to be disabled for GPU notebook")
+	if !w.platformTokenSidecarEnabled() {
+		t.Fatal("expected sidecar to be enabled for configured notebook")
 	}
 
 	w.notebook.BookingID = nil
-	if !w.platformTokenSidecarEnabled("cpu") {
-		t.Fatal("expected sidecar to be enabled for configured direct CPU notebook")
+	if !w.platformTokenSidecarEnabled() {
+		t.Fatal("expected sidecar to be enabled for configured direct notebook")
 	}
 
 	w.app.env.PLATFORM_KEYCLOAK_TOKEN_URL = ""
-	if w.platformTokenSidecarEnabled("cpu") {
+	if w.platformTokenSidecarEnabled() {
 		t.Fatal("expected sidecar to be disabled without token URL")
 	}
 }
