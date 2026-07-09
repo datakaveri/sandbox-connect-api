@@ -805,6 +805,10 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := app.deletePlatformTokenSecret(ctx, namespace, deleteReq.Name); err != nil {
+		logger.Error("failed to delete platform token secret", "error", err)
+	}
+
 	if !notebookFailed {
 		err = app.deleteNotebookFromK8s(ctx, logger, namespace, deleteReq.Name)
 		notebookAlreadyDeleted := false

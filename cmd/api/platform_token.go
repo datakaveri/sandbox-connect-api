@@ -45,6 +45,34 @@ func platformTokenSecretName(notebookName string) string {
 	return name + platformTokenSecretNameSuffix
 }
 
+func (app *application) platformTokenSecretOwnerReference(ctx context.Context, namespace, notebookName string) (*metav1.OwnerReference, error) {
+	if namespace == "" || notebookName == "" {
+		return nil, nil
+	}
+	notebookGVR := schema.GroupVersionResource{
+		Group:    "kubeflow.org",
+		Version:  "v1beta1",
+		Resource: "notebooks",
+	}
+	notebook, err := app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(namespace).Get(ctx, notebookName, metav1.GetOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	uid := notebook.GetUID()
+	if uid == "" {
+		return nil, nil
+	}
+	return &metav1.OwnerReference{
+		APIVersion: "kubeflow.org/v1beta1",
+		Kind:       "Notebook",
+		Name:       notebookName,
+		UID:        uid,
+	}, nil
+}
+
 func (app *application) createOrUpdatePlatformTokenSecret(ctx context.Context, namespace, notebookName string, bookingID *int64, userID, refreshToken string) (string, error) {
 	secretName := platformTokenSecretName(notebookName)
 	clientSecret := strings.TrimSpace(app.env.PlatformTokenExchangeClientSecret)
@@ -66,6 +94,11 @@ func (app *application) createOrUpdatePlatformTokenSecret(ctx context.Context, n
 		labels["sandbox-connect/booking-id"] = strconv.FormatInt(*bookingID, 10)
 	}
 
+	ownerRef, err := app.platformTokenSecretOwnerReference(ctx, namespace, notebookName)
+	if err != nil {
+		return "", fmt.Errorf("load platform token secret owner: %w", err)
+	}
+
 	newSecret := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "v1",
 		"kind":       "Secret",
@@ -80,6 +113,9 @@ func (app *application) createOrUpdatePlatformTokenSecret(ctx context.Context, n
 			platformTokenClientSecretKey: encodedClientSecret,
 		},
 	}}
+	if ownerRef != nil {
+		newSecret.SetOwnerReferences([]metav1.OwnerReference{*ownerRef})
+	}
 
 	existing, err := app.k8sClient.Dynamic.Resource(platformTokenSecretGVR).Namespace(namespace).Get(ctx, secretName, metav1.GetOptions{})
 	if err != nil {
@@ -109,6 +145,9 @@ func (app *application) createOrUpdatePlatformTokenSecret(ctx context.Context, n
 		delete(existingLabels, "sandbox-connect/booking-id")
 	}
 	existing.SetLabels(existingLabels)
+	if ownerRef != nil {
+		existing.SetOwnerReferences([]metav1.OwnerReference{*ownerRef})
+	}
 
 	_, err = app.k8sClient.Dynamic.Resource(platformTokenSecretGVR).Namespace(namespace).Update(ctx, existing, metav1.UpdateOptions{})
 	return secretName, err

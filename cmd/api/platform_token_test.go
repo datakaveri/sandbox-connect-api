@@ -13,7 +13,15 @@ import (
 	"testing"
 	"time"
 
+	k8spkg "sandbox-backend-service/pkg/k8s"
+
 	"github.com/golang-jwt/jwt/v5"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 )
 
 func TestPlatformTokenSecretName(t *testing.T) {
@@ -105,5 +113,91 @@ func TestExchangeNotebookToken(t *testing.T) {
 	}
 	if exchanged.RefreshToken != "notebook-refresh-token" {
 		t.Fatalf("refresh token = %q", exchanged.RefreshToken)
+	}
+}
+
+func TestCreateOrUpdatePlatformTokenSecretSetsNotebookOwnerReference(t *testing.T) {
+	ctx := context.Background()
+	namespace := "user-namespace"
+	notebookName := "demo-notebook"
+	notebookUID := "11111111-2222-3333-4444-555555555555"
+
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	notebook := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "kubeflow.org/v1beta1",
+		"kind":       "Notebook",
+		"metadata": map[string]any{
+			"name":      notebookName,
+			"namespace": namespace,
+			"uid":       notebookUID,
+		},
+	}}
+	client := dynamicfake.NewSimpleDynamicClient(scheme, notebook)
+	app := application{
+		env:       ApiEnv{PlatformTokenExchangeClientSecret: "client-secret"},
+		k8sClient: &k8spkg.K8sClient{Dynamic: client},
+	}
+
+	secretName, err := app.createOrUpdatePlatformTokenSecret(ctx, namespace, notebookName, nil, namespace, "refresh-token")
+	if err != nil {
+		t.Fatalf("createOrUpdatePlatformTokenSecret failed: %v", err)
+	}
+	secret, err := client.Resource(platformTokenSecretGVR).Namespace(namespace).Get(ctx, secretName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get token secret: %v", err)
+	}
+	refs := secret.GetOwnerReferences()
+	if len(refs) != 1 {
+		t.Fatalf("ownerReferences length = %d, want 1", len(refs))
+	}
+	ref := refs[0]
+	if ref.APIVersion != "kubeflow.org/v1beta1" || ref.Kind != "Notebook" || ref.Name != notebookName || string(ref.UID) != notebookUID {
+		t.Fatalf("ownerReference = %#v", ref)
+	}
+}
+
+func TestDeletePlatformTokenSecret(t *testing.T) {
+	ctx := context.Background()
+	namespace := "user-namespace"
+	notebookName := "demo-notebook"
+	secretName := platformTokenSecretName(notebookName)
+
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	secret := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "v1",
+		"kind":       "Secret",
+		"metadata": map[string]any{
+			"name":      secretName,
+			"namespace": namespace,
+		},
+	}}
+	client := dynamicfake.NewSimpleDynamicClient(scheme, secret)
+	app := application{k8sClient: &k8spkg.K8sClient{Dynamic: client}}
+
+	if err := app.deletePlatformTokenSecret(ctx, namespace, notebookName); err != nil {
+		t.Fatalf("deletePlatformTokenSecret failed: %v", err)
+	}
+	_, err := client.Resource(platformTokenSecretGVR).Namespace(namespace).Get(ctx, secretName, metav1.GetOptions{})
+	if !apierrors.IsNotFound(err) {
+		t.Fatalf("secret lookup error = %v, want not found", err)
+	}
+}
+
+func TestDeletePlatformTokenSecretIgnoresMissingSecret(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	client := dynamicfake.NewSimpleDynamicClient(scheme)
+	app := application{k8sClient: &k8spkg.K8sClient{Dynamic: client}}
+
+	if err := app.deletePlatformTokenSecret(context.Background(), "user-namespace", "missing-notebook"); err != nil {
+		t.Fatalf("deletePlatformTokenSecret missing secret error = %v", err)
 	}
 }
