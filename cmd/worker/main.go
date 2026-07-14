@@ -32,6 +32,16 @@ func main() {
 		utils.LogErrorAndExit(logger, "failed to parse environment variables", "error", err)
 	}
 
+	runtimeConfig, err := LoadRuntimeConfig(config)
+	if err != nil {
+		utils.LogErrorAndExit(logger, "failed to load worker runtime configuration", "error", err)
+	}
+	logger.Info("worker runtime configuration loaded",
+		"source", runtimeConfig.source,
+		"api_version", runtimeConfig.APIVersion,
+		"workload_count", len(runtimeConfig.Workloads),
+	)
+
 	if config.IMAGE_PULL_ENABLED {
 		if config.ECR_SECRET_NAME == "" {
 			utils.LogErrorAndExit(logger, "WORKER_ECR_SECRET_NAME is required when WORKER_IMAGE_PULL_ENABLED is true")
@@ -59,11 +69,12 @@ func main() {
 	}
 
 	app := &application{
-		k8sClient: k8sClient,
-		pgPool:    pool,
-		s3Client:  s3Client,
-		env:       config,
-		logger:    logger,
+		k8sClient:     k8sClient,
+		pgPool:        pool,
+		s3Client:      s3Client,
+		env:           config,
+		runtimeConfig: runtimeConfig,
+		logger:        logger,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

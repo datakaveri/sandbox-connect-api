@@ -1369,6 +1369,7 @@ func (app *application) resetGPUBooking(w http.ResponseWriter, r *http.Request) 
 		_ = app.deletePlatformTokenSecret(context.Background(), nbNS, nbName)
 		_ = app.deleteNotebookFromK8s(context.Background(), logger, nbNS, nbName)
 		_ = app.deletePVCFromK8s(context.Background(), logger, nbNS, nbPVC)
+		_ = app.deleteManagedPVCsFromK8s(context.Background(), nbNS, nbName)
 
 		// Soft-delete linked notebook metadata.
 		_, _ = app.pgPool.Pool.Exec(context.Background(), `
@@ -1511,6 +1512,7 @@ func (app *application) terminateGPUBooking(w http.ResponseWriter, r *http.Reque
 		_ = app.deletePlatformTokenSecret(context.Background(), nbNS, nbName)
 		_ = app.deleteNotebookFromK8s(context.Background(), logger, nbNS, nbName)
 		_ = app.deletePVCFromK8s(context.Background(), logger, nbNS, nbPVC)
+		_ = app.deleteManagedPVCsFromK8s(context.Background(), nbNS, nbName)
 		_, _ = app.pgPool.Pool.Exec(context.Background(), `
 			UPDATE notebooks
 			SET events = array_append(events, 'deleted'),

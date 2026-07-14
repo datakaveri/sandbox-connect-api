@@ -105,7 +105,6 @@ func (app *application) createOrUpdatePlatformTokenSecret(ctx context.Context, n
 		"metadata": map[string]any{
 			"name":      secretName,
 			"namespace": namespace,
-			"labels":    labels,
 		},
 		"type": "Opaque",
 		"data": map[string]any{
@@ -113,6 +112,7 @@ func (app *application) createOrUpdatePlatformTokenSecret(ctx context.Context, n
 			platformTokenClientSecretKey: encodedClientSecret,
 		},
 	}}
+	newSecret.SetLabels(labels)
 	if ownerRef != nil {
 		newSecret.SetOwnerReferences([]metav1.OwnerReference{*ownerRef})
 	}

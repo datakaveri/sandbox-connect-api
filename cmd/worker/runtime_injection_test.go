@@ -37,9 +37,15 @@ func TestBuildRuntimeInjectionPod(t *testing.T) {
 			GitURL:             &gitURL,
 			GitTokenSecretName: &secretName,
 		},
+		resolvedPVCMounts: []ResolvedPVCMount{{
+			Name: "workspace", ClaimName: "demo-notebook-pvc", Workspace: true, SubPath: "notebooks/demo",
+		}},
 	}
 
-	pod := w.buildRuntimeInjectionPod("demo-inject-12345678")
+	pod, err := w.buildRuntimeInjectionPod("demo-inject-12345678")
+	if err != nil {
+		t.Fatalf("buildRuntimeInjectionPod returned error: %v", err)
+	}
 	if got := pod.GetName(); got != "demo-inject-12345678" {
 		t.Fatalf("unexpected pod name: %q", got)
 	}
@@ -63,6 +69,10 @@ func TestBuildRuntimeInjectionPod(t *testing.T) {
 	container := containers[0].(map[string]any)
 	if container["image"] != "alpine/git:2.45.2" {
 		t.Fatalf("unexpected injector image: %#v", container["image"])
+	}
+	volumeMount := container["volumeMounts"].([]any)[0].(map[string]any)
+	if volumeMount["subPath"] != "notebooks/demo" {
+		t.Fatalf("workspace subPath was not preserved: %#v", volumeMount)
 	}
 	command := container["command"].([]any)
 	script := command[2].(string)

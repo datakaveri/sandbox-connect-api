@@ -815,5 +815,5 @@ func deleteNotebookAndPVC(ctx context.Context, k8sClient *k8s.K8sClient, namespa
 	if err := k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Delete(ctx, pvcName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
 		return err
 	}
-	return nil
+	return k8s.DeleteManagedNotebookPVCs(ctx, k8sClient.Dynamic, namespace, notebookName)
 }

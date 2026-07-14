@@ -830,6 +830,13 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Label-based cleanup also runs for failed notebook provisioning. This
+	// recovers managed claims left behind if the worker stopped before rollback.
+	if err := app.deleteManagedPVCsFromK8s(ctx, namespace, deleteReq.Name); err != nil {
+		logger.Error("failed to delete labelled managed PVCs", "error", err)
+		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+		return
+	}
 	sendResponse(w, logger, http.StatusOK, "Notebook deleted successfully")
 }
 

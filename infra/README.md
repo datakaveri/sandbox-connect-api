@@ -343,6 +343,7 @@ kubectl apply -f infra/cron/profile-credit-sync/secret.yaml
 Apply the configuration maps for API and cron jobs:
 ```bash
 kubectl apply -f infra/api/configmap.yaml
+kubectl apply -f infra/worker/configmap.yaml
 kubectl apply -f infra/cron/profile-credit-sync/configmap.yaml
 ```
 

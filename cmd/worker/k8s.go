@@ -13,87 +13,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-func (w *worker) CreatePVC() error {
-	namespace := w.notebook.Namespace
-	pvcName := w.notebook.PVCname
-	storageSize := w.notebook.StorageSize
-	logger := w.logger.With("operation", "CreatePVC")
-
-	pvcGVR := schema.GroupVersionResource{
-		Group:    "",
-		Version:  "v1",
-		Resource: "persistentvolumeclaims",
-	}
-
-	pvc := &unstructured.Unstructured{
-		Object: map[string]any{
-			"apiVersion": "v1",
-			"kind":       "PersistentVolumeClaim",
-			"metadata": map[string]any{
-				"name":      pvcName,
-				"namespace": namespace,
-			},
-			"spec": map[string]any{
-				"accessModes": []any{
-					"ReadWriteOnce",
-				},
-				"storageClassName": w.app.env.STORAGE_CLASS_NAME,
-				"resources": map[string]any{
-					"requests": map[string]any{
-						"storage": storageSize,
-					},
-				},
-			},
-		},
-	}
-
-	// Phase 1: if a same-named PVC from a prior deletion is still Terminating,
-	// wait for it to fully disappear before attempting creation.
-	// This uses a dedicated timeout (PVCTerminatingWaitTimeout) so EBS detachment
-	// time does not eat into the creation retry budget below.
-	waitCtx, waitCancel := WithTimeoutContext(context.Background(), PVCTerminatingWaitTimeout)
-	defer waitCancel()
-
-	err := WithK8sRetry(waitCtx, logger, func() (constants.ShouldContinue, error) {
-		existing, getErr := w.app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Get(waitCtx, pvcName, metav1.GetOptions{})
-		if k8serrors.IsNotFound(getErr) {
-			// PVC is gone — proceed to creation.
-			return constants.RetryStop, nil
-		}
-		if getErr != nil {
-			logger.Warn("failed to GET PVC while waiting for termination, will retry", "error", getErr)
-			return constants.RetryContinue, getErr
-		}
-		deletionTimestamp, found, _ := unstructured.NestedString(existing.Object, "metadata", "deletionTimestamp")
-		if found && deletionTimestamp != "" {
-			logger.Warn("PVC is still Terminating, waiting for it to be removed", "pvcName", pvcName)
-			return constants.RetryContinue, fmt.Errorf("PVC %s is still Terminating", pvcName)
-		}
-		// PVC exists with no deletionTimestamp — it is a live PVC from another source, stop immediately.
-		logger.Warn("PVC already exists and is not terminating, will not proceed with creation", "pvcName", pvcName)
-		return constants.RetryStop, fmt.Errorf("PVC %s already exists and is not being deleted", pvcName)
-	})
-	if err != nil {
-		return err
-	}
-
-	// Phase 2: PVC is confirmed gone — now create it with the normal creation timeout.
-	createCtx, createCancel := WithTimeoutContext(context.Background(), K8sCreationTimeout)
-	defer createCancel()
-
-	err = WithK8sRetry(createCtx, logger, func() (constants.ShouldContinue, error) {
-		_, err := w.app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Create(createCtx, pvc, metav1.CreateOptions{})
-		if k8serrors.IsAlreadyExists(err) {
-			// Should not happen given Phase 1 cleared the way, but guard defensively.
-			logger.Warn("PVC unexpectedly exists after wait phase, will not retry", "error", err)
-			return constants.RetryStop, err
-		}
-		return constants.RetryContinue, err
-	})
-
-	return err
-}
-
 // notebookImageProjectNotebookDir maps project-specific notebook images to the
 // folder they bake into the image. NHA images keep ps1/ps2/ps3 material in
 // separate folders, so the worker must copy the matching folder into the PVC.
@@ -514,9 +433,12 @@ func (w *worker) CreateNotebook() error {
 	}
 
 	initContainers := []any{}
+	workspaceMount, hasWorkspace := w.workspacePVCMount()
 
 	if w.app.env.DISABLE_INIT {
 		logger.Info("init containers disabled via WORKER_DISABLE_INIT, skipping demo file setup")
+	} else if !hasWorkspace {
+		logger.Info("no workspace PVC configured, skipping persistent demo file setup")
 	} else {
 
 		if imageName != "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps1-v3" &&
@@ -527,10 +449,7 @@ func (w *worker) CreateNotebook() error {
 				"image":   w.app.env.INIT_CONTAINER_IMAGE,
 				"command": []any{"/bin/sh", "-c", buildInitImageDemoCopyScript(notebookFlavor)},
 				"volumeMounts": []any{
-					map[string]any{
-						"name":      "data-volume",
-						"mountPath": "/home/jovyan",
-					},
+					resolvedVolumeMountSpec(workspaceMount, "/home/jovyan"),
 				},
 			})
 		}
@@ -540,10 +459,20 @@ func (w *worker) CreateNotebook() error {
 			"image":   imageName,
 			"command": []any{"/bin/sh", "-c", buildNotebookImageDemoCopyScript(notebookFlavor, notebookImageProjectNotebookDir(imageName))},
 			"volumeMounts": []any{
-				map[string]any{
-					"name":      "data-volume",
-					"mountPath": "/mnt/data",
-				},
+				resolvedVolumeMountSpec(workspaceMount, "/mnt/data"),
+			},
+		})
+	}
+
+	notebookVolumeMounts := make([]any, 0, len(w.resolvedPVCMounts))
+	volumes := make([]any, 0, len(w.resolvedPVCMounts))
+	for _, mount := range w.resolvedPVCMounts {
+		notebookVolumeMounts = append(notebookVolumeMounts, resolvedVolumeMountSpec(mount, mount.MountPath))
+		volumes = append(volumes, map[string]any{
+			"name": mount.Name,
+			"persistentVolumeClaim": map[string]any{
+				"claimName": mount.ClaimName,
+				"readOnly":  mount.ReadOnly,
 			},
 		})
 	}
@@ -560,22 +489,9 @@ func (w *worker) CreateNotebook() error {
 			"requests": request,
 			"limits":   limit,
 		},
-		"volumeMounts": []any{
-			map[string]any{
-				"name":      "data-volume",
-				"mountPath": "/home/jovyan",
-			},
-		},
+		"volumeMounts": notebookVolumeMounts,
 	}
 	containers := []any{notebookContainer}
-	volumes := []any{
-		map[string]any{
-			"name": "data-volume",
-			"persistentVolumeClaim": map[string]any{
-				"claimName": nb.PVCname,
-			},
-		},
-	}
 	if w.platformTokenSidecarEnabled() {
 		notebookContainer["env"] = w.platformTokenNotebookEnv()
 		notebookContainer["volumeMounts"] = append(notebookContainer["volumeMounts"].([]any), platformTokenNotebookVolumeMount())
@@ -600,59 +516,8 @@ func (w *worker) CreateNotebook() error {
 		}
 	}
 
-	// Add nodeSelector for CPU or GPU notebooks
-	if utils.CheckGPUResource(nb.GPUType, nb.GPURequest, nb.GPULimit) {
-		// Use the user-selected instance type from DB, fallback to env default
-		gpuInstanceType := ""
-		if nb.InstanceType != nil && strings.TrimSpace(*nb.InstanceType) != "" {
-			gpuInstanceType = strings.TrimSpace(*nb.InstanceType)
-		} else if strings.TrimSpace(w.app.env.GPU_NODE_INSTANCE_TYPES) != "" {
-			parts := strings.Split(w.app.env.GPU_NODE_INSTANCE_TYPES, ",")
-			for _, p := range parts {
-				p = strings.TrimSpace(p)
-				if p != "" {
-					gpuInstanceType = p
-					break
-				}
-			}
-		} else if strings.TrimSpace(w.app.env.GPU_NODE_INSTANCE_TYPE) != "" {
-			gpuInstanceType = strings.TrimSpace(w.app.env.GPU_NODE_INSTANCE_TYPE)
-		}
-		if gpuInstanceType == "" {
-			return fmt.Errorf("no GPU node instance type configured: set notebook.instance_type in DB or configure WORKER_GPU_NODE_INSTANCE_TYPES (or legacy WORKER_GPU_NODE_INSTANCE_TYPE)")
-		}
-		specTemplateSpec["nodeSelector"] = map[string]any{
-			"node.kubernetes.io/instance-type": gpuInstanceType,
-		}
-	} else {
-		cpuInstanceTypes := make([]string, 0)
-		for _, p := range strings.Split(w.app.env.CPU_NODE_INSTANCE_TYPES, ",") {
-			p = strings.TrimSpace(p)
-			if p != "" {
-				cpuInstanceTypes = append(cpuInstanceTypes, p)
-			}
-		}
-		if len(cpuInstanceTypes) == 0 {
-			return fmt.Errorf("no CPU node instance types configured: set WORKER_CPU_NODE_INSTANCE_TYPES with at least one instance type")
-		}
-
-		specTemplateSpec["affinity"] = map[string]any{
-			"nodeAffinity": map[string]any{
-				"requiredDuringSchedulingIgnoredDuringExecution": map[string]any{
-					"nodeSelectorTerms": []any{
-						map[string]any{
-							"matchExpressions": []any{
-								map[string]any{
-									"key":      "node.kubernetes.io/instance-type",
-									"operator": "In",
-									"values":   cpuInstanceTypes,
-								},
-							},
-						},
-					},
-				},
-			},
-		}
+	if err := w.applyScheduling(specTemplateSpec); err != nil {
+		return err
 	}
 
 	notebookObj := &unstructured.Unstructured{
@@ -757,38 +622,6 @@ func (w *worker) DeletePod(podName string) error {
 				return constants.RetryStop, nil
 			}
 			logger.Warn("failed to delete pod, will retry", "error", err)
-			return constants.RetryContinue, err
-		}
-		return constants.RetryStop, nil
-	})
-	return err
-}
-
-func (w *worker) DeletePVC() error {
-	namespace := w.notebook.Namespace
-	pvcName := w.notebook.PVCname
-	logger := w.logger.With("operation", "DeletePVC", "namespace", namespace, "name", pvcName)
-
-	ctx, cancel := WithTimeoutContext(context.Background(), K8sDeletionTimeout)
-	defer cancel()
-
-	pvcGVR := schema.GroupVersionResource{
-		Group:    "",
-		Version:  "v1",
-		Resource: "persistentvolumeclaims",
-	}
-
-	deletePolicy := metav1.DeletePropagationBackground
-	deleteOptions := metav1.DeleteOptions{
-		PropagationPolicy: &deletePolicy,
-	}
-
-	err := WithK8sRetry(ctx, logger, func() (constants.ShouldContinue, error) {
-		err := w.app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Delete(ctx, pvcName, deleteOptions)
-		if err != nil {
-			if k8serrors.IsNotFound(err) {
-				return constants.RetryStop, nil
-			}
 			return constants.RetryContinue, err
 		}
 		return constants.RetryStop, nil

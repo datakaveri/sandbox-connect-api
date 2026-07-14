@@ -61,8 +61,8 @@ func (app *application) worker(ctx context.Context) {
 					logger.Info("Successfully deleted upload pod during cleanup")
 				}
 			*/
-			if err := worker.DeletePVC(); err != nil {
-				logger.Error("Failed to delete PVC during cleanup", "error", err)
+			if err := worker.DeletePreparedManagedPVCs(); err != nil {
+				logger.Error("Failed to delete managed PVCs during cleanup", "error", err)
 			}
 			logger.Info("Successfully cleaned up")
 		}
@@ -73,8 +73,8 @@ func (app *application) worker(ctx context.Context) {
 
 	defer cleanupResources(failedPtr)
 
-	if err := worker.CreatePVC(); err != nil {
-		logger.Error("failed to create pv", "error", err)
+	if err := worker.PreparePVCMounts(); err != nil {
+		logger.Error("failed to prepare configured PVC mounts", "error", err)
 		queryErr := worker.NotebookStatusUpdate(notebook.ID, constants.StatusPVCApplyFailed)
 		if queryErr != nil {
 			logger.Error("failed to update notebook status", "error", queryErr, "status", constants.StatusPVCApplyFailed)

@@ -25,6 +25,8 @@ spec:
         - configMapRef:
             name: sandbox-worker-config
         env:
+        - name: WORKER_RUNTIME_CONFIG_PATH
+          value: "/etc/sandbox-worker/runtime/runtime-config.yaml"
         - name: WORKER_POSTGRES_URL
           valueFrom:
             secretKeyRef:
@@ -68,6 +70,17 @@ spec:
           requests:
             cpu: "100m"
             memory: "128Mi"
+        volumeMounts:
+        - name: runtime-config
+          mountPath: /etc/sandbox-worker/runtime
+          readOnly: true
+      volumes:
+      - name: runtime-config
+        configMap:
+          name: sandbox-worker-runtime-config
+          items:
+          - key: runtime-config.yaml
+            path: runtime-config.yaml
 ---
 apiVersion: v1
 kind: Service 
