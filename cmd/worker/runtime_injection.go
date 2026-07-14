@@ -97,8 +97,12 @@ fi
 `
 }
 
-func (w *worker) buildRuntimeInjectionPod(podName string) *unstructured.Unstructured {
+func (w *worker) buildRuntimeInjectionPod(podName string) (*unstructured.Unstructured, error) {
 	nb := w.notebook
+	workspace, ok := w.workspacePVCMount()
+	if !ok {
+		return nil, fmt.Errorf("runtime injection requires a configured workspace PVC mount")
+	}
 	env := []any{}
 	if nonEmptyString(nb.FileURL) {
 		env = append(env,
@@ -124,6 +128,30 @@ func (w *worker) buildRuntimeInjectionPod(podName string) *unstructured.Unstruct
 		})
 	}
 
+	podSpec := map[string]any{
+		"restartPolicy": "Never",
+		"volumes": []any{map[string]any{
+			"name": workspace.Name,
+			"persistentVolumeClaim": map[string]any{
+				"claimName": workspace.ClaimName,
+			},
+		}},
+		"containers": []any{map[string]any{
+			"name":    "runtime-injector",
+			"image":   w.app.env.RUNTIME_INJECTOR_IMAGE,
+			"command": []any{"/bin/sh", "-c", buildRuntimeInjectionScript()},
+			"env":     env,
+			"securityContext": map[string]any{
+				"privileged":               false,
+				"allowPrivilegeEscalation": false,
+			},
+			"volumeMounts": []any{resolvedVolumeMountSpec(workspace, "/workspace")},
+		}},
+	}
+	if err := w.applyScheduling(podSpec); err != nil {
+		return nil, err
+	}
+
 	return &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "v1",
 		"kind":       "Pod",
@@ -135,30 +163,8 @@ func (w *worker) buildRuntimeInjectionPod(podName string) *unstructured.Unstruct
 				"sandbox-connect/runtime-injection": "true",
 			},
 		},
-		"spec": map[string]any{
-			"restartPolicy": "Never",
-			"volumes": []any{map[string]any{
-				"name": "data-volume",
-				"persistentVolumeClaim": map[string]any{
-					"claimName": nb.PVCname,
-				},
-			}},
-			"containers": []any{map[string]any{
-				"name":    "runtime-injector",
-				"image":   w.app.env.RUNTIME_INJECTOR_IMAGE,
-				"command": []any{"/bin/sh", "-c", buildRuntimeInjectionScript()},
-				"env":     env,
-				"securityContext": map[string]any{
-					"privileged":               false,
-					"allowPrivilegeEscalation": false,
-				},
-				"volumeMounts": []any{map[string]any{
-					"name":      "data-volume",
-					"mountPath": "/workspace",
-				}},
-			}},
-		},
-	}}
+		"spec": podSpec,
+	}}, nil
 }
 
 func (w *worker) CreateRuntimeInjectionPod(podName string) error {
@@ -166,7 +172,10 @@ func (w *worker) CreateRuntimeInjectionPod(podName string) error {
 	ctx, cancel := WithTimeoutContext(context.Background(), K8sCreationTimeout)
 	defer cancel()
 
-	pod := w.buildRuntimeInjectionPod(podName)
+	pod, err := w.buildRuntimeInjectionPod(podName)
+	if err != nil {
+		return err
+	}
 	return WithK8sRetry(ctx, logger, func() (constants.ShouldContinue, error) {
 		_, err := w.app.k8sClient.Dynamic.Resource(runtimeInjectionPodGVR).Namespace(w.notebook.Namespace).Create(ctx, pod, metav1.CreateOptions{})
 		if k8serrors.IsAlreadyExists(err) {

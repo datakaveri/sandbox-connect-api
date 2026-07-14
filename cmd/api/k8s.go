@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sandbox-backend-service/pkg/constants"
+	sandboxk8s "sandbox-backend-service/pkg/k8s"
 	"time"
 
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -192,6 +193,10 @@ func (app *application) deletePVCFromK8s(ctx context.Context, logger *slog.Logge
 		}
 		return constants.RetryContinue, err
 	})
+}
+
+func (app *application) deleteManagedPVCsFromK8s(ctx context.Context, namespace, notebookName string) error {
+	return sandboxk8s.DeleteManagedNotebookPVCs(ctx, app.k8sClient.Dynamic, namespace, notebookName)
 }
 
 func (app *application) getNotebookJSON(ctx context.Context, logger *slog.Logger, namespace, notebookName string) (*unstructured.Unstructured, error) {

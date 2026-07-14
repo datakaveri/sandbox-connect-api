@@ -170,7 +170,8 @@ curl https://<api-host>/v1/health
 
 ### 2. Worker
 
-Edit `infra/worker/configmap.yaml` with your notebook images and instance types, then:
+Edit `infra/worker/configmap.yaml` with your notebook images and the CPU/GPU
+runtime policy, then:
 
 ```bash
 kubectl apply -f infra/worker/configmap.yaml
@@ -178,6 +179,12 @@ kubectl apply -f infra/worker/deployment.yaml
 ```
 
 The worker polls the database every second. No external traffic — it communicates only with Postgres and the K8s API.
+
+The runtime policy controls node selectors, affinity, tolerations, and the exact
+PVC list mounted into each CPU or GPU sandbox. Existing PVC entries must be
+provisioned in each user namespace before a required mount can be used. See
+[`infra/worker/README.md`](infra/worker/README.md) for the schema, ownership and
+cleanup behavior, optional mounts, and rollout order.
 
 ### 3. Slot Lifecycle
 
@@ -249,9 +256,10 @@ Runs every 15 minutes. Uses `ConcurrencyPolicy: Forbid`.
 | `WORKER_S3_ACCESS_KEY` | yes | — | AWS access key |
 | `WORKER_S3_SECRET_KEY` | yes | — | AWS secret key |
 | `WORKER_S3_TEMPLATE_BUCKET_NAME` | yes | — | S3 bucket for notebook templates |
-| `WORKER_STORAGE_CLASS_NAME` | yes | — | K8s storage class for PVCs |
-| `WORKER_CPU_NODE_INSTANCE_TYPES` | yes | — | Comma-separated CPU instance types |
-| `WORKER_GPU_NODE_INSTANCE_TYPES` | yes | — | Comma-separated GPU instance types |
+| `WORKER_RUNTIME_CONFIG_PATH` | no | — | Mounted CPU/GPU scheduling and PVC policy; recommended for new deployments |
+| `WORKER_STORAGE_CLASS_NAME` | legacy | — | Required only when no runtime config path is set |
+| `WORKER_CPU_NODE_INSTANCE_TYPES` | legacy | — | Required only when no runtime config path is set |
+| `WORKER_GPU_NODE_INSTANCE_TYPES` | legacy | — | GPU fallback used only when no runtime config path is set |
 | `WORKER_KUBE_CONFIG_MODE` | no | `cluster` | `cluster` or `local` |
 | `WORKER_IMAGE_PULL_ENABLED` | no | `false` | Pull images via ECR credentials |
 | `WORKER_ECR_SECRET_NAME` | no | — | K8s secret name for ECR pull |
