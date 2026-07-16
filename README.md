@@ -106,6 +106,50 @@ CPU notebook downloads use a delegated Keycloak session; browser refresh tokens 
 6. Add `sandbox-notebook` as an access-token audience on the browser client; Keycloak rejects exchange when the requester is outside the subject token audience.
 7. Keep full-scope inheritance disabled on the notebook client and explicitly scope only the file-service roles and claims it needs, such as `consumer`, `provider`, and organisation identifiers.
 
+### Add the notebook audience to the browser client
+
+The browser/client application token must include `sandbox-notebook` in the access-token `aud` claim before Keycloak will allow Sandbox Connect to exchange it for a delegated notebook token. For the default browser client `angular-client`, configure this in Keycloak:
+
+1. Open the Keycloak Admin Console and select the target realm.
+2. Go to **Clients** and open `angular-client`.
+3. Go to **Client scopes**.
+4. Open the dedicated client scope for the browser client. In recent Keycloak versions this is usually named `angular-client-dedicated`.
+5. Open the **Mappers** tab.
+6. Select **Configure a new mapper**.
+7. Select the mapper type **Audience**.
+8. Configure the mapper:
+
+   | Field | Value |
+   |---|---|
+   | `Name` | `sandbox-notebook-audience` |
+   | `Included Client Audience` | `sandbox-notebook` |
+   | `Add to access token` | `On` |
+   | `Add to ID token` | `Off` |
+
+9. Save the mapper.
+10. Log in again from the frontend so the browser receives a fresh access token.
+11. Decode the new access token and confirm the `aud` claim contains `sandbox-notebook`.
+
+Expected access-token claim:
+
+```json
+{
+  "azp": "angular-client",
+  "aud": ["sandbox-notebook"]
+}
+```
+
+If the token already has other audiences, `sandbox-notebook` should appear alongside them:
+
+```json
+{
+  "azp": "angular-client",
+  "aud": ["account", "sandbox-notebook"]
+}
+```
+
+Prefer adding this mapper to the browser client's dedicated scope when every `angular-client` token should support notebook token exchange. If the mapper is added through an optional client scope instead, the frontend must request that optional scope during login; otherwise the `aud` claim will not include `sandbox-notebook`.
+
 The API authentication realm, sidecar token URL, and file API must form one compatible trust chain. Configure every deployment explicitly; do not reuse another environment's file API URL as a fallback.
 
 The frontend creates the session with a bodyless authenticated `POST /v1/bookings/{id}/notebook-token-session`. The sidecar persists rotated refresh tokens with `PUT` to the same path. Only notebook-client access tokens may use `PUT`.
