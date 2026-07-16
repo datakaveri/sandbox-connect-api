@@ -1213,7 +1213,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 
 		nb.Status = determineNotebookState(latestEvent, k8sObject)
 		if nb.Status == NotebookStateRunning {
-			nb.URL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, nb.Namespace, nb.Name, nb.ImageName, app.env.NotebookConfig.DisableInit)
+			nb.URL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, nb.Namespace, nb.Name, nb.ImageName, app.env.NotebookConfig.DisableInit, app.env.NotebookConfig.StartupNotebookFilename)
 		}
 		if booking, ok := bookingByNotebookID[nb.ID]; ok {
 			nb.Booking = booking
@@ -1334,7 +1334,7 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 	status.Status = determineNotebookState(latestEvent, k8sObject)
 
 	if status.Status == NotebookStateRunning {
-		status.URL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, status.Namespace, status.Name, status.ImageName, app.env.NotebookConfig.DisableInit)
+		status.URL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, status.Namespace, status.Name, status.ImageName, app.env.NotebookConfig.DisableInit, app.env.NotebookConfig.StartupNotebookFilename)
 	}
 
 	if app.env.BookingsEnabled && bookingID != nil {

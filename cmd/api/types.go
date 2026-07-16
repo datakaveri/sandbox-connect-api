@@ -134,9 +134,14 @@ type NotebookConfig struct {
 	KubeFlowURL              string `env:"API_KUBEFLOW_URL,required"`
 	DefaultNotebookListLimit int    `env:"API_NOTEBOOK_LIST_LIMIT"`
 
+	// StartupNotebookFilename is the file a notebook URL opens by default. When
+	// empty the URL opens the JupyterLab file browser instead. Images with a
+	// known skeletal notebook override it in generateNotebookURL.
+	StartupNotebookFilename string `env:"API_STARTUP_NOTEBOOK_FILENAME" envDefault:""`
+
 	// DisableInit mirrors WORKER_DISABLE_INIT: when init containers are skipped,
-	// no demo.ipynb exists on the PVC, so notebook URLs point to the JupyterLab
-	// auto workspace instead of a demo notebook file.
+	// no startup notebook exists on the PVC, so notebook URLs point to the
+	// JupyterLab auto workspace instead of a notebook file.
 	DisableInit bool `env:"API_DISABLE_INIT" envDefault:"false"`
 
 	MaxRunningCPU int `env:"API_MAX_RUNNING_CPU"`

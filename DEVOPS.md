@@ -228,6 +228,7 @@ Runs every 15 minutes. Uses `ConcurrencyPolicy: Forbid`.
 | `API_KYC_ENABLED` | yes | — | Enable KYC check (`true`/`false`) |
 | `API_KUBEFLOW_URL` | yes | — | Kubeflow dashboard URL |
 | `SLOT_CONFIG_PROFILE` | yes | — | Slot config profile name (`production`) |
+| `API_STARTUP_NOTEBOOK_FILENAME` | no | `""` | Notebook file `notebookUrl` opens; empty opens the file browser |
 | `API_KUBE_CONFIG_MODE` | no | `cluster` | `cluster` (in-cluster) or `local` |
 | `API_KUBE_CONFIG_PATH` | no | `""` | Path to kubeconfig (local mode only) |
 | `API_LOG_LEVEL` | no | `info` | `debug`, `info`, `warn`, `error` |

@@ -125,6 +125,54 @@ func TestValidateNotebookName(t *testing.T) {
 	}
 }
 
+func TestGenerateNotebookURL(t *testing.T) {
+	ps1Image := "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps1-v3"
+
+	tests := []struct {
+		name        string
+		imageName   *string
+		disableInit bool
+		startupFile string
+		expected    string
+	}{
+		{
+			name:     "Opens the file browser when unconfigured",
+			expected: "https://sandbox.example.com/notebook/ns/nb/lab/tree",
+		},
+		{
+			name:        "Uses configured startup notebook",
+			startupFile: "starter.ipynb",
+			expected:    "https://sandbox.example.com/notebook/ns/nb/lab/tree/starter.ipynb",
+		},
+		{
+			name:      "Image override applies without a configured startup notebook",
+			imageName: &ps1Image,
+			expected:  "https://sandbox.example.com/notebook/ns/nb/lab/tree/nha_ps1_skeletal_notebook_main.ipynb",
+		},
+		{
+			name:        "Image override wins over configured startup notebook",
+			imageName:   &ps1Image,
+			startupFile: "starter.ipynb",
+			expected:    "https://sandbox.example.com/notebook/ns/nb/lab/tree/nha_ps1_skeletal_notebook_main.ipynb",
+		},
+		{
+			name:        "Init disabled points at the auto workspace",
+			disableInit: true,
+			startupFile: "starter.ipynb",
+			expected:    "https://sandbox.example.com/notebook/ns/nb/lab/workspaces/auto-s",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := generateNotebookURL("https://sandbox.example.com", "ns", "nb", tt.imageName, tt.disableInit, tt.startupFile)
+			if got != tt.expected {
+				t.Errorf("generateNotebookURL() = %q, expected %q", got, tt.expected)
+			}
+		})
+	}
+}
+
 func TestMaxContinuousSlotSelectionMessage(t *testing.T) {
 	tests := []struct {
 		name  string
