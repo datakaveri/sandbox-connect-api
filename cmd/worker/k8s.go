@@ -507,6 +507,9 @@ func (w *worker) CreateNotebook() error {
 		"serviceAccountName":           "default-editor",
 		"automountServiceAccountToken": false,
 	}
+	if securityContext := w.policy.SecurityContext.ToPodSpec(); len(securityContext) > 0 {
+		specTemplateSpec["securityContext"] = securityContext
+	}
 
 	if w.app.env.IMAGE_PULL_ENABLED && w.app.env.ECR_SECRET_NAME != "" {
 		specTemplateSpec["imagePullSecrets"] = []any{

@@ -4,8 +4,6 @@ metadata:
   name: sandbox-worker-runtime-config
   namespace: sandbox
 data:
-  # Versioned worker policy. Project-specific mounts belong here rather than
-  # in worker code; other deployments may define fewer or no external mounts.
   runtime-config.yaml: |
     apiVersion: sandbox-connect/v1alpha1
     defaults:
@@ -22,12 +20,17 @@ data:
                       - key: node.kubernetes.io/instance-type
                         operator: In
                         values:
-                          - t3a.large
-                          - t3a.2xlarge
-                          - c5a.4xlarge
+                          - cpu
           tolerations: []
           instanceTypeOverride:
             enabled: false
+        securityContext:
+          runAsUser: 1000
+          runAsGroup: 100
+          runAsNonRoot: true
+          fsGroup: 100
+          supplementalGroups:
+            - 4001
         pvcMounts:
           - name: user-data
             mountPath: /home/jovyan
@@ -39,34 +42,12 @@ data:
               claimNameTemplate: "{pvcName}"
               retentionPolicy: DeleteWithNotebook
               spec:
-                storageClassName: rook-ceph
+                storageClassName: ceph-block
                 accessModes: [ReadWriteOnce]
                 volumeMode: Filesystem
                 resources:
                   requests:
                     storage: "{storageSize}"
-          - name: uploads
-            mountPath: /mnt/uploads
-            required: true
-            readOnly: false
-            source:
-              type: existing
-              claimNameTemplate: sandbox-uploads
-              waitForBound: true
-              expected:
-                accessModes: [ReadWriteMany]
-                volumeMode: Filesystem
-          - name: artifacts
-            mountPath: /mnt/artifacts
-            required: true
-            readOnly: false
-            source:
-              type: existing
-              claimNameTemplate: sandbox-artifacts
-              waitForBound: true
-              expected:
-                accessModes: [ReadWriteMany]
-                volumeMode: Filesystem
           - name: cbr-nfs
             mountPath: /mnt/cbr
             required: true
@@ -80,8 +61,7 @@ data:
                 volumeMode: Filesystem
       gpu:
         scheduling:
-          nodeSelector:
-            node.kubernetes.io/instance-type: g4dn.xlarge
+          nodeSelector: {}
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:
@@ -90,14 +70,20 @@ data:
                       - key: node.kubernetes.io/instance-type
                         operator: In
                         values:
-                          - g4dn.xlarge
-                          - p4d.24xlarge
-                          - p5.48xlarge
+                          - gpu
+                          - aic
           tolerations: []
           instanceTypeOverride:
             enabled: true
             selectorKey: node.kubernetes.io/instance-type
             required: false
+        securityContext:
+          runAsUser: 1000
+          runAsGroup: 100
+          runAsNonRoot: true
+          fsGroup: 100
+          supplementalGroups:
+            - 4001
         pvcMounts:
           - name: user-data
             mountPath: /home/jovyan
@@ -109,34 +95,12 @@ data:
               claimNameTemplate: "{pvcName}"
               retentionPolicy: DeleteWithNotebook
               spec:
-                storageClassName: rook-ceph
+                storageClassName: ceph-block
                 accessModes: [ReadWriteOnce]
                 volumeMode: Filesystem
                 resources:
                   requests:
                     storage: "{storageSize}"
-          - name: uploads
-            mountPath: /mnt/uploads
-            required: true
-            readOnly: false
-            source:
-              type: existing
-              claimNameTemplate: sandbox-uploads
-              waitForBound: true
-              expected:
-                accessModes: [ReadWriteMany]
-                volumeMode: Filesystem
-          - name: artifacts
-            mountPath: /mnt/artifacts
-            required: true
-            readOnly: false
-            source:
-              type: existing
-              claimNameTemplate: sandbox-artifacts
-              waitForBound: true
-              expected:
-                accessModes: [ReadWriteMany]
-                volumeMode: Filesystem
           - name: cbr-nfs
             mountPath: /mnt/cbr
             required: true
@@ -155,20 +119,18 @@ metadata:
   name: sandbox-worker-config
   namespace: sandbox
 data:
-  WORKER_CPU_NOTEBOOK_IMAGE: "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:latest"
-  WORKER_GPU_NOTEBOOK_IMAGE: "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-gpu-notebook:latest"
-  WORKER_INIT_CONTAINER_IMAGE: "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/demo-notebook-file:mahaagx"
-  WORKER_RUNTIME_INJECTOR_IMAGE: "alpine/git:2.45.2"
-  WORKER_PLATFORM_TOKEN_SIDECAR_IMAGE: "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/platform-token-sidecar:latest"
-  WORKER_PLATFORM_FILE_API_BASE_URL: "https://mahaagx.maharashtra.gov.in/files-connect-api"
-  # Must use the same realm and notebook client configured by the API token exchange.
-  WORKER_PLATFORM_KEYCLOAK_TOKEN_URL: "https://idp.tgdex.telangana.gov.in/auth/realms/tgdex/protocol/openid-connect/token"
-  WORKER_PLATFORM_KEYCLOAK_CLIENT_ID: "sandbox-notebook"
-  WORKER_PLATFORM_SANDBOX_CONNECT_API_BASE_URL: "https://api.sandbox.tgdex.telangana.gov.in"
+  WORKER_CPU_NOTEBOOK_IMAGE: "registry.analytics.cbr-iisc.ac.in/cbr/data-access-sandbox-cpu-notebook:v3.7-fat"
+  WORKER_GPU_NOTEBOOK_IMAGE: "registry.analytics.cbr-iisc.ac.in/cbr/data-access-sandbox-gpu-notebook:v3.7-fat"
+  WORKER_INIT_CONTAINER_IMAGE: "registry.analytics.cbr-iisc.ac.in/cbr/test-notebook-file:v1.2-b42d188"
   WORKER_IMAGE_PULL_ENABLED: "true"
-  WORKER_ECR_SECRET_NAME: "v2-registry-cred"
-  WORKER_GPU_NODE_INSTANCE_TYPES: "g4dn.xlarge,p4d.24xlarge,p5.48xlarge"
-  WORKER_GPU_NODE_INSTANCE_TYPE: "g4dn.xlarge"
-  # Include types that exist in the cluster (label node.kubernetes.io/instance-type).
-  # Sandbox uses t3a.large general nodes; add larger types for prod CPU pools.
-  WORKER_CPU_NODE_INSTANCE_TYPES: "t3a.large,t3a.2xlarge,c5a.4xlarge"
+  WORKER_ECR_SECRET_NAME: "registry-cred"
+  WORKER_GPU_NODE_INSTANCE_TYPE: "gpu"
+  WORKER_GPU_NODE_INSTANCE_TYPES: "gpu,aic"
+  WORKER_CPU_NODE_INSTANCE_TYPES: "cpu"
+  WORKER_STORAGE_CLASS_NAME: "ceph-block"
+  WORKER_DISABLE_INIT: "false"
+  WORKER_PLATFORM_FILE_API_BASE_URL: "https://files.cbr-iisc.ac.in"
+  WORKER_PLATFORM_KEYCLOAK_CLIENT_ID: "sandbox-notebook"
+  WORKER_PLATFORM_KEYCLOAK_TOKEN_URL: "https://keycloak.cbr-iisc.ac.in/auth/realms/cbr/protocol/openid-connect/token"
+  WORKER_PLATFORM_SANDBOX_CONNECT_API_BASE_URL: "https://api-sandbox.cbr-iisc.ac.in/api"
+  WORKER_PLATFORM_TOKEN_SIDECAR_IMAGE: "ghcr.io/datakaveri/platform-token-sidecar:1.0.1-e07b220"

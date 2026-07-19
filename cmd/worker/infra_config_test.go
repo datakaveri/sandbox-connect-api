@@ -59,8 +59,12 @@ func TestCheckedInWorkerRuntimeConfig(t *testing.T) {
 			t.Errorf("checked-in runtime config is missing %s policy", workload)
 			continue
 		}
-		if len(policy.PVCMounts) != 4 {
-			t.Errorf("checked-in %s policy has %d PVC mounts, want 4", workload, len(policy.PVCMounts))
+		if len(policy.PVCMounts) != 2 {
+			t.Errorf("checked-in %s policy has %d PVC mounts, want 2", workload, len(policy.PVCMounts))
+		}
+		groups := policy.SecurityContext.SupplementalGroups
+		if len(groups) != 1 || groups[0] != 4001 {
+			t.Errorf("checked-in %s policy supplementalGroups = %#v, want [4001]", workload, groups)
 		}
 	}
 }

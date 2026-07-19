@@ -26,6 +26,13 @@ workloads:
     scheduling:
       nodeSelector:
         workload: cpu
+    securityContext:
+      runAsUser: 1000
+      runAsGroup: 100
+      runAsNonRoot: true
+      fsGroup: 100
+      supplementalGroups:
+        - 4001
     pvcMounts:
       - name: datasets
         mountPath: /mnt/datasets
@@ -45,6 +52,13 @@ workloads:
 	}
 	if cfg.Workloads["cpu"].PVCMounts[0].IsRequired() {
 		t.Fatal("expected datasets mount to be optional")
+	}
+	securityContext := cfg.Workloads["cpu"].SecurityContext
+	if securityContext.RunAsUser == nil || *securityContext.RunAsUser != 1000 {
+		t.Fatalf("unexpected runAsUser: %#v", securityContext.RunAsUser)
+	}
+	if len(securityContext.SupplementalGroups) != 1 || securityContext.SupplementalGroups[0] != 4001 {
+		t.Fatalf("unexpected supplemental groups: %#v", securityContext.SupplementalGroups)
 	}
 }
 
@@ -72,6 +86,21 @@ workloads:
 	_, err := LoadRuntimeConfig(Env{RuntimeConfigPath: path})
 	if err == nil || !strings.Contains(err.Error(), "unknown field") {
 		t.Fatalf("expected unknown-field error, got %v", err)
+	}
+}
+
+func TestLoadRuntimeConfigRejectsNegativeSupplementalGroup(t *testing.T) {
+	path := writeRuntimeConfigTestFile(t, `
+apiVersion: sandbox-connect/v1alpha1
+workloads:
+  cpu:
+    securityContext:
+      supplementalGroups:
+        - -1
+`)
+	_, err := LoadRuntimeConfig(Env{RuntimeConfigPath: path})
+	if err == nil || !strings.Contains(err.Error(), "supplementalGroups[0] must be non-negative") {
+		t.Fatalf("expected supplemental group validation error, got %v", err)
 	}
 }
 

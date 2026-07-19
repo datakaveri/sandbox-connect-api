@@ -46,8 +46,19 @@ type RuntimeConfigDefaults struct {
 }
 
 type WorkloadPolicy struct {
-	Scheduling SchedulingPolicy `json:"scheduling,omitempty"`
-	PVCMounts  []PVCMountConfig `json:"pvcMounts,omitempty"`
+	Scheduling      SchedulingPolicy        `json:"scheduling,omitempty"`
+	SecurityContext PodSecurityContextConfig `json:"securityContext,omitempty"`
+	PVCMounts       []PVCMountConfig        `json:"pvcMounts,omitempty"`
+}
+
+// PodSecurityContextConfig contains the pod-level security context applied to
+// generated Notebook pods. Pointer fields preserve omitted values.
+type PodSecurityContextConfig struct {
+	RunAsUser          *int64  `json:"runAsUser,omitempty"`
+	RunAsGroup         *int64  `json:"runAsGroup,omitempty"`
+	RunAsNonRoot       *bool   `json:"runAsNonRoot,omitempty"`
+	FSGroup            *int64  `json:"fsGroup,omitempty"`
+	SupplementalGroups []int64 `json:"supplementalGroups,omitempty"`
 }
 
 type SchedulingPolicy struct {
@@ -253,6 +264,10 @@ func validateWorkloadPolicy(workload string, policy WorkloadPolicy) error {
 			return fmt.Errorf("workload %s has invalid nodeSelector value %q: %s", workload, value, strings.Join(errs, ", "))
 		}
 	}
+	if err := validatePodSecurityContext(workload, policy.SecurityContext); err != nil {
+		return err
+	}
+
 	if override := policy.Scheduling.InstanceTypeOverride; override.Enabled {
 		if strings.TrimSpace(override.SelectorKey) == "" {
 			return fmt.Errorf("workload %s instanceTypeOverride.selectorKey is required when enabled", workload)
@@ -325,6 +340,48 @@ func validateWorkloadPolicy(workload string, policy WorkloadPolicy) error {
 		return fmt.Errorf("workload %s defines more than one workspace PVC mount", workload)
 	}
 	return nil
+}
+
+func validatePodSecurityContext(workload string, cfg PodSecurityContextConfig) error {
+	for field, value := range map[string]*int64{
+		"runAsUser":  cfg.RunAsUser,
+		"runAsGroup": cfg.RunAsGroup,
+		"fsGroup":    cfg.FSGroup,
+	} {
+		if value != nil && *value < 0 {
+			return fmt.Errorf("workload %s securityContext.%s must be non-negative", workload, field)
+		}
+	}
+	for i, group := range cfg.SupplementalGroups {
+		if group < 0 {
+			return fmt.Errorf("workload %s securityContext.supplementalGroups[%d] must be non-negative", workload, i)
+		}
+	}
+	return nil
+}
+
+func (cfg PodSecurityContextConfig) ToPodSpec() map[string]any {
+	securityContext := map[string]any{}
+	if cfg.RunAsUser != nil {
+		securityContext["runAsUser"] = *cfg.RunAsUser
+	}
+	if cfg.RunAsGroup != nil {
+		securityContext["runAsGroup"] = *cfg.RunAsGroup
+	}
+	if cfg.RunAsNonRoot != nil {
+		securityContext["runAsNonRoot"] = *cfg.RunAsNonRoot
+	}
+	if cfg.FSGroup != nil {
+		securityContext["fsGroup"] = *cfg.FSGroup
+	}
+	if len(cfg.SupplementalGroups) > 0 {
+		groups := make([]any, len(cfg.SupplementalGroups))
+		for i, group := range cfg.SupplementalGroups {
+			groups[i] = group
+		}
+		securityContext["supplementalGroups"] = groups
+	}
+	return securityContext
 }
 
 func (cfg RuntimeConfig) ExternalPVCWaitTimeout() (time.Duration, error) {
