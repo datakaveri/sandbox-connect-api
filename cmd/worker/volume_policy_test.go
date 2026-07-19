@@ -144,3 +144,26 @@ func TestExternalPVCWaitTimeoutParses(t *testing.T) {
 		t.Fatalf("unexpected timeout: %v %v", got, err)
 	}
 }
+
+func TestPreparePVCMountsIncludesDirectNFSWithoutPVC(t *testing.T) {
+	cfg := RuntimeConfig{
+		APIVersion: runtimeConfigAPIVersion,
+		Workloads: map[string]WorkloadPolicy{"cpu": {
+			PVCMounts: []PVCMountConfig{{
+				Name: "cbr-sanscog", MountPath: "/mnt/cbr/SANSCOG", ReadOnly: true,
+				Source: PVCSourceConfig{Type: nfsVolumeSourceType, NFS: &NFSVolumeConfig{Server: "10.0.0.91", Path: "/gpfs/data/tata"}},
+			}},
+		}},
+	}
+	w := newVolumePolicyTestWorker(t, cfg)
+	if err := w.PreparePVCMounts(); err != nil {
+		t.Fatalf("PreparePVCMounts returned error: %v", err)
+	}
+	if len(w.resolvedPVCMounts) != 1 {
+		t.Fatalf("unexpected mounts: %#v", w.resolvedPVCMounts)
+	}
+	mount := w.resolvedPVCMounts[0]
+	if mount.NFS == nil || mount.NFS.Server != "10.0.0.91" || mount.ClaimName != "" {
+		t.Fatalf("unexpected NFS mount: %#v", mount)
+	}
+}

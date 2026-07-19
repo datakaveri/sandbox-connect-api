@@ -48,17 +48,26 @@ data:
                 resources:
                   requests:
                     storage: "{storageSize}"
-          - name: cbr-nfs
-            mountPath: /mnt/cbr
+          - name: cbr-sanscog
+            mountPath: /mnt/cbr/SANSCOG
             required: true
             readOnly: true
             source:
-              type: existing
-              claimNameTemplate: cbr-nfs
-              waitForBound: true
-              expected:
-                accessModes: [ReadWriteMany]
-                volumeMode: Filesystem
+              type: nfs
+              nfs:
+                server: 10.0.0.91
+                path: /gpfs/data/tata/Neuroimaging_Lab/SANSCOG_MRI_Scan/New_scans_sanscog_IISc
+                readOnly: true
+          - name: cbr-tlsa
+            mountPath: /mnt/cbr/TLSA
+            required: true
+            readOnly: true
+            source:
+              type: nfs
+              nfs:
+                server: 10.0.0.91
+                path: /gpfs/data/tata/Neuroimaging_Lab/TATA_MRI_Backup/TLSA_MRI_IISc
+                readOnly: true
       gpu:
         scheduling:
           nodeSelector: {}
@@ -101,17 +110,26 @@ data:
                 resources:
                   requests:
                     storage: "{storageSize}"
-          - name: cbr-nfs
-            mountPath: /mnt/cbr
+          - name: cbr-sanscog
+            mountPath: /mnt/cbr/SANSCOG
             required: true
             readOnly: true
             source:
-              type: existing
-              claimNameTemplate: cbr-nfs
-              waitForBound: true
-              expected:
-                accessModes: [ReadWriteMany]
-                volumeMode: Filesystem
+              type: nfs
+              nfs:
+                server: 10.0.0.91
+                path: /gpfs/data/tata/Neuroimaging_Lab/SANSCOG_MRI_Scan/New_scans_sanscog_IISc
+                readOnly: true
+          - name: cbr-tlsa
+            mountPath: /mnt/cbr/TLSA
+            required: true
+            readOnly: true
+            source:
+              type: nfs
+              nfs:
+                server: 10.0.0.91
+                path: /gpfs/data/tata/Neuroimaging_Lab/TATA_MRI_Backup/TLSA_MRI_IISc
+                readOnly: true
 ---
 apiVersion: v1
 kind: ConfigMap

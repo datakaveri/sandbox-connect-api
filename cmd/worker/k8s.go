@@ -468,13 +468,24 @@ func (w *worker) CreateNotebook() error {
 	volumes := make([]any, 0, len(w.resolvedPVCMounts))
 	for _, mount := range w.resolvedPVCMounts {
 		notebookVolumeMounts = append(notebookVolumeMounts, resolvedVolumeMountSpec(mount, mount.MountPath))
-		volumes = append(volumes, map[string]any{
-			"name": mount.Name,
-			"persistentVolumeClaim": map[string]any{
+		volume := map[string]any{"name": mount.Name}
+		if mount.NFS != nil {
+			readOnly := mount.ReadOnly
+			if mount.NFS.ReadOnly != nil {
+				readOnly = *mount.NFS.ReadOnly
+			}
+			volume["nfs"] = map[string]any{
+				"server":   mount.NFS.Server,
+				"path":     mount.NFS.Path,
+				"readOnly": readOnly,
+			}
+		} else {
+			volume["persistentVolumeClaim"] = map[string]any{
 				"claimName": mount.ClaimName,
 				"readOnly":  mount.ReadOnly,
-			},
-		})
+			}
+		}
+		volumes = append(volumes, volume)
 	}
 
 	notebookContainer := map[string]any{

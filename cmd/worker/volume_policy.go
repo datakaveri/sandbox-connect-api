@@ -66,6 +66,10 @@ func (w *worker) PreparePVCMounts() error {
 		if mount.Managed {
 			continue
 		}
+		if mount.NFS != nil {
+			availableMounts[mount.Name] = mount
+			continue
+		}
 		cfg := w.mountConfigByName(mount.Name)
 		available, err := w.waitForExistingPVC(cfg, mount)
 		if err != nil {
@@ -111,9 +115,12 @@ func (w *worker) resolvePVCMounts() ([]ResolvedPVCMount, error) {
 	}
 	resolved := make([]ResolvedPVCMount, 0, len(w.policy.PVCMounts))
 	for _, cfg := range w.policy.PVCMounts {
-		claimName := renderTemplate(cfg.Source.ClaimNameTemplate, values)
-		if errs := validation.IsDNS1123Subdomain(claimName); len(errs) > 0 {
-			return nil, fmt.Errorf("PVC mount %s rendered invalid claim name %q: %s", cfg.Name, claimName, strings.Join(errs, ", "))
+		claimName := ""
+		if cfg.Source.Type != nfsVolumeSourceType {
+			claimName = renderTemplate(cfg.Source.ClaimNameTemplate, values)
+			if errs := validation.IsDNS1123Subdomain(claimName); len(errs) > 0 {
+				return nil, fmt.Errorf("PVC mount %s rendered invalid claim name %q: %s", cfg.Name, claimName, strings.Join(errs, ", "))
+			}
 		}
 		subPath := renderTemplate(cfg.SubPathTemplate, values)
 		if subPath != "" && (pathpkg.IsAbs(subPath) || strings.Contains(subPath, "..") || pathpkg.Clean(subPath) != subPath) {
@@ -130,7 +137,7 @@ func (w *worker) resolvePVCMounts() ([]ResolvedPVCMount, error) {
 		resolved = append(resolved, ResolvedPVCMount{
 			Name: cfg.Name, ClaimName: claimName, MountPath: cfg.MountPath,
 			SubPath: subPath, ReadOnly: cfg.ReadOnly, Workspace: cfg.Workspace,
-			Managed:         cfg.Source.Type == managedPVCSourceType,
+			Managed: cfg.Source.Type == managedPVCSourceType, NFS: cfg.Source.NFS,
 			RetentionPolicy: cfg.Source.RetentionPolicy, Spec: spec,
 		})
 	}

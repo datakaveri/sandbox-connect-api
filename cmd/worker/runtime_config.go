@@ -19,6 +19,7 @@ const (
 	defaultExternalPVCWaitTimeout = 120 * time.Second
 	managedPVCSourceType          = "managed"
 	existingPVCSourceType         = "existing"
+	nfsVolumeSourceType           = "nfs"
 	retentionDeleteWithNotebook   = "DeleteWithNotebook"
 	retentionRetain               = "Retain"
 	defaultLegacyWorkspaceMount   = "data-volume"
@@ -86,11 +87,18 @@ type PVCMountConfig struct {
 
 type PVCSourceConfig struct {
 	Type              string                `json:"type"`
-	ClaimNameTemplate string                `json:"claimNameTemplate"`
+	ClaimNameTemplate string                `json:"claimNameTemplate,omitempty"`
 	WaitForBound      *bool                 `json:"waitForBound,omitempty"`
 	RetentionPolicy   string                `json:"retentionPolicy,omitempty"`
 	Spec              map[string]any        `json:"spec,omitempty"`
 	Expected          *PVCExpectationConfig `json:"expected,omitempty"`
+	NFS               *NFSVolumeConfig      `json:"nfs,omitempty"`
+}
+
+type NFSVolumeConfig struct {
+	Server   string `json:"server"`
+	Path     string `json:"path"`
+	ReadOnly *bool  `json:"readOnly,omitempty"`
 }
 
 type PVCExpectationConfig struct {
@@ -106,6 +114,7 @@ type ResolvedPVCMount struct {
 	ReadOnly        bool
 	Workspace       bool
 	Managed         bool
+	NFS             *NFSVolumeConfig
 	RetentionPolicy string
 	Spec            map[string]any
 }
@@ -302,11 +311,13 @@ func validateWorkloadPolicy(workload string, policy WorkloadPolicy) error {
 				return fmt.Errorf("%s workspace mount must be writable", location)
 			}
 		}
-		if err := validateTemplate(mount.Source.ClaimNameTemplate); err != nil {
-			return fmt.Errorf("%s claimNameTemplate: %w", location, err)
-		}
-		if strings.TrimSpace(mount.Source.ClaimNameTemplate) == "" {
-			return fmt.Errorf("%s claimNameTemplate is required", location)
+		if mount.Source.Type != nfsVolumeSourceType {
+			if err := validateTemplate(mount.Source.ClaimNameTemplate); err != nil {
+				return fmt.Errorf("%s claimNameTemplate: %w", location, err)
+			}
+			if strings.TrimSpace(mount.Source.ClaimNameTemplate) == "" {
+				return fmt.Errorf("%s claimNameTemplate is required", location)
+			}
 		}
 		if mount.SubPathTemplate != "" {
 			if err := validateTemplate(mount.SubPathTemplate); err != nil {
@@ -319,10 +330,13 @@ func validateWorkloadPolicy(workload string, policy WorkloadPolicy) error {
 
 		switch mount.Source.Type {
 		case existingPVCSourceType:
-			if mount.Source.RetentionPolicy != "" || mount.Source.Spec != nil {
-				return fmt.Errorf("%s existing source cannot define retentionPolicy or spec", location)
+			if mount.Source.RetentionPolicy != "" || mount.Source.Spec != nil || mount.Source.NFS != nil {
+				return fmt.Errorf("%s existing source cannot define retentionPolicy, spec, or nfs", location)
 			}
 		case managedPVCSourceType:
+			if mount.Source.NFS != nil {
+				return fmt.Errorf("%s managed source cannot define nfs", location)
+			}
 			if !mount.IsRequired() {
 				return fmt.Errorf("%s managed source cannot be optional", location)
 			}
@@ -332,8 +346,21 @@ func validateWorkloadPolicy(workload string, policy WorkloadPolicy) error {
 			if len(mount.Source.Spec) == 0 {
 				return fmt.Errorf("%s managed source spec is required", location)
 			}
+		case nfsVolumeSourceType:
+			if mount.Source.RetentionPolicy != "" || mount.Source.Spec != nil || mount.Source.Expected != nil || mount.Source.WaitForBound != nil {
+				return fmt.Errorf("%s nfs source cannot define retentionPolicy, spec, expected, or waitForBound", location)
+			}
+			if mount.Source.NFS == nil {
+				return fmt.Errorf("%s nfs source requires nfs", location)
+			}
+			if strings.TrimSpace(mount.Source.NFS.Server) == "" {
+				return fmt.Errorf("%s nfs.server is required", location)
+			}
+			if !pathpkg.IsAbs(mount.Source.NFS.Path) || pathpkg.Clean(mount.Source.NFS.Path) != mount.Source.NFS.Path {
+				return fmt.Errorf("%s nfs.path must be a clean absolute path", location)
+			}
 		default:
-			return fmt.Errorf("%s source.type must be existing or managed", location)
+			return fmt.Errorf("%s source.type must be existing, managed, or nfs", location)
 		}
 	}
 	if workspaceCount > 1 {
