@@ -180,7 +180,7 @@ metadata:
   namespace: {user-namespace}
 spec:
   accessModes: [ReadWriteOnce]
-  storageClassName: {STORAGE_CLASS_NAME}
+  storageClassName: <from the selected Notebook template lifecycle policy>
   resources:
     requests:
       storage: {configured storage size}

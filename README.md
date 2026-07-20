@@ -98,10 +98,10 @@ Notebook lifecycle writes are intentionally not exposed; use booking cancel, ter
 
 CPU notebook downloads use a delegated Keycloak session; browser refresh tokens are never sent to Sandbox Connect.
 
-1. Configure one confidential notebook client. Use the same client ID for `API_PLATFORM_TOKEN_EXCHANGE_CLIENT_ID`, `API_PLATFORM_TOKEN_NOTEBOOK_CLIENT_ID`, and `WORKER_PLATFORM_KEYCLOAK_CLIENT_ID`. Store its secret in `api-creds`.
+1. Configure one confidential notebook client. Use the same client ID for `API_PLATFORM_TOKEN_EXCHANGE_CLIENT_ID`, `API_PLATFORM_TOKEN_NOTEBOOK_CLIENT_ID`, and the static sidecar client settings in both worker Notebook templates. Store its secret in `api-creds`.
 2. Enable Standard Token Exchange and **Allow refresh token in Standard Token Exchange** on that client. The exchanged access token must contain this client as `azp`, and the response must include a refresh token.
 3. Keep the delegated subject unchanged and add any file-service audience through an allowed client scope; the optional `audience` parameter only filters existing audiences.
-4. Configure `WORKER_PLATFORM_KEYCLOAK_TOKEN_URL` for that same realm. Sandbox Connect copies the confidential client secret into the notebook token Secret, which is mounted only into the sidecar.
+4. Configure `KEYCLOAK_TOKEN_URL` in both embedded platform-token sidecars. Sandbox Connect copies the confidential client secret into the notebook token Secret, which is mounted only into the sidecar.
 5. Set the realm/client idle and maximum session lifetimes to cover the longest booking. Rotation cannot extend a session past Keycloak absolute limits.
 6. Add `sandbox-notebook` as an access-token audience on the browser client; Keycloak rejects exchange when the requester is outside the subject token audience.
 7. Keep full-scope inheritance disabled on the notebook client and explicitly scope only the file-service roles and claims it needs, such as `consumer`, `provider`, and organisation identifiers.

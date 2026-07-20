@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"testing"
-	"time"
 
 	"sandbox-backend-service/pkg/k8s"
 
@@ -14,20 +13,13 @@ import (
 	"k8s.io/client-go/dynamic/fake"
 )
 
-func boolPointer(value bool) *bool { return &value }
-
-func newVolumePolicyTestWorker(t *testing.T, cfg RuntimeConfig, objects ...runtime.Object) worker {
+func newVolumePolicyTestWorker(t *testing.T, template *SandboxNotebookTemplate, objects ...runtime.Object) worker {
 	t.Helper()
 	client := fake.NewSimpleDynamicClient(runtime.NewScheme(), objects...)
 	return worker{
-		app: &application{
-			runtimeConfig: cfg,
-			k8sClient:     &k8s.K8sClient{Dynamic: client},
-		},
-		notebook: Notebook{
-			ID: 1, Name: "demo", Namespace: "user-ns", PVCname: "demo-pvc", StorageSize: "10Gi",
-		},
-		logger: slog.Default(),
+		app:      &application{notebookTemplates: map[string]*SandboxNotebookTemplate{"cpu": template}, k8sClient: &k8s.K8sClient{Dynamic: client}},
+		notebook: Notebook{ID: 1, Name: "demo", Namespace: "user-ns", PVCname: "demo-pvc", StorageSize: "10Gi"},
+		logger:   slog.Default(),
 	}
 }
 
@@ -44,62 +36,11 @@ func boundPVC(namespace, name string, accessModes ...string) *unstructured.Unstr
 	}}
 }
 
-func TestPreparePVCMountsUsesOnlyConfiguredMounts(t *testing.T) {
-	cfg := RuntimeConfig{
-		APIVersion: runtimeConfigAPIVersion,
-		Defaults:   RuntimeConfigDefaults{ExternalPVCWaitTimeout: "50ms"},
-		Workloads: map[string]WorkloadPolicy{"cpu": {
-			PVCMounts: []PVCMountConfig{{
-				Name: "datasets", MountPath: "/mnt/datasets", ReadOnly: true,
-				Source: PVCSourceConfig{Type: existingPVCSourceType, ClaimNameTemplate: "datasets", Expected: &PVCExpectationConfig{AccessModes: []string{"ReadWriteMany"}}},
-			}},
-		}},
-	}
-	w := newVolumePolicyTestWorker(t, cfg, boundPVC("user-ns", "datasets", "ReadWriteMany"))
-	if err := w.PreparePVCMounts(); err != nil {
-		t.Fatalf("PreparePVCMounts returned error: %v", err)
-	}
-	if len(w.resolvedPVCMounts) != 1 || w.resolvedPVCMounts[0].Name != "datasets" {
-		t.Fatalf("unexpected mounts: %#v", w.resolvedPVCMounts)
-	}
-}
-
-func TestPreparePVCMountsSkipsMissingOptionalClaim(t *testing.T) {
-	cfg := RuntimeConfig{
-		APIVersion: runtimeConfigAPIVersion,
-		Defaults:   RuntimeConfigDefaults{ExternalPVCWaitTimeout: "10ms"},
-		Workloads: map[string]WorkloadPolicy{"cpu": {
-			PVCMounts: []PVCMountConfig{{
-				Name: "optional", MountPath: "/mnt/optional", Required: boolPointer(false),
-				Source: PVCSourceConfig{Type: existingPVCSourceType, ClaimNameTemplate: "optional"},
-			}},
-		}},
-	}
-	w := newVolumePolicyTestWorker(t, cfg)
-	if err := w.PreparePVCMounts(); err != nil {
-		t.Fatalf("optional missing claim should not fail: %v", err)
-	}
-	if len(w.resolvedPVCMounts) != 0 {
-		t.Fatalf("missing optional claim should be omitted: %#v", w.resolvedPVCMounts)
-	}
-}
-
 func TestPreparePVCMountsCreatesManagedWorkspace(t *testing.T) {
-	cfg := RuntimeConfig{
-		APIVersion: runtimeConfigAPIVersion,
-		Workloads: map[string]WorkloadPolicy{"cpu": {
-			PVCMounts: []PVCMountConfig{{
-				Name: "workspace", MountPath: "/home/jovyan", Workspace: true,
-				Source: PVCSourceConfig{
-					Type: managedPVCSourceType, ClaimNameTemplate: "{pvcName}", RetentionPolicy: retentionDeleteWithNotebook,
-					Spec: map[string]any{"accessModes": []any{"ReadWriteOnce"}, "resources": map[string]any{"requests": map[string]any{"storage": "{storageSize}"}}},
-				},
-			}},
-		}},
-	}
-	w := newVolumePolicyTestWorker(t, cfg)
+	template := testSandboxTemplate("cpu")
+	w := newVolumePolicyTestWorker(t, template)
 	if err := w.PreparePVCMounts(); err != nil {
-		t.Fatalf("PreparePVCMounts returned error: %v", err)
+		t.Fatal(err)
 	}
 	pvc, err := w.app.k8sClient.Dynamic.Resource(workerPVCGVR).Namespace("user-ns").Get(context.Background(), "demo-pvc", metav1.GetOptions{})
 	if err != nil {
@@ -110,60 +51,39 @@ func TestPreparePVCMountsCreatesManagedWorkspace(t *testing.T) {
 	}
 	storage, _, _ := unstructured.NestedString(pvc.Object, "spec", "resources", "requests", "storage")
 	if storage != "10Gi" {
-		t.Fatalf("storage template was not rendered: %q", storage)
+		t.Fatalf("managed spec token not rendered: %q", storage)
 	}
 }
 
-func TestApplySchedulingUsesConfiguredInstanceOverride(t *testing.T) {
-	instanceType := "g4dn.xlarge"
-	w := worker{
-		notebook: Notebook{InstanceType: &instanceType},
-		policy: WorkloadPolicy{Scheduling: SchedulingPolicy{
-			NodeSelector:         map[string]string{"workload": "gpu"},
-			Tolerations:          []map[string]any{{"key": "nvidia.com/gpu", "operator": "Exists", "effect": "NoSchedule"}},
-			InstanceTypeOverride: InstanceTypeOverrideConfig{Enabled: true, Required: true, SelectorKey: "node.kubernetes.io/instance-type"},
-		}},
-	}
-	spec := map[string]any{}
-	if err := w.applyScheduling(spec); err != nil {
-		t.Fatalf("applyScheduling returned error: %v", err)
-	}
-	selector := spec["nodeSelector"].(map[string]any)
-	if selector["workload"] != "gpu" || selector["node.kubernetes.io/instance-type"] != instanceType {
-		t.Fatalf("unexpected selector: %#v", selector)
-	}
-	if len(spec["tolerations"].([]any)) != 1 {
-		t.Fatalf("tolerations were not applied: %#v", spec["tolerations"])
-	}
-}
+func TestPreparePVCMountsOmitsUnavailableOptionalExistingClaim(t *testing.T) {
+	template := testSandboxTemplate("cpu")
+	template.Spec.Lifecycle.VolumePolicies = append(template.Spec.Lifecycle.VolumePolicies, VolumeLifecyclePolicy{Name: "optional", Required: boolPointer(false), Existing: &ExistingVolumePolicy{}})
+	podSpec, _, _ := unstructured.NestedMap(template.Spec.Notebook, "spec", "template", "spec")
+	volumes, _ := templateNamedItems(podSpec, "volumes")
+	volumes = append(volumes, map[string]any{"name": "optional", "persistentVolumeClaim": map[string]any{"claimName": "optional-claim"}})
+	containers, _ := templateNamedItems(podSpec, "containers")
+	mounts, _ := nestedSliceOrEmpty(containers[0], "volumeMounts")
+	containers[0]["volumeMounts"] = append(mounts, map[string]any{"name": "optional", "mountPath": "/optional"})
+	podSpec["volumes"], podSpec["containers"] = mapsToAny(volumes), mapsToAny(containers)
+	_ = unstructured.SetNestedMap(template.Spec.Notebook, podSpec, "spec", "template", "spec")
 
-func TestExternalPVCWaitTimeoutParses(t *testing.T) {
-	cfg := RuntimeConfig{Defaults: RuntimeConfigDefaults{ExternalPVCWaitTimeout: "250ms"}}
-	got, err := cfg.ExternalPVCWaitTimeout()
-	if err != nil || got != 250*time.Millisecond {
-		t.Fatalf("unexpected timeout: %v %v", got, err)
-	}
-}
-
-func TestPreparePVCMountsIncludesDirectNFSWithoutPVC(t *testing.T) {
-	cfg := RuntimeConfig{
-		APIVersion: runtimeConfigAPIVersion,
-		Workloads: map[string]WorkloadPolicy{"cpu": {
-			PVCMounts: []PVCMountConfig{{
-				Name: "cbr-sanscog", MountPath: "/mnt/cbr/SANSCOG", ReadOnly: true,
-				Source: PVCSourceConfig{Type: nfsVolumeSourceType, NFS: &NFSVolumeConfig{Server: "10.0.0.91", Path: "/gpfs/data/tata"}},
-			}},
-		}},
-	}
-	w := newVolumePolicyTestWorker(t, cfg)
+	w := newVolumePolicyTestWorker(t, template)
 	if err := w.PreparePVCMounts(); err != nil {
-		t.Fatalf("PreparePVCMounts returned error: %v", err)
+		t.Fatalf("optional missing claim should not fail: %v", err)
 	}
-	if len(w.resolvedPVCMounts) != 1 {
-		t.Fatalf("unexpected mounts: %#v", w.resolvedPVCMounts)
+	if _, omitted := w.omittedVolumes["optional"]; !omitted {
+		t.Fatal("optional unavailable volume was not marked for omission")
 	}
-	mount := w.resolvedPVCMounts[0]
-	if mount.NFS == nil || mount.NFS.Server != "10.0.0.91" || mount.ClaimName != "" {
-		t.Fatalf("unexpected NFS mount: %#v", mount)
+	if len(w.resolvedPVCMounts) != 1 || w.resolvedPVCMounts[0].Name != "user-data" {
+		t.Fatalf("unexpected available PVCs: %#v", w.resolvedPVCMounts)
+	}
+}
+
+func TestPreparePVCMountsValidatesExistingClaimCompatibility(t *testing.T) {
+	template := testSandboxTemplate("cpu")
+	template.Spec.Lifecycle.VolumePolicies = []VolumeLifecyclePolicy{{Name: "user-data", Existing: &ExistingVolumePolicy{Expected: &PVCExpectationConfig{AccessModes: []string{"ReadWriteMany"}}}}}
+	w := newVolumePolicyTestWorker(t, template, boundPVC("user-ns", "demo-pvc", "ReadWriteOnce"))
+	if err := w.PreparePVCMounts(); err == nil {
+		t.Fatal("expected incompatible required PVC to fail")
 	}
 }

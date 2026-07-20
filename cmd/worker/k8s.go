@@ -4,12 +4,10 @@ import (
 	"context"
 	"fmt"
 	"sandbox-backend-service/pkg/constants"
-	"sandbox-backend-service/pkg/utils"
 	"strings"
 
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
@@ -387,178 +385,20 @@ func (w *worker) CreateNotebook() error {
 	nb := w.notebook
 	logger := w.logger.With("operation", "CreateNotebook")
 
+	notebookObj, err := w.BuildNotebook()
+	if err != nil {
+		return fmt.Errorf("build notebook manifest: %w", err)
+	}
+
 	ctx, cancel := WithTimeoutContext(context.Background(), NotebookCreationTimeout)
 	defer cancel()
-
-	var limit map[string]any
-	var imageName string
-	var request map[string]any
-	var notebookFlavor string
-	if utils.CheckGPUResource(nb.GPUType, nb.GPURequest, nb.GPULimit) {
-		notebookFlavor = "gpu"
-		imageName = w.app.env.GPU_NOTEBOOK_IMAGE
-		limit = map[string]any{
-			"cpu":               fmt.Sprintf("%.6f", nb.CPULimit),
-			"memory":            nb.MemoryLimit,
-			"ephemeral-storage": "10Gi",
-			*nb.GPUType:         *nb.GPULimit,
-		}
-		request = map[string]any{
-			"cpu":               fmt.Sprintf("%.6f", nb.CPURequest),
-			"memory":            nb.MemoryRequest,
-			"ephemeral-storage": "1Gi",
-			*nb.GPUType:         *nb.GPURequest,
-		}
-	} else {
-		notebookFlavor = "cpu"
-		imageName = w.app.env.CPU_NOTEBOOK_IMAGE
-		limit = map[string]any{
-			"cpu":               fmt.Sprintf("%.6f", nb.CPULimit),
-			"memory":            nb.MemoryLimit,
-			"ephemeral-storage": "10Gi",
-		}
-		request = map[string]any{
-			"cpu":               fmt.Sprintf("%.6f", nb.CPURequest),
-			"memory":            nb.MemoryRequest,
-			"ephemeral-storage": "1Gi",
-		}
-	}
-
-	// Override with the per-notebook image if one was specified at creation time.
-	// The image is pulled from ECR using the imagePullSecret already provisioned
-	// in the namespace; no additional pull step is required here.
-	if nb.ImageName != nil && *nb.ImageName != "" {
-		logger.Info("using custom image from notebook request", "image", *nb.ImageName)
-		imageName = *nb.ImageName
-	}
-
-	initContainers := []any{}
-	workspaceMount, hasWorkspace := w.workspacePVCMount()
-
-	if w.app.env.DISABLE_INIT {
-		logger.Info("init containers disabled via WORKER_DISABLE_INIT, skipping demo file setup")
-	} else if !hasWorkspace {
-		logger.Info("no workspace PVC configured, skipping persistent demo file setup")
-	} else {
-
-		if imageName != "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps1-v3" &&
-			imageName != "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps2-v4" &&
-			imageName != "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps3-v3" {
-			initContainers = append(initContainers, map[string]any{
-				"name":    "init-demo-ipynb",
-				"image":   w.app.env.INIT_CONTAINER_IMAGE,
-				"command": []any{"/bin/sh", "-c", buildInitImageDemoCopyScript(notebookFlavor)},
-				"volumeMounts": []any{
-					resolvedVolumeMountSpec(workspaceMount, "/home/jovyan"),
-				},
-			})
-		}
-
-		initContainers = append(initContainers, map[string]any{
-			"name":    "extract-built-in-notebooks",
-			"image":   imageName,
-			"command": []any{"/bin/sh", "-c", buildNotebookImageDemoCopyScript(notebookFlavor, notebookImageProjectNotebookDir(imageName))},
-			"volumeMounts": []any{
-				resolvedVolumeMountSpec(workspaceMount, "/mnt/data"),
-			},
-		})
-	}
-
-	notebookVolumeMounts := make([]any, 0, len(w.resolvedPVCMounts))
-	volumes := make([]any, 0, len(w.resolvedPVCMounts))
-	for _, mount := range w.resolvedPVCMounts {
-		notebookVolumeMounts = append(notebookVolumeMounts, resolvedVolumeMountSpec(mount, mount.MountPath))
-		volume := map[string]any{"name": mount.Name}
-		if mount.NFS != nil {
-			readOnly := mount.ReadOnly
-			if mount.NFS.ReadOnly != nil {
-				readOnly = *mount.NFS.ReadOnly
-			}
-			volume["nfs"] = map[string]any{
-				"server":   mount.NFS.Server,
-				"path":     mount.NFS.Path,
-				"readOnly": readOnly,
-			}
-		} else {
-			volume["persistentVolumeClaim"] = map[string]any{
-				"claimName": mount.ClaimName,
-				"readOnly":  mount.ReadOnly,
-			}
-		}
-		volumes = append(volumes, volume)
-	}
-
-	notebookContainer := map[string]any{
-		"name":  nb.Name,
-		"image": imageName,
-		"securityContext": map[string]any{
-			"privileged":               false,
-			"procMount":                "Default",
-			"allowPrivilegeEscalation": false,
-		},
-		"resources": map[string]any{
-			"requests": request,
-			"limits":   limit,
-		},
-		"volumeMounts": notebookVolumeMounts,
-	}
-	containers := []any{notebookContainer}
-	if w.platformTokenSidecarEnabled() {
-		notebookContainer["env"] = w.platformTokenNotebookEnv()
-		notebookContainer["volumeMounts"] = append(notebookContainer["volumeMounts"].([]any), platformTokenNotebookVolumeMount())
-		containers = append(containers, w.platformTokenSidecarContainer())
-		volumes = append(volumes, w.platformTokenVolumes()...)
-	}
-
-	// Build the notebook spec
-	specTemplateSpec := map[string]any{
-		"initContainers":               initContainers,
-		"containers":                   containers,
-		"volumes":                      volumes,
-		"serviceAccountName":           "default-editor",
-		"automountServiceAccountToken": false,
-	}
-	if securityContext := w.policy.SecurityContext.ToPodSpec(); len(securityContext) > 0 {
-		specTemplateSpec["securityContext"] = securityContext
-	}
-
-	if w.app.env.IMAGE_PULL_ENABLED && w.app.env.ECR_SECRET_NAME != "" {
-		specTemplateSpec["imagePullSecrets"] = []any{
-			map[string]any{
-				"name": w.app.env.ECR_SECRET_NAME,
-			},
-		}
-	}
-
-	if err := w.applyScheduling(specTemplateSpec); err != nil {
-		return err
-	}
-
-	notebookObj := &unstructured.Unstructured{
-		Object: map[string]any{
-			"apiVersion": "kubeflow.org/v1beta1",
-			"kind":       "Notebook",
-			"metadata": map[string]any{
-				"name":      nb.Name,
-				"namespace": nb.Namespace,
-				"labels": map[string]any{
-					"app": nb.Name,
-				},
-			},
-			"spec": map[string]any{
-				"template": map[string]any{
-					"spec": specTemplateSpec,
-				},
-			},
-		},
-	}
 	notebookGVR := schema.GroupVersionResource{
 		Group:    "kubeflow.org",
 		Version:  "v1beta1",
 		Resource: "notebooks",
 	}
 
-	err := WithK8sRetry(ctx, logger, func() (constants.ShouldContinue, error) {
+	err = WithK8sRetry(ctx, logger, func() (constants.ShouldContinue, error) {
 		_, err := w.app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(nb.Namespace).Create(ctx, notebookObj, metav1.CreateOptions{})
 		if k8serrors.IsAlreadyExists(err) {
 			logger.Warn("notebook already exists, will not retry creation", "error", err)

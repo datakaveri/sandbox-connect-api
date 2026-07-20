@@ -44,15 +44,16 @@ Project-specific requirements belong in deployment configuration and platform au
 Add:
 
 ```text
-WORKER_RUNTIME_CONFIG_PATH
+WORKER_CPU_NOTEBOOK_TEMPLATE_PATH
+WORKER_GPU_NOTEBOOK_TEMPLATE_PATH
 ```
 
 Behavior:
 
 - If set, load the referenced YAML or JSON file.
 - Reject unreadable, malformed, or invalid configured files.
-- Do not silently use legacy behavior when an explicitly configured file is broken.
-- If unset, synthesize the current behavior from legacy environment variables.
+- Reject either missing or invalid workload template at startup.
+- Do not synthesize scheduling, storage, or helper configuration from environment variables.
 - Load once at startup; ConfigMap changes require a worker rollout.
 
 ### 2.2 Top-level structure
@@ -739,12 +740,12 @@ These tests protect this deployment without restricting other deployments.
 
 ### Rollout
 
-1. Deploy worker code with the config path unset and verify legacy behavior.
-2. Add generic runtime configuration parsing.
+1. Apply the two-template ConfigMap while retaining the previous ConfigMap for rollback.
+2. Deploy the worker version that strictly loads both workload templates.
 3. Add label-based cleanup while preserving legacy `pvc_name` deletion.
 4. Validate the TGDex configuration in CI.
 5. Ensure TGDex external claims are provisioned.
-6. Enable `WORKER_RUNTIME_CONFIG_PATH`.
+6. Enable both workload template path variables.
 7. Canary CPU and GPU notebooks.
 8. Test a minimal profile with only a workspace PVC to prove the framework is not tied to four mounts.
 

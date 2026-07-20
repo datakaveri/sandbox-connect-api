@@ -37,19 +37,23 @@ func notebookWorkload(nb Notebook) string {
 	return "cpu"
 }
 
-func (w *worker) SelectWorkloadPolicy() error {
+func (w *worker) SelectWorkloadTemplate() error {
 	workload := notebookWorkload(w.notebook)
-	policy, ok := w.app.runtimeConfig.Workloads[workload]
-	if !ok {
-		return fmt.Errorf("no runtime policy configured for workload %s", workload)
+	if w.app == nil {
+		return fmt.Errorf("worker application is not configured")
 	}
-	w.policy = policy
-	w.logger.Info("selected worker runtime policy", "workload", workload, "pvc_mount_count", len(policy.PVCMounts))
+	template, ok := w.app.notebookTemplates[workload]
+	if !ok || template == nil {
+		return fmt.Errorf("no notebook template configured for workload %s", workload)
+	}
+	w.template = template
+	w.omittedVolumes = map[string]struct{}{}
+	w.logger.Info("selected worker notebook template", "workload", workload, "volume_policy_count", len(template.Spec.Lifecycle.VolumePolicies))
 	return nil
 }
 
 func (w *worker) PreparePVCMounts() error {
-	if err := w.SelectWorkloadPolicy(); err != nil {
+	if err := w.SelectWorkloadTemplate(); err != nil {
 		return err
 	}
 
@@ -66,10 +70,6 @@ func (w *worker) PreparePVCMounts() error {
 		if mount.Managed {
 			continue
 		}
-		if mount.NFS != nil {
-			availableMounts[mount.Name] = mount
-			continue
-		}
 		cfg := w.mountConfigByName(mount.Name)
 		available, err := w.waitForExistingPVC(cfg, mount)
 		if err != nil {
@@ -77,6 +77,8 @@ func (w *worker) PreparePVCMounts() error {
 		}
 		if available {
 			availableMounts[mount.Name] = mount
+		} else {
+			w.omittedVolumes[mount.Name] = struct{}{}
 		}
 	}
 
@@ -113,69 +115,75 @@ func (w *worker) resolvePVCMounts() ([]ResolvedPVCMount, error) {
 		Namespace: w.notebook.Namespace, NotebookName: w.notebook.Name,
 		PVCName: w.notebook.PVCname, StorageSize: w.notebook.StorageSize,
 	}
-	resolved := make([]ResolvedPVCMount, 0, len(w.policy.PVCMounts))
-	for _, cfg := range w.policy.PVCMounts {
-		claimName := ""
-		if cfg.Source.Type != nfsVolumeSourceType {
-			claimName = renderTemplate(cfg.Source.ClaimNameTemplate, values)
-			if errs := validation.IsDNS1123Subdomain(claimName); len(errs) > 0 {
-				return nil, fmt.Errorf("PVC mount %s rendered invalid claim name %q: %s", cfg.Name, claimName, strings.Join(errs, ", "))
-			}
+	podSpec, found, err := unstructured.NestedMap(w.template.Spec.Notebook, "spec", "template", "spec")
+	if err != nil || !found {
+		return nil, fmt.Errorf("read embedded Notebook pod spec: %w", err)
+	}
+	volumes, err := templateNamedItems(podSpec, "volumes")
+	if err != nil {
+		return nil, err
+	}
+	containers, err := templateNamedItems(podSpec, "containers")
+	if err != nil {
+		return nil, err
+	}
+	primary, ok := findNamedItem(containers, notebookPrimaryContainerName)
+	if !ok {
+		return nil, fmt.Errorf("embedded Notebook primary container is missing")
+	}
+	mounts, err := containerVolumeMounts(primary)
+	if err != nil {
+		return nil, err
+	}
+
+	policies := w.template.Spec.Lifecycle.VolumePolicies
+	resolved := make([]ResolvedPVCMount, 0, len(policies))
+	for _, cfg := range policies {
+		volume, ok := findNamedItem(volumes, cfg.Name)
+		if !ok {
+			return nil, fmt.Errorf("lifecycle volume %s is missing from embedded Notebook", cfg.Name)
 		}
-		subPath := renderTemplate(cfg.SubPathTemplate, values)
+		claimNameTemplate, _, _ := unstructured.NestedString(volume, "persistentVolumeClaim", "claimName")
+		claimName := renderTemplate(claimNameTemplate, values)
+		if errs := validation.IsDNS1123Subdomain(claimName); len(errs) > 0 {
+			return nil, fmt.Errorf("PVC volume %s rendered invalid claim name %q: %s", cfg.Name, claimName, strings.Join(errs, ", "))
+		}
+		mount, _ := findMountByName(mounts, cfg.Name)
+		mountPath, _ := mount["mountPath"].(string)
+		subPathTemplate, _ := mount["subPath"].(string)
+		subPath := renderTemplate(subPathTemplate, values)
 		if subPath != "" && (pathpkg.IsAbs(subPath) || strings.Contains(subPath, "..") || pathpkg.Clean(subPath) != subPath) {
-			return nil, fmt.Errorf("PVC mount %s rendered unsafe subPath %q", cfg.Name, subPath)
+			return nil, fmt.Errorf("PVC volume %s rendered unsafe subPath %q", cfg.Name, subPath)
 		}
 		var spec map[string]any
-		if cfg.Source.Type == managedPVCSourceType {
-			rendered, ok := renderConfigValue(cfg.Source.Spec, values).(map[string]any)
+		retention := ""
+		if cfg.Managed != nil {
+			rendered, ok := renderConfigValue(cfg.Managed.Spec, values).(map[string]any)
 			if !ok {
-				return nil, fmt.Errorf("PVC mount %s has invalid managed spec", cfg.Name)
+				return nil, fmt.Errorf("PVC volume %s has invalid managed spec", cfg.Name)
 			}
 			spec = rendered
+			retention = cfg.Managed.RetentionPolicy
 		}
+		volumeReadOnly, _, _ := unstructured.NestedBool(volume, "persistentVolumeClaim", "readOnly")
+		mountReadOnly, _ := mount["readOnly"].(bool)
 		resolved = append(resolved, ResolvedPVCMount{
-			Name: cfg.Name, ClaimName: claimName, MountPath: cfg.MountPath,
-			SubPath: subPath, ReadOnly: cfg.ReadOnly, Workspace: cfg.Workspace,
-			Managed: cfg.Source.Type == managedPVCSourceType, NFS: cfg.Source.NFS,
-			RetentionPolicy: cfg.Source.RetentionPolicy, Spec: spec,
+			Name: cfg.Name, ClaimName: claimName, MountPath: mountPath,
+			SubPath: subPath, ReadOnly: volumeReadOnly || mountReadOnly,
+			Workspace: cfg.Name == w.template.Spec.Lifecycle.WorkspaceVolumeName,
+			Managed:   cfg.Managed != nil, RetentionPolicy: retention, Spec: spec,
 		})
 	}
 	return resolved, nil
 }
 
-func renderConfigValue(value any, values templateValues) any {
-	switch typed := value.(type) {
-	case string:
-		return renderTemplate(typed, values)
-	case map[string]any:
-		result := make(map[string]any, len(typed))
-		for key, item := range typed {
-			result[key] = renderConfigValue(item, values)
-		}
-		return result
-	case []any:
-		result := make([]any, len(typed))
-		for i, item := range typed {
-			result[i] = renderConfigValue(item, values)
-		}
-		return result
-	default:
-		return typed
-	}
+func (w *worker) mountConfigByName(name string) VolumeLifecyclePolicy {
+	policy, _ := w.template.VolumePolicy(name)
+	return policy
 }
 
-func (w *worker) mountConfigByName(name string) PVCMountConfig {
-	for _, mount := range w.policy.PVCMounts {
-		if mount.Name == name {
-			return mount
-		}
-	}
-	return PVCMountConfig{}
-}
-
-func (w *worker) waitForExistingPVC(cfg PVCMountConfig, mount ResolvedPVCMount) (bool, error) {
-	timeout, err := w.app.runtimeConfig.ExternalPVCWaitTimeout()
+func (w *worker) waitForExistingPVC(cfg VolumeLifecyclePolicy, mount ResolvedPVCMount) (bool, error) {
+	timeout, err := w.template.ExternalPVCWaitTimeout()
 	if err != nil {
 		return false, err
 	}
@@ -187,14 +195,14 @@ func (w *worker) waitForExistingPVC(cfg PVCMountConfig, mount ResolvedPVCMount) 
 	for {
 		pvc, getErr := w.app.k8sClient.Dynamic.Resource(workerPVCGVR).Namespace(w.notebook.Namespace).Get(ctx, mount.ClaimName, metav1.GetOptions{})
 		if getErr == nil {
-			if err := validateExistingPVC(pvc, cfg.Source.Expected); err != nil {
+			if err := validateExistingPVC(pvc, cfg.Existing.Expected); err != nil {
 				if !cfg.IsRequired() {
 					w.logger.Warn("optional PVC is incompatible and will be omitted", "volume", mount.Name, "claim", mount.ClaimName, "error", err)
 					return false, nil
 				}
 				return false, fmt.Errorf("required PVC %s (%s) is incompatible: %w", mount.Name, mount.ClaimName, err)
 			}
-			if !cfg.Source.ShouldWaitForBound() {
+			if !cfg.Existing.ShouldWaitForBound() {
 				return true, nil
 			}
 			phase, _, _ := unstructured.NestedString(pvc.Object, "status", "phase")
@@ -368,36 +376,49 @@ func (w *worker) deletePVCByName(name string, logger *slog.Logger) error {
 	return err
 }
 
-func (w *worker) applyScheduling(spec map[string]any) error {
-	policy := w.policy.Scheduling
-	selector := map[string]any{}
-	for key, value := range policy.NodeSelector {
-		selector[key] = value
+func (w *worker) applyInstanceTypeOverride(spec map[string]any) error {
+	if w.template == nil {
+		return fmt.Errorf("notebook template is not selected")
 	}
-	if override := policy.InstanceTypeOverride; override.Enabled {
-		instanceType := ""
-		if w.notebook.InstanceType != nil {
-			instanceType = strings.TrimSpace(*w.notebook.InstanceType)
-		}
-		if instanceType == "" && override.Required {
-			return fmt.Errorf("instance type is required by the %s workload runtime policy", notebookWorkload(w.notebook))
-		}
-		if instanceType != "" {
-			selector[override.SelectorKey] = instanceType
-		}
+	override := w.template.Spec.Lifecycle.InstanceTypeOverride
+	instanceType := ""
+	if w.notebook.InstanceType != nil {
+		instanceType = strings.TrimSpace(*w.notebook.InstanceType)
 	}
-	if len(selector) > 0 {
-		spec["nodeSelector"] = selector
+	if instanceType == "" && override.Required {
+		return fmt.Errorf("instance type is required by the %s notebook template", notebookWorkload(w.notebook))
 	}
-	if len(policy.Affinity) > 0 {
-		spec["affinity"] = runtime.DeepCopyJSONValue(policy.Affinity)
+	if instanceType == "" || strings.TrimSpace(override.SelectorKey) == "" {
+		return nil
 	}
-	if len(policy.Tolerations) > 0 {
-		tolerations := make([]any, len(policy.Tolerations))
-		for i, value := range policy.Tolerations {
-			tolerations[i] = runtime.DeepCopyJSONValue(value)
-		}
-		spec["tolerations"] = tolerations
+	selector, found, err := unstructured.NestedMap(spec, "nodeSelector")
+	if err != nil {
+		return fmt.Errorf("read nodeSelector: %w", err)
 	}
+	if !found {
+		selector = map[string]any{}
+	}
+	selector[override.SelectorKey] = instanceType
+	spec["nodeSelector"] = selector
 	return nil
+}
+
+func (w *worker) applyHelperScheduling(spec map[string]any) error {
+	if w.template == nil {
+		return fmt.Errorf("notebook template is not selected")
+	}
+	templatePodSpec, found, err := unstructured.NestedMap(w.template.Spec.Notebook, "spec", "template", "spec")
+	if err != nil || !found {
+		return fmt.Errorf("read embedded Notebook pod spec: %w", err)
+	}
+	for _, field := range []string{"nodeSelector", "affinity", "tolerations"} {
+		value, found, err := unstructured.NestedFieldCopy(templatePodSpec, field)
+		if err != nil {
+			return fmt.Errorf("copy helper scheduling field %s: %w", field, err)
+		}
+		if found {
+			spec[field] = value
+		}
+	}
+	return w.applyInstanceTypeOverride(spec)
 }

@@ -138,7 +138,7 @@ func (w *worker) buildRuntimeInjectionPod(podName string) (*unstructured.Unstruc
 		}},
 		"containers": []any{map[string]any{
 			"name":    "runtime-injector",
-			"image":   w.app.env.RUNTIME_INJECTOR_IMAGE,
+			"image":   w.template.Spec.Lifecycle.RuntimeInjection.Image,
 			"command": []any{"/bin/sh", "-c", buildRuntimeInjectionScript()},
 			"env":     env,
 			"securityContext": map[string]any{
@@ -148,7 +148,7 @@ func (w *worker) buildRuntimeInjectionPod(podName string) (*unstructured.Unstruc
 			"volumeMounts": []any{resolvedVolumeMountSpec(workspace, "/workspace")},
 		}},
 	}
-	if err := w.applyScheduling(podSpec); err != nil {
+	if err := w.applyHelperScheduling(podSpec); err != nil {
 		return nil, err
 	}
 

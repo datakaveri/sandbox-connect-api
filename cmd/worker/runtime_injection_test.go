@@ -28,7 +28,8 @@ func TestBuildRuntimeInjectionPod(t *testing.T) {
 	gitURL := "https://github.com/datakaveri/private-repo.git"
 	secretName := "github-token"
 	w := worker{
-		app: &application{env: Env{RUNTIME_INJECTOR_IMAGE: "alpine/git:2.45.2"}},
+		app:      &application{},
+		template: testSandboxTemplate("cpu"),
 		notebook: Notebook{
 			Name:               "demo-notebook",
 			Namespace:          "user-ns",

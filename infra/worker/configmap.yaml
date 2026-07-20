@@ -1,45 +1,21 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: sandbox-worker-runtime-config
+  name: sandbox-worker-notebook-templates
   namespace: sandbox
 data:
-  runtime-config.yaml: |
+  cpu-notebook-template.yaml: |
     apiVersion: sandbox-connect/v1alpha1
-    defaults:
-      externalPVCWaitTimeout: 120s
-    workloads:
-      cpu:
-        scheduling:
-          nodeSelector: {}
-          affinity:
-            nodeAffinity:
-              requiredDuringSchedulingIgnoredDuringExecution:
-                nodeSelectorTerms:
-                  - matchExpressions:
-                      - key: node.kubernetes.io/instance-type
-                        operator: In
-                        values:
-                          - cpu
-          tolerations: []
-          instanceTypeOverride:
-            enabled: false
-        securityContext:
-          runAsUser: 1000
-          runAsGroup: 100
-          runAsNonRoot: true
-          fsGroup: 100
-          supplementalGroups:
-            - 4001
-        pvcMounts:
+    kind: SandboxNotebookTemplate
+    metadata:
+      name: cpu
+    spec:
+      lifecycle:
+        externalPVCWaitTimeout: 120s
+        workspaceVolumeName: user-data
+        volumePolicies:
           - name: user-data
-            mountPath: /home/jovyan
-            workspace: true
-            required: true
-            readOnly: false
-            source:
-              type: managed
-              claimNameTemplate: "{pvcName}"
+            managed:
               retentionPolicy: DeleteWithNotebook
               spec:
                 storageClassName: ceph-block
@@ -48,60 +24,142 @@ data:
                 resources:
                   requests:
                     storage: "{storageSize}"
-          - name: cbr-sanscog
-            mountPath: /mnt/cbr/SANSCOG
-            required: true
-            readOnly: true
-            source:
-              type: nfs
-              nfs:
-                server: 10.0.0.91
-                path: /gpfs/data/tata/Neuroimaging_Lab/SANSCOG_MRI_Scan/New_scans_sanscog_IISc
-                readOnly: true
-          - name: cbr-tlsa
-            mountPath: /mnt/cbr/TLSA
-            required: true
-            readOnly: true
-            source:
-              type: nfs
-              nfs:
-                server: 10.0.0.91
-                path: /gpfs/data/tata/Neuroimaging_Lab/TATA_MRI_Backup/TLSA_MRI_IISc
-                readOnly: true
-      gpu:
-        scheduling:
-          nodeSelector: {}
-          affinity:
-            nodeAffinity:
-              requiredDuringSchedulingIgnoredDuringExecution:
-                nodeSelectorTerms:
-                  - matchExpressions:
-                      - key: node.kubernetes.io/instance-type
-                        operator: In
-                        values:
-                          - gpu
-                          - aic
-          tolerations: []
-          instanceTypeOverride:
-            enabled: true
-            selectorKey: node.kubernetes.io/instance-type
-            required: false
-        securityContext:
-          runAsUser: 1000
-          runAsGroup: 100
-          runAsNonRoot: true
-          fsGroup: 100
-          supplementalGroups:
-            - 4001
-        pvcMounts:
+        runtimeInjection:
+          image: alpine/git:2.45.2
+        demoFiles:
+          enabled: true
+          initImage: registry.analytics.cbr-iisc.ac.in/cbr/test-notebook-file:v1.2-b42d188
+        platformToken:
+          sessionAPIBaseURL: https://api-sandbox.cbr-iisc.ac.in/api
+      notebook:
+        apiVersion: kubeflow.org/v1beta1
+        kind: Notebook
+        metadata: {}
+        spec:
+          template:
+            spec:
+              serviceAccountName: default-editor
+              automountServiceAccountToken: false
+              imagePullSecrets:
+                - name: registry-cred
+              affinity:
+                nodeAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    nodeSelectorTerms:
+                      - matchExpressions:
+                          - key: node.kubernetes.io/instance-type
+                            operator: In
+                            values: [cpu]
+              tolerations: []
+              securityContext:
+                runAsUser: 1000
+                runAsGroup: 100
+                runAsNonRoot: true
+                fsGroup: 100
+                supplementalGroups: [4001]
+              volumes:
+                - name: user-data
+                  persistentVolumeClaim:
+                    claimName: "{pvcName}"
+                - name: cbr-sanscog
+                  nfs:
+                    server: 10.0.0.91
+                    path: /gpfs/data/tata/Neuroimaging_Lab/SANSCOG_MRI_Scan/New_scans_sanscog_IISc
+                    readOnly: true
+                - name: cbr-tlsa
+                  nfs:
+                    server: 10.0.0.91
+                    path: /gpfs/data/tata/Neuroimaging_Lab/TATA_MRI_Backup/TLSA_MRI_IISc
+                    readOnly: true
+                - name: platform-refresh-token
+                  secret:
+                    secretName: ""
+                    optional: true
+                    defaultMode: 256
+                - name: platform-token-cache
+                  emptyDir:
+                    medium: Memory
+              containers:
+                - name: notebook
+                  image: registry.analytics.cbr-iisc.ac.in/cbr/data-access-sandbox-cpu-notebook:v3.7-fat
+                  resources:
+                    requests:
+                      ephemeral-storage: 1Gi
+                    limits:
+                      ephemeral-storage: 10Gi
+                  securityContext:
+                    privileged: false
+                    procMount: Default
+                    allowPrivilegeEscalation: false
+                  env:
+                    - name: MAHAAGX_TOKEN_FILE
+                      value: /var/run/sandbox-connect/platform/token
+                    - name: MAHAAGX_FILE_API_BASE_URL
+                      value: https://files.cbr-iisc.ac.in
+                  volumeMounts:
+                    - name: user-data
+                      mountPath: /home/jovyan
+                    - name: cbr-sanscog
+                      mountPath: /mnt/cbr/SANSCOG
+                      readOnly: true
+                    - name: cbr-tlsa
+                      mountPath: /mnt/cbr/TLSA
+                      readOnly: true
+                    - name: platform-token-cache
+                      mountPath: /var/run/sandbox-connect/platform
+                      readOnly: true
+                - name: platform-token-sidecar
+                  image: ghcr.io/datakaveri/platform-token-sidecar:1.0.1-e07b220
+                  env:
+                    - name: KEYCLOAK_TOKEN_URL
+                      value: https://keycloak.cbr-iisc.ac.in/auth/realms/cbr/protocol/openid-connect/token
+                    - name: KEYCLOAK_CLIENT_ID
+                      value: sandbox-notebook
+                    - name: KEYCLOAK_CLIENT_SECRET_FILE
+                      value: /var/run/sandbox-connect/refresh/client_secret
+                    - name: REFRESH_TOKEN_FILE
+                      value: /var/run/sandbox-connect/refresh/refresh_token
+                    - name: ACCESS_TOKEN_FILE
+                      value: /var/run/sandbox-connect/platform/token
+                    - name: TOKEN_SESSION_URL
+                      value: ""
+                    - name: EXPECTED_USER_ID
+                      value: ""
+                    - name: EXPECTED_CLIENT_ID
+                      value: sandbox-notebook
+                    - name: REFRESH_SKEW_SECONDS
+                      value: "60"
+                    - name: CHECK_INTERVAL_SECONDS
+                      value: "30"
+                    - name: SECRET_WAIT_INTERVAL_SECONDS
+                      value: "1"
+                    - name: REFRESH_RETRY_INTERVAL_SECONDS
+                      value: "5"
+                  securityContext:
+                    privileged: false
+                    procMount: Default
+                    allowPrivilegeEscalation: false
+                    readOnlyRootFilesystem: true
+                    capabilities:
+                      drop: [ALL]
+                  volumeMounts:
+                    - name: platform-refresh-token
+                      mountPath: /var/run/sandbox-connect/refresh
+                      readOnly: true
+                    - name: platform-token-cache
+                      mountPath: /var/run/sandbox-connect/platform
+  gpu-notebook-template.yaml: |
+    apiVersion: sandbox-connect/v1alpha1
+    kind: SandboxNotebookTemplate
+    metadata:
+      name: gpu
+    spec:
+      lifecycle:
+        externalPVCWaitTimeout: 120s
+        workspaceVolumeName: user-data
+        volumePolicies:
           - name: user-data
-            mountPath: /home/jovyan
-            workspace: true
-            required: true
-            readOnly: false
-            source:
-              type: managed
-              claimNameTemplate: "{pvcName}"
+            managed:
               retentionPolicy: DeleteWithNotebook
               spec:
                 storageClassName: ceph-block
@@ -110,45 +168,130 @@ data:
                 resources:
                   requests:
                     storage: "{storageSize}"
-          - name: cbr-sanscog
-            mountPath: /mnt/cbr/SANSCOG
-            required: true
-            readOnly: true
-            source:
-              type: nfs
-              nfs:
-                server: 10.0.0.91
-                path: /gpfs/data/tata/Neuroimaging_Lab/SANSCOG_MRI_Scan/New_scans_sanscog_IISc
-                readOnly: true
-          - name: cbr-tlsa
-            mountPath: /mnt/cbr/TLSA
-            required: true
-            readOnly: true
-            source:
-              type: nfs
-              nfs:
-                server: 10.0.0.91
-                path: /gpfs/data/tata/Neuroimaging_Lab/TATA_MRI_Backup/TLSA_MRI_IISc
-                readOnly: true
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: sandbox-worker-config
-  namespace: sandbox
-data:
-  WORKER_CPU_NOTEBOOK_IMAGE: "registry.analytics.cbr-iisc.ac.in/cbr/data-access-sandbox-cpu-notebook:v3.7-fat"
-  WORKER_GPU_NOTEBOOK_IMAGE: "registry.analytics.cbr-iisc.ac.in/cbr/data-access-sandbox-gpu-notebook:v3.7-fat"
-  WORKER_INIT_CONTAINER_IMAGE: "registry.analytics.cbr-iisc.ac.in/cbr/test-notebook-file:v1.2-b42d188"
-  WORKER_IMAGE_PULL_ENABLED: "true"
-  WORKER_ECR_SECRET_NAME: "registry-cred"
-  WORKER_GPU_NODE_INSTANCE_TYPE: "gpu"
-  WORKER_GPU_NODE_INSTANCE_TYPES: "gpu,aic"
-  WORKER_CPU_NODE_INSTANCE_TYPES: "cpu"
-  WORKER_STORAGE_CLASS_NAME: "ceph-block"
-  WORKER_DISABLE_INIT: "false"
-  WORKER_PLATFORM_FILE_API_BASE_URL: "https://files.cbr-iisc.ac.in"
-  WORKER_PLATFORM_KEYCLOAK_CLIENT_ID: "sandbox-notebook"
-  WORKER_PLATFORM_KEYCLOAK_TOKEN_URL: "https://keycloak.cbr-iisc.ac.in/auth/realms/cbr/protocol/openid-connect/token"
-  WORKER_PLATFORM_SANDBOX_CONNECT_API_BASE_URL: "https://api-sandbox.cbr-iisc.ac.in/api"
-  WORKER_PLATFORM_TOKEN_SIDECAR_IMAGE: "ghcr.io/datakaveri/platform-token-sidecar:1.0.1-e07b220"
+        instanceTypeOverride:
+          selectorKey: node.kubernetes.io/instance-type
+          required: false
+        runtimeInjection:
+          image: alpine/git:2.45.2
+        demoFiles:
+          enabled: true
+          initImage: registry.analytics.cbr-iisc.ac.in/cbr/test-notebook-file:v1.2-b42d188
+        platformToken:
+          sessionAPIBaseURL: https://api-sandbox.cbr-iisc.ac.in/api
+      notebook:
+        apiVersion: kubeflow.org/v1beta1
+        kind: Notebook
+        metadata: {}
+        spec:
+          template:
+            spec:
+              serviceAccountName: default-editor
+              automountServiceAccountToken: false
+              imagePullSecrets:
+                - name: registry-cred
+              affinity:
+                nodeAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    nodeSelectorTerms:
+                      - matchExpressions:
+                          - key: node.kubernetes.io/instance-type
+                            operator: In
+                            values: [gpu, aic]
+              tolerations: []
+              securityContext:
+                runAsUser: 1000
+                runAsGroup: 100
+                runAsNonRoot: true
+                fsGroup: 100
+                supplementalGroups: [4001]
+              volumes:
+                - name: user-data
+                  persistentVolumeClaim:
+                    claimName: "{pvcName}"
+                - name: cbr-sanscog
+                  nfs:
+                    server: 10.0.0.91
+                    path: /gpfs/data/tata/Neuroimaging_Lab/SANSCOG_MRI_Scan/New_scans_sanscog_IISc
+                    readOnly: true
+                - name: cbr-tlsa
+                  nfs:
+                    server: 10.0.0.91
+                    path: /gpfs/data/tata/Neuroimaging_Lab/TATA_MRI_Backup/TLSA_MRI_IISc
+                    readOnly: true
+                - name: platform-refresh-token
+                  secret:
+                    secretName: ""
+                    optional: true
+                    defaultMode: 256
+                - name: platform-token-cache
+                  emptyDir:
+                    medium: Memory
+              containers:
+                - name: notebook
+                  image: registry.analytics.cbr-iisc.ac.in/cbr/data-access-sandbox-gpu-notebook:v3.7-fat
+                  resources:
+                    requests:
+                      ephemeral-storage: 1Gi
+                    limits:
+                      ephemeral-storage: 10Gi
+                  securityContext:
+                    privileged: false
+                    procMount: Default
+                    allowPrivilegeEscalation: false
+                  env:
+                    - name: MAHAAGX_TOKEN_FILE
+                      value: /var/run/sandbox-connect/platform/token
+                    - name: MAHAAGX_FILE_API_BASE_URL
+                      value: https://files.cbr-iisc.ac.in
+                  volumeMounts:
+                    - name: user-data
+                      mountPath: /home/jovyan
+                    - name: cbr-sanscog
+                      mountPath: /mnt/cbr/SANSCOG
+                      readOnly: true
+                    - name: cbr-tlsa
+                      mountPath: /mnt/cbr/TLSA
+                      readOnly: true
+                    - name: platform-token-cache
+                      mountPath: /var/run/sandbox-connect/platform
+                      readOnly: true
+                - name: platform-token-sidecar
+                  image: ghcr.io/datakaveri/platform-token-sidecar:1.0.1-e07b220
+                  env:
+                    - name: KEYCLOAK_TOKEN_URL
+                      value: https://keycloak.cbr-iisc.ac.in/auth/realms/cbr/protocol/openid-connect/token
+                    - name: KEYCLOAK_CLIENT_ID
+                      value: sandbox-notebook
+                    - name: KEYCLOAK_CLIENT_SECRET_FILE
+                      value: /var/run/sandbox-connect/refresh/client_secret
+                    - name: REFRESH_TOKEN_FILE
+                      value: /var/run/sandbox-connect/refresh/refresh_token
+                    - name: ACCESS_TOKEN_FILE
+                      value: /var/run/sandbox-connect/platform/token
+                    - name: TOKEN_SESSION_URL
+                      value: ""
+                    - name: EXPECTED_USER_ID
+                      value: ""
+                    - name: EXPECTED_CLIENT_ID
+                      value: sandbox-notebook
+                    - name: REFRESH_SKEW_SECONDS
+                      value: "60"
+                    - name: CHECK_INTERVAL_SECONDS
+                      value: "30"
+                    - name: SECRET_WAIT_INTERVAL_SECONDS
+                      value: "1"
+                    - name: REFRESH_RETRY_INTERVAL_SECONDS
+                      value: "5"
+                  securityContext:
+                    privileged: false
+                    procMount: Default
+                    allowPrivilegeEscalation: false
+                    readOnlyRootFilesystem: true
+                    capabilities:
+                      drop: [ALL]
+                  volumeMounts:
+                    - name: platform-refresh-token
+                      mountPath: /var/run/sandbox-connect/refresh
+                      readOnly: true
+                    - name: platform-token-cache
+                      mountPath: /var/run/sandbox-connect/platform

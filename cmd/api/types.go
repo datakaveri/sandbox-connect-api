@@ -139,9 +139,9 @@ type NotebookConfig struct {
 	// known skeletal notebook override it in generateNotebookURL.
 	StartupNotebookFilename string `env:"API_STARTUP_NOTEBOOK_FILENAME" envDefault:""`
 
-	// DisableInit mirrors WORKER_DISABLE_INIT: when init containers are skipped,
-	// no startup notebook exists on the PVC, so notebook URLs point to the
-	// JupyterLab auto workspace instead of a notebook file.
+	// DisableInit must match lifecycle.demoFiles.enabled in the deployed worker
+	// templates: when demo initialization is disabled, notebook URLs point to
+	// the JupyterLab auto workspace instead of a notebook file.
 	DisableInit bool `env:"API_DISABLE_INIT" envDefault:"false"`
 
 	MaxRunningCPU int `env:"API_MAX_RUNNING_CPU"`

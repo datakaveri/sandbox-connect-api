@@ -171,9 +171,9 @@ It will not require:
 
 1. **Runtime policy loading**
 
-   - Add `WORKER_RUNTIME_CONFIG_PATH`.
+   - Add the mandatory CPU and GPU Notebook template paths.
    - Strictly parse and validate YAML/JSON at startup.
-   - Use legacy environment behavior only when the path is unset.
+   - Fail startup when either workload template is missing or invalid; no legacy fallback is supported.
 
 2. **Scheduling**
 

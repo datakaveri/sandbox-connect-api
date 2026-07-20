@@ -170,8 +170,8 @@ curl https://<api-host>/v1/health
 
 ### 2. Worker
 
-Edit `infra/worker/configmap.yaml` with your notebook images and the CPU/GPU
-runtime policy, then:
+Edit the self-contained CPU and GPU `SandboxNotebookTemplate` documents in
+`infra/worker/configmap.yaml`, then:
 
 ```bash
 kubectl apply -f infra/worker/configmap.yaml
@@ -180,9 +180,9 @@ kubectl apply -f infra/worker/deployment.yaml
 
 The worker polls the database every second. No external traffic — it communicates only with Postgres and the K8s API.
 
-The runtime policy controls node selectors, affinity, tolerations, and the exact
-PVC list mounted into each CPU or GPU sandbox. Existing PVC entries must be
-provisioned in each user namespace before a required mount can be used. See
+Each workload template owns its default image, scheduling, security, volumes,
+mounts, sidecars, pull secrets, and small PVC/helper lifecycle policy. Existing
+PVC entries must be provisioned in each user namespace before a required mount can be used. See
 [`infra/worker/README.md`](infra/worker/README.md) for the schema, ownership and
 cleanup behavior, optional mounts, and rollout order.
 
@@ -248,22 +248,15 @@ Runs every 15 minutes. Uses `ConcurrencyPolicy: Forbid`.
 |---|---|---|---|
 | `WORKER_POSTGRES_URL` | yes | — | PostgreSQL connection string |
 | `WORKER_MAX_CONCURRENT_WORKER` | yes | — | Goroutine concurrency (e.g. `5`) |
-| `WORKER_CPU_NOTEBOOK_IMAGE` | yes | — | Container image for CPU notebooks |
-| `WORKER_GPU_NOTEBOOK_IMAGE` | yes | — | Container image for GPU notebooks |
-| `WORKER_INIT_CONTAINER_IMAGE` | yes | — | Init container image |
-| `WORKER_RUNTIME_INJECTOR_IMAGE` | no | `alpine/git:2.45.2` | Image used by short-lived pods that download `fileUrl` and clone `gitUrl` into notebook PVCs |
+| `WORKER_CPU_NOTEBOOK_TEMPLATE_PATH` | yes | — | Mounted CPU `SandboxNotebookTemplate` path |
+| `WORKER_GPU_NOTEBOOK_TEMPLATE_PATH` | yes | — | Mounted GPU `SandboxNotebookTemplate` path |
 | `WORKER_S3_ENDPOINT` | yes | — | S3 endpoint URL |
 | `WORKER_S3_REGION` | yes | — | AWS region |
 | `WORKER_S3_ACCESS_KEY` | yes | — | AWS access key |
 | `WORKER_S3_SECRET_KEY` | yes | — | AWS secret key |
 | `WORKER_S3_TEMPLATE_BUCKET_NAME` | yes | — | S3 bucket for notebook templates |
-| `WORKER_RUNTIME_CONFIG_PATH` | no | — | Mounted CPU/GPU scheduling and PVC policy; recommended for new deployments |
-| `WORKER_STORAGE_CLASS_NAME` | legacy | — | Required only when no runtime config path is set |
-| `WORKER_CPU_NODE_INSTANCE_TYPES` | legacy | — | Required only when no runtime config path is set |
-| `WORKER_GPU_NODE_INSTANCE_TYPES` | legacy | — | GPU fallback used only when no runtime config path is set |
 | `WORKER_KUBE_CONFIG_MODE` | no | `cluster` | `cluster` or `local` |
-| `WORKER_IMAGE_PULL_ENABLED` | no | `false` | Pull images via ECR credentials |
-| `WORKER_ECR_SECRET_NAME` | no | — | K8s secret name for ECR pull |
+| `WORKER_KUBE_CONFIG_PATH` | no | `""` | Path to kubeconfig in local mode |
 
 ### Runtime Asset Injection
 

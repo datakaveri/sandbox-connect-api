@@ -21,12 +21,11 @@ spec:
       containers:
       - name: worker
         image: ghcr.io/datakaveri/tgdex-sandbox-connect-worker:tgdex-1.0.0
-        envFrom:
-        - configMapRef:
-            name: sandbox-worker-config
         env:
-        - name: WORKER_RUNTIME_CONFIG_PATH
-          value: "/etc/sandbox-worker/runtime/runtime-config.yaml"
+        - name: WORKER_CPU_NOTEBOOK_TEMPLATE_PATH
+          value: "/etc/sandbox-worker/templates/cpu-notebook-template.yaml"
+        - name: WORKER_GPU_NOTEBOOK_TEMPLATE_PATH
+          value: "/etc/sandbox-worker/templates/gpu-notebook-template.yaml"
         - name: WORKER_POSTGRES_URL
           valueFrom:
             secretKeyRef:
@@ -61,8 +60,6 @@ spec:
             secretKeyRef:
               name: s3-creds 
               key: S3_TEMPLATE_BUCKET_NAME
-        - name: WORKER_STORAGE_CLASS_NAME
-          value: "ebs-csi-storage-class"
         resources:
           limits:
             cpu: "500m"
@@ -71,16 +68,18 @@ spec:
             cpu: "100m"
             memory: "128Mi"
         volumeMounts:
-        - name: runtime-config
-          mountPath: /etc/sandbox-worker/runtime
+        - name: notebook-templates
+          mountPath: /etc/sandbox-worker/templates
           readOnly: true
       volumes:
-      - name: runtime-config
+      - name: notebook-templates
         configMap:
-          name: sandbox-worker-runtime-config
+          name: sandbox-worker-notebook-templates
           items:
-          - key: runtime-config.yaml
-            path: runtime-config.yaml
+          - key: cpu-notebook-template.yaml
+            path: cpu-notebook-template.yaml
+          - key: gpu-notebook-template.yaml
+            path: gpu-notebook-template.yaml
 ---
 apiVersion: v1
 kind: Service 

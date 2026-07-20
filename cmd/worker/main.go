@@ -31,22 +31,18 @@ func main() {
 	if err := env.Parse(&config); err != nil {
 		utils.LogErrorAndExit(logger, "failed to parse environment variables", "error", err)
 	}
-
-	runtimeConfig, err := LoadRuntimeConfig(config)
+	cpuTemplate, err := LoadSandboxNotebookTemplate(config.CPUNotebookTemplatePath, "cpu")
 	if err != nil {
-		utils.LogErrorAndExit(logger, "failed to load worker runtime configuration", "error", err)
+		utils.LogErrorAndExit(logger, "failed to load CPU notebook template", "error", err)
 	}
-	logger.Info("worker runtime configuration loaded",
-		"source", runtimeConfig.source,
-		"api_version", runtimeConfig.APIVersion,
-		"workload_count", len(runtimeConfig.Workloads),
+	gpuTemplate, err := LoadSandboxNotebookTemplate(config.GPUNotebookTemplatePath, "gpu")
+	if err != nil {
+		utils.LogErrorAndExit(logger, "failed to load GPU notebook template", "error", err)
+	}
+	logger.Info("worker notebook templates loaded",
+		"cpu_source", cpuTemplate.source,
+		"gpu_source", gpuTemplate.source,
 	)
-
-	if config.IMAGE_PULL_ENABLED {
-		if config.ECR_SECRET_NAME == "" {
-			utils.LogErrorAndExit(logger, "WORKER_ECR_SECRET_NAME is required when WORKER_IMAGE_PULL_ENABLED is true")
-		}
-	}
 
 	sigChan := make(chan os.Signal, 2)
 
@@ -69,12 +65,15 @@ func main() {
 	}
 
 	app := &application{
-		k8sClient:     k8sClient,
-		pgPool:        pool,
-		s3Client:      s3Client,
-		env:           config,
-		runtimeConfig: runtimeConfig,
-		logger:        logger,
+		k8sClient: k8sClient,
+		pgPool:    pool,
+		s3Client:  s3Client,
+		env:       config,
+		notebookTemplates: map[string]*SandboxNotebookTemplate{
+			"cpu": cpuTemplate,
+			"gpu": gpuTemplate,
+		},
+		logger: logger,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
