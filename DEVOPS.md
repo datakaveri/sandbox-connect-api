@@ -147,6 +147,12 @@ kubectl create secret generic profile-credit-sync-keycloak-creds \
   --from-literal=PROFILE_CREDIT_SYNC_KEYCLOAK_PASSWORD="<password>"
 ```
 
+For Elastic APM (optional, shared by all four services — see [Observability](#observability-elastic-apm)):
+
+```bash
+kubectl apply -f infra/elastic-apm/secret.yaml   # edit the placeholders first
+```
+
 ---
 
 ## Deploying Services
@@ -241,6 +247,7 @@ Runs every 15 minutes. Uses `ConcurrencyPolicy: Forbid`.
 | `API_MAX_TOTAL_GPU` | no | — | Max total GPU notebooks per user |
 | `API_REGISTRY_SECRET_TYPE` | no | `none` | `ecr`, `private-registry`, or `none` |
 | `RABBITMQ_HOST` | no | — | RabbitMQ host for audit logging |
+| `ELASTIC_APM_SERVICE_NAME` | no | binary name | APM service name, see [Observability](#observability-elastic-apm) |
 
 ### Worker
 
@@ -257,6 +264,7 @@ Runs every 15 minutes. Uses `ConcurrencyPolicy: Forbid`.
 | `WORKER_S3_TEMPLATE_BUCKET_NAME` | yes | — | S3 bucket for notebook templates |
 | `WORKER_KUBE_CONFIG_MODE` | no | `cluster` | `cluster` or `local` |
 | `WORKER_KUBE_CONFIG_PATH` | no | `""` | Path to kubeconfig in local mode |
+| `ELASTIC_APM_SERVICE_NAME` | no | binary name | APM service name, see [Observability](#observability-elastic-apm) |
 
 ### Runtime Asset Injection
 
@@ -277,6 +285,7 @@ Operators can still use `gitTokenSecretName` to reference a pre-created Secret i
 | `SLOT_LIFECYCLE_BATCH_SIZE` | no | `50` | Max bookings processed per tick |
 | `SLOT_LIFECYCLE_TICK_INTERVAL_SECS` | no | `5` | Seconds between lifecycle runs |
 | `SLOT_LIFECYCLE_RUN_TIMEOUT_SECS` | no | `45` | Hard timeout per run (must be < tick interval is not required, but keep it reasonable) |
+| `ELASTIC_APM_SERVICE_NAME` | no | binary name | APM service name, see [Observability](#observability-elastic-apm) |
 
 ### Profile Credit Sync
 
@@ -293,6 +302,35 @@ Operators can still use `gitTokenSecretName` to reference a pre-created Secret i
 | `PROFILE_CREDIT_SYNC_K8S_CONFIG_MODE` | no | `cluster` | `cluster` or `local` |
 | `PROFILE_CREDIT_SYNC_LOG_LEVEL` | no | `info` | `debug` or `info` |
 | `PROFILE_CREDIT_SYNC_MAX_PROFILE_CAN_SYNC_AT_ONCE` | no | `50` | Sync batch size |
+| `ELASTIC_APM_SERVICE_NAME` | no | binary name | APM service name, see [Observability](#observability-elastic-apm) |
+
+---
+
+## Observability (Elastic APM)
+
+All four services (`api`, `worker`, `slot-lifecycle`, `profile-credit-sync`) ship with the
+[Elastic APM Go agent](https://www.elastic.co/guide/en/apm/agent/go/current/index.html)
+(`go.elastic.co/apm/v2`) built in. It is entirely opt-in and driven by standard
+`ELASTIC_APM_*` environment variables — no code changes are needed to enable or disable it,
+and an unreachable APM server never fails a request or a run; the agent just drops data and
+logs a warning.
+
+- **API server** — every HTTP request is reported as a transaction (`apmhttp.Wrap`), including
+  route, status code, and latency, with panics captured as errors and turned into a 500 response.
+- **Worker** — each notebook provisioning attempt is one transaction (`worker.provision_notebook`),
+  labeled with the notebook name/namespace/template; failures at each stage (PVC mount, runtime
+  injection, notebook apply) are captured as APM errors.
+- **Slot lifecycle** — each tick of the reconciliation loop is one transaction
+  (`slot-lifecycle.run`).
+- **Profile credit sync** — the whole cron run is one transaction (`profile-credit-sync.run`).
+  Because this runs as a one-shot `CronJob` that exits via `os.Exit`, the agent is explicitly
+  flushed before every exit path so no data is lost when the pod terminates.
+
+Configure it by applying `infra/elastic-apm/secret.yaml` (edit `ELASTIC_APM_SERVER_URL` and
+`ELASTIC_APM_SECRET_TOKEN` first) — all four manifests already reference it via `envFrom`. Each
+manifest also sets a distinct `ELASTIC_APM_SERVICE_NAME` so the four services show up separately
+in the APM UI. For local development, leave `ELASTIC_APM_ACTIVE=false` (see `.env.all.example`)
+to silence connection warnings when no APM server is running.
 
 ---
 
