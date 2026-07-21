@@ -9,6 +9,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	apmhttp "go.elastic.co/apm/module/apmhttp/v2"
 )
 
 const jupyterLiteAuthCookieName = "sandbox_jupyterlite_auth"
@@ -82,7 +84,10 @@ func (app *application) router() http.Handler {
 	handler = app.rateLimitMiddleware(handler)
 	handler = app.enableCORS(handler)
 	handler = loggingMiddleware(handler)
-	return http.MaxBytesHandler(handler, int64(app.env.MaxBodySizeInMB)<<20)
+	handler = http.MaxBytesHandler(handler, int64(app.env.MaxBodySizeInMB)<<20)
+	// apmhttp.Wrap is outermost so the APM transaction covers the full request,
+	// including rate limiting and CORS handling, and reports the final status code.
+	return apmhttp.Wrap(handler)
 }
 
 func (app *application) bookingsDisabled(w http.ResponseWriter, r *http.Request) {

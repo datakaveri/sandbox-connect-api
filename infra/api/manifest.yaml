@@ -41,12 +41,17 @@ spec:
             name: api-config
         - secretRef:
             name: api-creds
+        - secretRef:
+            name: elastic-apm-creds
+            optional: true
         env:
         - name: API_POSTGRES_URL
           valueFrom:
             secretKeyRef:
               name: database-creds
               key: POSTGRES_URL
+        - name: ELASTIC_APM_SERVICE_NAME
+          value: "sandbox-connect-api"
         resources:
           limits:
             cpu: "1"

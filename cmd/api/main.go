@@ -46,6 +46,7 @@ import (
 
 	"github.com/caarlos0/env/v11"
 	"github.com/joho/godotenv"
+	apm "go.elastic.co/apm/v2"
 )
 
 func main() {
@@ -162,6 +163,9 @@ func main() {
 				slog.Warn("Error closing audit service", "error", err)
 			}
 		}
+
+		// Flush any buffered APM transactions/errors before exiting.
+		apm.DefaultTracer().Flush(nil)
 
 		slog.Info("shutdown complete")
 	}
