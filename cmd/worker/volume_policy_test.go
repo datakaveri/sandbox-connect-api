@@ -49,6 +49,15 @@ func TestPreparePVCMountsCreatesManagedWorkspace(t *testing.T) {
 	if pvc.GetLabels()[retentionLabelKey] != retentionDelete {
 		t.Fatalf("managed PVC missing cleanup label: %#v", pvc.GetLabels())
 	}
+	if pvc.GetLabels()["example.com/notebook"] != "demo" {
+		t.Fatalf("managed PVC template label was not preserved or rendered: %#v", pvc.GetLabels())
+	}
+	if pvc.GetAnnotations()["example.com/namespace"] != "user-ns" {
+		t.Fatalf("managed PVC template annotation was not preserved or rendered: %#v", pvc.GetAnnotations())
+	}
+	if pvc.GetName() != "demo-pvc" || pvc.GetNamespace() != "user-ns" {
+		t.Fatalf("worker-owned PVC identity was not applied: %s/%s", pvc.GetNamespace(), pvc.GetName())
+	}
 	storage, _, _ := unstructured.NestedString(pvc.Object, "spec", "resources", "requests", "storage")
 	if storage != "10Gi" {
 		t.Fatalf("managed spec token not rendered: %q", storage)

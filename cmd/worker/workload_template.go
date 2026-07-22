@@ -39,11 +39,12 @@ var supportedTemplateTokens = map[string]struct{}{
 }
 
 type SandboxNotebookTemplate struct {
-	APIVersion string                      `json:"apiVersion"`
-	Kind       string                      `json:"kind"`
-	Metadata   SandboxTemplateMetadata     `json:"metadata"`
-	Spec       SandboxNotebookTemplateSpec `json:"spec"`
-	source     string
+	APIVersion   string                      `json:"apiVersion"`
+	Kind         string                      `json:"kind"`
+	Metadata     SandboxTemplateMetadata     `json:"metadata"`
+	Spec         SandboxNotebookTemplateSpec `json:"spec"`
+	source       string
+	pvcTemplates map[string]map[string]any
 }
 
 type SandboxTemplateMetadata struct {
@@ -73,8 +74,7 @@ type VolumeLifecyclePolicy struct {
 }
 
 type ManagedVolumePolicy struct {
-	RetentionPolicy string         `json:"retentionPolicy"`
-	Spec            map[string]any `json:"spec"`
+	RetentionPolicy string `json:"retentionPolicy"`
 }
 
 type ExistingVolumePolicy struct {
@@ -114,7 +114,7 @@ type ResolvedPVCMount struct {
 	Workspace       bool
 	Managed         bool
 	RetentionPolicy string
-	Spec            map[string]any
+	PVCTemplate     map[string]any
 }
 
 type templateValues struct {
@@ -142,8 +142,7 @@ func LoadSandboxNotebookTemplate(templatePath, expectedWorkload string) (*Sandbo
 	}
 	defer file.Close()
 	decoder := k8syaml.NewYAMLOrJSONDecoder(file, 4096)
-	var document map[string]any
-	documentCount := 0
+	documents := make([]map[string]any, 0, 2)
 	for {
 		var candidate map[string]any
 		if err := decoder.Decode(&candidate); err == io.EOF {
@@ -151,30 +150,38 @@ func LoadSandboxNotebookTemplate(templatePath, expectedWorkload string) (*Sandbo
 		} else if err != nil {
 			return nil, fmt.Errorf("decode notebook template YAML: %w", err)
 		}
-		if candidate == nil {
-			continue
+		if candidate != nil {
+			documents = append(documents, candidate)
 		}
-		documentCount++
-		if documentCount > 1 {
-			return nil, fmt.Errorf("notebook template must contain exactly one YAML document")
-		}
-		document = candidate
 	}
-	if documentCount == 0 {
-		return nil, fmt.Errorf("notebook template is empty")
+	if len(documents) == 0 {
+		return nil, fmt.Errorf("notebook template bundle is empty")
 	}
-	jsonData, err := json.Marshal(document)
+
+	jsonData, err := json.Marshal(documents[0])
 	if err != nil {
 		return nil, fmt.Errorf("encode notebook template: %w", err)
 	}
-
 	var template SandboxNotebookTemplate
 	strictDecoder := json.NewDecoder(strings.NewReader(string(jsonData)))
 	strictDecoder.DisallowUnknownFields()
 	if err := strictDecoder.Decode(&template); err != nil {
 		return nil, fmt.Errorf("decode notebook template: %w", err)
 	}
+
 	template.source = templatePath
+	template.pvcTemplates = make(map[string]map[string]any, len(documents)-1)
+	for i, document := range documents[1:] {
+		pvc := &unstructured.Unstructured{Object: document}
+		name := strings.TrimSpace(pvc.GetName())
+		if name == "" {
+			return nil, fmt.Errorf("PVC template document %d metadata.name is required", i+2)
+		}
+		if _, exists := template.pvcTemplates[name]; exists {
+			return nil, fmt.Errorf("duplicate PVC template document %q", name)
+		}
+		template.pvcTemplates[name] = document
+	}
 	if err := validateSandboxNotebookTemplate(&template, expectedWorkload); err != nil {
 		return nil, err
 	}
@@ -194,6 +201,10 @@ func (t *SandboxNotebookTemplate) DeepCopy() *SandboxNotebookTemplate {
 		panic(fmt.Sprintf("deep copy notebook template: %v", err))
 	}
 	result.source = t.source
+	result.pvcTemplates = make(map[string]map[string]any, len(t.pvcTemplates))
+	for name, pvcTemplate := range t.pvcTemplates {
+		result.pvcTemplates[name] = runtimeJSONDeepCopy(pvcTemplate)
+	}
 	return &result
 }
 
@@ -232,6 +243,14 @@ func (t *SandboxNotebookTemplate) VolumePolicy(name string) (VolumeLifecyclePoli
 		}
 	}
 	return VolumeLifecyclePolicy{}, false
+}
+
+func (t *SandboxNotebookTemplate) PVCTemplate(name string) (map[string]any, bool) {
+	pvcTemplate, exists := t.pvcTemplates[name]
+	if !exists {
+		return nil, false
+	}
+	return runtimeJSONDeepCopy(pvcTemplate), true
 }
 
 func validateSandboxNotebookTemplate(template *SandboxNotebookTemplate, expectedWorkload string) error {
@@ -322,6 +341,7 @@ func validateSandboxNotebookTemplate(template *SandboxNotebookTemplate, expected
 	}
 
 	policyNames := map[string]struct{}{}
+	managedPolicyNames := map[string]struct{}{}
 	for i, policy := range template.Spec.Lifecycle.VolumePolicies {
 		location := fmt.Sprintf("lifecycle.volumePolicies[%d]", i)
 		if _, exists := policyNames[policy.Name]; exists {
@@ -352,12 +372,22 @@ func validateSandboxNotebookTemplate(template *SandboxNotebookTemplate, expected
 			if policy.Managed.RetentionPolicy != retentionDeleteWithNotebook && policy.Managed.RetentionPolicy != retentionRetain {
 				return fmt.Errorf("%s managed.retentionPolicy must be %s or %s", location, retentionDeleteWithNotebook, retentionRetain)
 			}
-			if len(policy.Managed.Spec) == 0 {
-				return fmt.Errorf("%s managed.spec is required", location)
+			pvcTemplate, exists := template.pvcTemplates[policy.Name]
+			if !exists {
+				return fmt.Errorf("%s has no matching PVC template document %q", location, policy.Name)
 			}
-			if err := validateConfigTemplates(policy.Managed.Spec); err != nil {
-				return fmt.Errorf("%s managed.spec: %w", location, err)
+			managedPolicyNames[policy.Name] = struct{}{}
+			if err := validateManagedPVCTemplate(pvcTemplate, policy.Name); err != nil {
+				return fmt.Errorf("PVC template document %q: %w", policy.Name, err)
 			}
+			if err := validateConfigTemplates(pvcTemplate); err != nil {
+				return fmt.Errorf("PVC template document %q: %w", policy.Name, err)
+			}
+		}
+	}
+	for name := range template.pvcTemplates {
+		if _, exists := managedPolicyNames[name]; !exists {
+			return fmt.Errorf("PVC template document %q has no matching managed volume policy", name)
 		}
 	}
 	for name, volume := range volumeByName {
@@ -415,6 +445,50 @@ func validateSandboxNotebookTemplate(template *SandboxNotebookTemplate, expected
 	}
 	if err := validatePlatformTokenTemplate(template, podSpec, containers, volumeByName); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validateManagedPVCTemplate(template map[string]any, expectedName string) error {
+	if len(template) == 0 {
+		return fmt.Errorf("is required")
+	}
+	pvc := &unstructured.Unstructured{Object: template}
+	for field := range template {
+		if field != "apiVersion" && field != "kind" && field != "metadata" && field != "spec" {
+			return fmt.Errorf("field %s is unsupported", field)
+		}
+	}
+	if pvc.GetAPIVersion() != "v1" || pvc.GetKind() != "PersistentVolumeClaim" {
+		return fmt.Errorf("must be a v1/PersistentVolumeClaim")
+	}
+	metadata, found, err := unstructured.NestedMap(template, "metadata")
+	if err != nil {
+		return fmt.Errorf("metadata must be an object: %w", err)
+	}
+	if !found {
+		return fmt.Errorf("metadata is required")
+	}
+	for field := range metadata {
+		if field != "name" && field != "labels" && field != "annotations" {
+			return fmt.Errorf("metadata.%s is worker-managed or unsupported", field)
+		}
+	}
+	if pvc.GetName() != expectedName {
+		return fmt.Errorf("metadata.name must match managed volume policy %q", expectedName)
+	}
+	if _, _, err := unstructured.NestedStringMap(template, "metadata", "labels"); err != nil {
+		return fmt.Errorf("metadata.labels must contain only string values: %w", err)
+	}
+	if _, _, err := unstructured.NestedStringMap(template, "metadata", "annotations"); err != nil {
+		return fmt.Errorf("metadata.annotations must contain only string values: %w", err)
+	}
+	spec, found, err := unstructured.NestedMap(template, "spec")
+	if err != nil {
+		return fmt.Errorf("spec must be an object: %w", err)
+	}
+	if !found || len(spec) == 0 {
+		return fmt.Errorf("spec is required")
 	}
 	return nil
 }

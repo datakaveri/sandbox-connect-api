@@ -1,11 +1,11 @@
 # Worker Notebook templates
 
-The worker requires two independently deployable `SandboxNotebookTemplate` documents:
+The worker requires two independently deployable notebook template bundles:
 
 - `cpu-notebook-template.yaml`
 - `gpu-notebook-template.yaml`
 
-They are stored in the `sandbox-worker-notebook-templates` ConfigMap, mounted at `/etc/sandbox-worker/templates`, and selected from the request's CPU/GPU resources before any PVC is prepared. Missing or invalid files stop worker startup; there is no environment or compiled-in fallback.
+Each ConfigMap value is a YAML bundle whose first document is a `SandboxNotebookTemplate` and whose later documents are managed PVC templates. They are mounted at `/etc/sandbox-worker/templates`, and selected from the request's CPU/GPU resources before any PVC is prepared. Missing or invalid files stop worker startup; there is no environment or compiled-in fallback.
 
 ## Ownership and precedence
 
@@ -23,11 +23,29 @@ Static resource keys such as `ephemeral-storage` are preserved. Worker-generated
 
 ## Lifecycle contract
 
-`spec.lifecycle.volumePolicies` contains only behavior that a Notebook volume cannot express. Every entry must reference an embedded `persistentVolumeClaim` volume by name and define exactly one of `managed` or `existing`. Managed policies define the PVC spec and retention. Existing policies define waiting and compatibility checks. NFS, Secret, `emptyDir`, and other native volumes exist only in the embedded Notebook.
+`spec.lifecycle.volumePolicies` contains only behavior that a Notebook volume cannot express. Every entry must reference an embedded `persistentVolumeClaim` volume by name and define exactly one of `managed` or `existing`. A managed policy defines retention, and a following YAML document defines its complete `v1/PersistentVolumeClaim`. The PVC document's `metadata.name` must equal the managed policy name; the worker replaces it with the rendered claim name and request namespace while preserving template labels and annotations. Existing policies define waiting and compatibility checks. NFS, Secret, `emptyDir`, and other native volumes exist only in the embedded Notebook.
+
+```yaml
+volumePolicies:
+  - name: user-data
+    managed:
+      retentionPolicy: DeleteWithNotebook
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: user-data
+spec:
+  storageClassName: ceph-block
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: "{storageSize}"
+```
 
 `workspaceVolumeName` must be a writable PVC mounted by the primary `notebook` container. Runtime file/Git injection uses that PVC and inherits the selected Notebook's node selector, affinity, and tolerations. An unavailable optional existing PVC causes its volume and every corresponding mount to be removed from the rendered Notebook.
 
-Only these tokens are supported, and only in PVC claim names, volume-mount subpaths, and managed PVC spec strings:
+Only these tokens are supported, and only in PVC claim names, volume-mount subpaths, and PVC template document strings:
 
 - `{namespace}`
 - `{notebookName}`
@@ -38,7 +56,7 @@ There is no general-purpose YAML or string templating.
 
 ## Startup validation and security
 
-Both wrappers are strictly decoded. Startup fails for unknown wrapper fields, wrong API/kind/workload name, multiple YAML documents, invalid lifecycle references, incompatible volume types, invalid workspace configuration, duplicate container/volume/mount names or paths, unsupported token locations, or unsafe security fields.
+Both bundles are strictly validated. Startup fails for unknown wrapper fields, wrong API/kind/workload name, missing, duplicate, mismatched, or unused PVC documents, invalid lifecycle references, incompatible volume types, invalid workspace configuration, duplicate container/volume/mount names or paths, unsupported token locations, or unsafe security fields.
 
 The embedded Notebook must contain exactly one marker container named `notebook` and a default image. The worker always enforces `automountServiceAccountToken: false`, `privileged: false`, `allowPrivilegeEscalation: false`, and `procMount: Default` on the rendered object. Broader cluster policy remains the responsibility of Kubernetes admission controls.
 

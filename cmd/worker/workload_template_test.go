@@ -26,7 +26,6 @@ func testSandboxTemplate(workload string) *SandboxNotebookTemplate {
 				WorkspaceVolumeName:    "user-data",
 				VolumePolicies: []VolumeLifecyclePolicy{{Name: "user-data", Managed: &ManagedVolumePolicy{
 					RetentionPolicy: retentionDeleteWithNotebook,
-					Spec:            map[string]any{"accessModes": []any{"ReadWriteOnce"}, "resources": map[string]any{"requests": map[string]any{"storage": "{storageSize}"}}},
 				}}},
 				InstanceTypeOverride: InstanceTypeOverrideConfig{SelectorKey: "node.kubernetes.io/instance-type"},
 				RuntimeInjection:     RuntimeInjectionConfig{Image: "alpine/git:2.45.2"},
@@ -46,6 +45,11 @@ func testSandboxTemplate(workload string) *SandboxNotebookTemplate {
 				}}},
 			},
 		},
+		pvcTemplates: map[string]map[string]any{"user-data": {
+			"apiVersion": "v1", "kind": "PersistentVolumeClaim",
+			"metadata": map[string]any{"name": "user-data", "labels": map[string]any{"example.com/notebook": "{notebookName}"}, "annotations": map[string]any{"example.com/namespace": "{namespace}"}},
+			"spec":     map[string]any{"accessModes": []any{"ReadWriteOnce"}, "resources": map[string]any{"requests": map[string]any{"storage": "{storageSize}"}}},
+		}},
 	}
 }
 
@@ -70,9 +74,6 @@ spec:
       - name: user-data
         managed:
           retentionPolicy: DeleteWithNotebook
-          spec:
-            accessModes: [ReadWriteOnce]
-            resources: {requests: {storage: "{storageSize}"}}
     runtimeInjection: {image: alpine/git:2.45.2}
   notebook:
     apiVersion: kubeflow.org/v1beta1
@@ -91,24 +92,95 @@ spec:
               securityContext: {privileged: false, allowPrivilegeEscalation: false, procMount: Default}
               volumeMounts:
                 - {name: user-data, mountPath: /home/jovyan}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: user-data
+  labels:
+    example.com/notebook: "{notebookName}"
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: "{storageSize}"}}
 `
 }
 
 func TestLoadSandboxNotebookTemplateStrictValidation(t *testing.T) {
-	if _, err := LoadSandboxNotebookTemplate(writeTemplateYAML(t, validTemplateYAML("cpu")), "cpu"); err != nil {
+	valid := validTemplateYAML("cpu")
+	if _, err := LoadSandboxNotebookTemplate(writeTemplateYAML(t, valid), "cpu"); err != nil {
 		t.Fatalf("valid template failed: %v", err)
 	}
+	documents := strings.SplitN(valid, "\n---\n", 2)
 	cases := map[string]string{
-		"wrong workload":  strings.Replace(validTemplateYAML("cpu"), "name: cpu", "name: gpu", 1),
-		"unknown field":   strings.Replace(validTemplateYAML("cpu"), "spec:\n", "spec:\n  unexpected: true\n", 1),
-		"wrong kind":      strings.Replace(validTemplateYAML("cpu"), "kind: SandboxNotebookTemplate", "kind: ConfigMap", 1),
-		"missing primary": strings.Replace(validTemplateYAML("cpu"), "name: notebook", "name: other", 1),
-		"unsafe":          strings.Replace(validTemplateYAML("cpu"), "privileged: false", "privileged: true", 1),
-		"multiple docs":   validTemplateYAML("cpu") + "\n---\n{}\n",
+		"wrong workload":    strings.Replace(validTemplateYAML("cpu"), "name: cpu", "name: gpu", 1),
+		"unknown field":     strings.Replace(validTemplateYAML("cpu"), "spec:\n", "spec:\n  unexpected: true\n", 1),
+		"wrong kind":        strings.Replace(validTemplateYAML("cpu"), "kind: SandboxNotebookTemplate", "kind: ConfigMap", 1),
+		"missing primary":   strings.Replace(validTemplateYAML("cpu"), "name: notebook", "name: other", 1),
+		"unsafe":            strings.Replace(validTemplateYAML("cpu"), "privileged: false", "privileged: true", 1),
+		"invalid extra doc": valid + "\n---\n{}\n",
+		"missing PVC doc":   documents[0],
+		"duplicate PVC doc": valid + "\n---\n" + documents[1],
 	}
 	for name, yaml := range cases {
 		t.Run(name, func(t *testing.T) {
 			if _, err := LoadSandboxNotebookTemplate(writeTemplateYAML(t, yaml), "cpu"); err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
+	}
+}
+
+func TestLoadSandboxNotebookTemplateAcceptsMultiplePVCDocuments(t *testing.T) {
+	bundle := strings.Replace(validTemplateYAML("cpu"), "          retentionPolicy: DeleteWithNotebook\n", "          retentionPolicy: DeleteWithNotebook\n      - name: cache\n        managed:\n          retentionPolicy: Retain\n", 1)
+	bundle = strings.Replace(bundle, "            - name: user-data\n              persistentVolumeClaim: {claimName: \"{pvcName}\"}\n", "            - name: user-data\n              persistentVolumeClaim: {claimName: \"{pvcName}\"}\n            - name: cache\n              persistentVolumeClaim: {claimName: \"{notebookName}-cache\"}\n", 1)
+	bundle += `---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cache
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: 1Gi}}
+`
+
+	template, err := LoadSandboxNotebookTemplate(writeTemplateYAML(t, bundle), "cpu")
+	if err != nil {
+		t.Fatalf("multi-PVC template failed: %v", err)
+	}
+	if len(template.pvcTemplates) != 2 {
+		t.Fatalf("got %d PVC templates, want 2", len(template.pvcTemplates))
+	}
+	if _, exists := template.PVCTemplate("cache"); !exists {
+		t.Fatal("cache PVC template is missing")
+	}
+}
+
+func TestValidateManagedPVCTemplateRejectsInvalidObjects(t *testing.T) {
+	valid := testSandboxTemplate("cpu").pvcTemplates["user-data"]
+	cases := map[string]func(map[string]any){
+		"wrong kind": func(template map[string]any) {
+			template["kind"] = "ConfigMap"
+		},
+		"mismatched name": func(template map[string]any) {
+			metadata := template["metadata"].(map[string]any)
+			metadata["name"] = "other-volume"
+		},
+		"status": func(template map[string]any) {
+			template["status"] = map[string]any{"phase": "Bound"}
+		},
+		"missing spec": func(template map[string]any) {
+			delete(template, "spec")
+		},
+		"non-string label": func(template map[string]any) {
+			metadata := template["metadata"].(map[string]any)
+			metadata["labels"] = map[string]any{"example.com/invalid": true}
+		},
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			candidate := runtimeJSONDeepCopy(valid)
+			mutate(candidate)
+			if err := validateManagedPVCTemplate(candidate, "user-data"); err == nil {
 				t.Fatal("expected validation error")
 			}
 		})

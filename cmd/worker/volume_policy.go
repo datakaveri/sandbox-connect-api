@@ -155,14 +155,18 @@ func (w *worker) resolvePVCMounts() ([]ResolvedPVCMount, error) {
 		if subPath != "" && (pathpkg.IsAbs(subPath) || strings.Contains(subPath, "..") || pathpkg.Clean(subPath) != subPath) {
 			return nil, fmt.Errorf("PVC volume %s rendered unsafe subPath %q", cfg.Name, subPath)
 		}
-		var spec map[string]any
+		var pvcTemplate map[string]any
 		retention := ""
 		if cfg.Managed != nil {
-			rendered, ok := renderConfigValue(cfg.Managed.Spec, values).(map[string]any)
-			if !ok {
-				return nil, fmt.Errorf("PVC volume %s has invalid managed spec", cfg.Name)
+			template, exists := w.template.PVCTemplate(cfg.Name)
+			if !exists {
+				return nil, fmt.Errorf("PVC volume %s has no template document", cfg.Name)
 			}
-			spec = rendered
+			rendered, ok := renderConfigValue(template, values).(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("PVC volume %s has invalid managed template", cfg.Name)
+			}
+			pvcTemplate = rendered
 			retention = cfg.Managed.RetentionPolicy
 		}
 		volumeReadOnly, _, _ := unstructured.NestedBool(volume, "persistentVolumeClaim", "readOnly")
@@ -171,7 +175,7 @@ func (w *worker) resolvePVCMounts() ([]ResolvedPVCMount, error) {
 			Name: cfg.Name, ClaimName: claimName, MountPath: mountPath,
 			SubPath: subPath, ReadOnly: volumeReadOnly || mountReadOnly,
 			Workspace: cfg.Name == w.template.Spec.Lifecycle.WorkspaceVolumeName,
-			Managed:   cfg.Managed != nil, RetentionPolicy: retention, Spec: spec,
+			Managed:   cfg.Managed != nil, RetentionPolicy: retention, PVCTemplate: pvcTemplate,
 		})
 	}
 	return resolved, nil
@@ -290,7 +294,7 @@ func (w *worker) ensureManagedPVC(mount ResolvedPVCMount) error {
 		return nil
 	}
 
-	labels := map[string]any{
+	labels := map[string]string{
 		managedLabelKey: "true",
 		volumeLabelKey:  mount.Name,
 	}
@@ -300,11 +304,21 @@ func (w *worker) ensureManagedPVC(mount ResolvedPVCMount) error {
 	} else {
 		labels[retentionLabelKey] = retentionKeep
 	}
-	pvc := &unstructured.Unstructured{Object: map[string]any{
-		"apiVersion": "v1", "kind": "PersistentVolumeClaim",
-		"metadata": map[string]any{"name": mount.ClaimName, "namespace": w.notebook.Namespace, "labels": labels},
-		"spec":     runtime.DeepCopyJSONValue(mount.Spec),
-	}}
+	templateCopy, ok := runtime.DeepCopyJSONValue(mount.PVCTemplate).(map[string]any)
+	if !ok {
+		return fmt.Errorf("managed PVC %s has invalid rendered template", mount.ClaimName)
+	}
+	pvc := &unstructured.Unstructured{Object: templateCopy}
+	pvc.SetName(mount.ClaimName)
+	pvc.SetNamespace(w.notebook.Namespace)
+	templateLabels := pvc.GetLabels()
+	if templateLabels == nil {
+		templateLabels = map[string]string{}
+	}
+	for key, value := range labels {
+		templateLabels[key] = value
+	}
+	pvc.SetLabels(templateLabels)
 	ctx, cancel := context.WithTimeout(context.Background(), K8sCreationTimeout)
 	defer cancel()
 	return WithK8sRetry(ctx, logger, func() (constants.ShouldContinue, error) {

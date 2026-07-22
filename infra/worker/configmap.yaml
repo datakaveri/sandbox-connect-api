@@ -17,13 +17,6 @@ data:
           - name: user-data
             managed:
               retentionPolicy: DeleteWithNotebook
-              spec:
-                storageClassName: ceph-block
-                accessModes: [ReadWriteOnce]
-                volumeMode: Filesystem
-                resources:
-                  requests:
-                    storage: "{storageSize}"
         runtimeInjection:
           image: alpine/git:2.45.2
         demoFiles:
@@ -148,6 +141,18 @@ data:
                       readOnly: true
                     - name: platform-token-cache
                       mountPath: /var/run/sandbox-connect/platform
+    ---
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: user-data
+    spec:
+      storageClassName: ceph-block
+      accessModes: [ReadWriteOnce]
+      volumeMode: Filesystem
+      resources:
+        requests:
+          storage: "{storageSize}"
   gpu-notebook-template.yaml: |
     apiVersion: sandbox-connect/v1alpha1
     kind: SandboxNotebookTemplate
@@ -161,13 +166,6 @@ data:
           - name: user-data
             managed:
               retentionPolicy: DeleteWithNotebook
-              spec:
-                storageClassName: ceph-block
-                accessModes: [ReadWriteOnce]
-                volumeMode: Filesystem
-                resources:
-                  requests:
-                    storage: "{storageSize}"
         instanceTypeOverride:
           selectorKey: node.kubernetes.io/instance-type
           required: false
@@ -295,3 +293,15 @@ data:
                       readOnly: true
                     - name: platform-token-cache
                       mountPath: /var/run/sandbox-connect/platform
+    ---
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: user-data
+    spec:
+      storageClassName: ceph-block
+      accessModes: [ReadWriteOnce]
+      volumeMode: Filesystem
+      resources:
+        requests:
+          storage: "{storageSize}"

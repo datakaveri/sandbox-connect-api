@@ -53,6 +53,9 @@ func TestCheckedInWorkerNotebookTemplates(t *testing.T) {
 		if template.Spec.Lifecycle.WorkspaceVolumeName != "user-data" || len(template.Spec.Lifecycle.VolumePolicies) != 1 {
 			t.Fatalf("unexpected %s lifecycle: %#v", workload, template.Spec.Lifecycle)
 		}
+		if pvcTemplate, exists := template.PVCTemplate("user-data"); !exists || pvcTemplate["kind"] != "PersistentVolumeClaim" {
+			t.Fatalf("%s template is missing the user-data PVC document", workload)
+		}
 		podSpec, _, _ := unstructured.NestedMap(template.Spec.Notebook, "spec", "template", "spec")
 		if podSpec["serviceAccountName"] != "default-editor" || podSpec["automountServiceAccountToken"] != false {
 			t.Fatalf("unexpected %s pod settings", workload)
