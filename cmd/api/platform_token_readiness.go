@@ -18,6 +18,7 @@ import (
 
 const (
 	platformTokenNotebookLabel       = "sandbox-connect/notebook-name"
+	legacyNotebookNameLabel          = "notebook-name"
 	defaultPlatformTokenReadyPort    = 8081
 	defaultPlatformTokenReadyTimeout = 40 * time.Second
 	platformTokenReadyPollInterval   = 500 * time.Millisecond
@@ -68,11 +69,29 @@ func (app *application) waitForPlatformTokenReady(ctx context.Context, namespace
 	}
 }
 
+func (app *application) listPlatformTokenReadyPods(ctx context.Context, namespace, notebookName string) (*unstructured.UnstructuredList, error) {
+	selectors := []string{
+		labels.Set{platformTokenNotebookLabel: notebookName}.String(),
+		labels.Set{legacyNotebookNameLabel: notebookName}.String(),
+	}
+
+	for i, selector := range selectors {
+		pods, err := app.k8sClient.Dynamic.Resource(platformTokenPodGVR).Namespace(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
+		if err != nil {
+			return nil, fmt.Errorf("list notebook pods for platform token readiness: %w", err)
+		}
+		if len(pods.Items) > 0 || i == len(selectors)-1 {
+			return pods, nil
+		}
+	}
+
+	return &unstructured.UnstructuredList{}, nil
+}
+
 func (app *application) isPlatformTokenReady(ctx context.Context, client *http.Client, namespace, notebookName, sessionID string) (bool, error) {
-	selector := labels.Set{platformTokenNotebookLabel: notebookName}.String()
-	pods, err := app.k8sClient.Dynamic.Resource(platformTokenPodGVR).Namespace(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
+	pods, err := app.listPlatformTokenReadyPods(ctx, namespace, notebookName)
 	if err != nil {
-		return false, fmt.Errorf("list notebook pods for platform token readiness: %w", err)
+		return false, err
 	}
 
 	port := app.env.PlatformTokenReadyPort

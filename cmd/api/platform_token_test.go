@@ -196,6 +196,48 @@ func TestCreateOrUpdatePlatformTokenSecretSetsNotebookOwnerReference(t *testing.
 	}
 }
 
+func TestIsPlatformTokenReadyFallsBackToKubeflowNotebookNameLabel(t *testing.T) {
+	readyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(platformTokenReadyResponse{Status: "ready", SessionID: r.URL.Query().Get("sessionId")})
+	}))
+	defer readyServer.Close()
+	_, portString, err := net.SplitHostPort(strings.TrimPrefix(readyServer.URL, "http://"))
+	if err != nil {
+		t.Fatalf("parse readiness server address: %v", err)
+	}
+	port, err := strconv.Atoi(portString)
+	if err != nil {
+		t.Fatalf("parse readiness server port: %v", err)
+	}
+
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	pod := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "v1",
+		"kind":       "Pod",
+		"metadata": map[string]any{
+			"name":      "demo-notebook-0",
+			"namespace": "user-namespace",
+			"labels": map[string]any{
+				legacyNotebookNameLabel: "demo-notebook",
+			},
+		},
+		"status": map[string]any{"podIP": "127.0.0.1"},
+	}}
+	client := dynamicfake.NewSimpleDynamicClient(scheme, pod)
+	app := application{
+		env:       ApiEnv{PlatformTokenReadyPort: port},
+		k8sClient: &k8spkg.K8sClient{Dynamic: client},
+	}
+
+	ready, err := app.isPlatformTokenReady(context.Background(), readyServer.Client(), "user-namespace", "demo-notebook", "session-1")
+	if err != nil || !ready {
+		t.Fatalf("legacy notebook-name label ready=%v err=%v", ready, err)
+	}
+}
+
 func TestIsPlatformTokenReadyRequiresMatchingSession(t *testing.T) {
 	readyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sessionID := r.URL.Query().Get("sessionId")
