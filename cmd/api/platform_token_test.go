@@ -5,10 +5,13 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -141,7 +144,7 @@ func TestCreateOrUpdatePlatformTokenSecretSetsNotebookOwnerReference(t *testing.
 		k8sClient: &k8spkg.K8sClient{Dynamic: client},
 	}
 
-	secretName, err := app.createOrUpdatePlatformTokenSecret(ctx, namespace, notebookName, nil, namespace, "refresh-token")
+	secretName, err := app.createOrUpdatePlatformTokenSecret(ctx, namespace, notebookName, nil, namespace, "refresh-token", "access-token", "session-1")
 	if err != nil {
 		t.Fatalf("createOrUpdatePlatformTokenSecret failed: %v", err)
 	}
@@ -156,6 +159,86 @@ func TestCreateOrUpdatePlatformTokenSecretSetsNotebookOwnerReference(t *testing.
 	ref := refs[0]
 	if ref.APIVersion != "kubeflow.org/v1beta1" || ref.Kind != "Notebook" || ref.Name != notebookName || string(ref.UID) != notebookUID {
 		t.Fatalf("ownerReference = %#v", ref)
+	}
+	if got := platformTokenSessionIDFromSecret(secret); got != "session-1" {
+		t.Fatalf("bootstrap session ID = %q, want session-1", got)
+	}
+	data, found, err := unstructured.NestedStringMap(secret.Object, "data")
+	if err != nil || !found || data[platformTokenBootstrapKey] == "" {
+		t.Fatalf("bootstrap token data missing: found=%v err=%v data=%#v", found, err, data)
+	}
+	if _, err := app.createOrUpdatePlatformTokenSecret(ctx, namespace, notebookName, nil, namespace, "refresh-token-2", "access-token-2", ""); err != nil {
+		t.Fatalf("rotate platform token secret: %v", err)
+	}
+	secret, err = client.Resource(platformTokenSecretGVR).Namespace(namespace).Get(ctx, secretName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get rotated token secret: %v", err)
+	}
+	if got := platformTokenSessionIDFromSecret(secret); got != "session-1" {
+		t.Fatalf("rotated bootstrap session ID = %q, want session-1", got)
+	}
+	data, _, _ = unstructured.NestedStringMap(secret.Object, "data")
+	decoded, err := base64.StdEncoding.DecodeString(data[platformTokenBootstrapKey])
+	if err != nil {
+		t.Fatalf("decode rotated bootstrap: %v", err)
+	}
+	var bootstrap platformTokenBootstrap
+	if err := json.Unmarshal(decoded, &bootstrap); err != nil {
+		t.Fatalf("parse rotated bootstrap: %v", err)
+	}
+	if bootstrap.AccessToken != "access-token-2" {
+		t.Fatalf("rotated bootstrap access token = %q", bootstrap.AccessToken)
+	}
+}
+
+func TestIsPlatformTokenReadyRequiresMatchingSession(t *testing.T) {
+	readyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sessionID := r.URL.Query().Get("sessionId")
+		if sessionID != "session-1" {
+			http.Error(w, "not ready", http.StatusServiceUnavailable)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(platformTokenReadyResponse{Status: "ready", SessionID: sessionID})
+	}))
+	defer readyServer.Close()
+	_, portString, err := net.SplitHostPort(strings.TrimPrefix(readyServer.URL, "http://"))
+	if err != nil {
+		t.Fatalf("parse readiness server address: %v", err)
+	}
+	port, err := strconv.Atoi(portString)
+	if err != nil {
+		t.Fatalf("parse readiness server port: %v", err)
+	}
+
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	pod := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "v1",
+		"kind":       "Pod",
+		"metadata": map[string]any{
+			"name":      "demo-notebook-0",
+			"namespace": "user-namespace",
+			"labels": map[string]any{
+				platformTokenNotebookLabel: "demo-notebook",
+			},
+		},
+		"status": map[string]any{"podIP": "127.0.0.1"},
+	}}
+	client := dynamicfake.NewSimpleDynamicClient(scheme, pod)
+	app := application{
+		env:       ApiEnv{PlatformTokenReadyPort: port},
+		k8sClient: &k8spkg.K8sClient{Dynamic: client},
+	}
+
+	ready, err := app.isPlatformTokenReady(context.Background(), readyServer.Client(), "user-namespace", "demo-notebook", "session-1")
+	if err != nil || !ready {
+		t.Fatalf("matching session ready=%v err=%v", ready, err)
+	}
+	ready, err = app.isPlatformTokenReady(context.Background(), readyServer.Client(), "user-namespace", "demo-notebook", "session-2")
+	if err != nil || ready {
+		t.Fatalf("mismatched session ready=%v err=%v", ready, err)
 	}
 }
 

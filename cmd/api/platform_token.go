@@ -15,6 +15,7 @@ import (
 	"sandbox-backend-service/pkg/utils"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,6 +27,7 @@ const (
 	platformTokenSecretLabel       = "sandbox-connect/platform-token"
 	platformTokenSecretKey         = "refresh_token"
 	platformTokenClientSecretKey   = "client_secret"
+	platformTokenBootstrapKey      = "bootstrap.json"
 	platformTokenSecretNameSuffix  = "-plt-token"
 	platformTokenSecretMaxNameSize = 253
 )
@@ -73,11 +75,41 @@ func (app *application) platformTokenSecretOwnerReference(ctx context.Context, n
 	}, nil
 }
 
-func (app *application) createOrUpdatePlatformTokenSecret(ctx context.Context, namespace, notebookName string, bookingID *int64, userID, refreshToken string) (string, error) {
+type platformTokenBootstrap struct {
+	SessionID   string `json:"sessionId"`
+	AccessToken string `json:"accessToken"`
+}
+
+func platformTokenSessionIDFromSecret(secret *unstructured.Unstructured) string {
+	if secret == nil {
+		return ""
+	}
+	data, found, err := unstructured.NestedStringMap(secret.Object, "data")
+	if err != nil || !found {
+		return ""
+	}
+	encoded := strings.TrimSpace(data[platformTokenBootstrapKey])
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return ""
+	}
+	var bootstrap platformTokenBootstrap
+	if err := json.Unmarshal(decoded, &bootstrap); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(bootstrap.SessionID)
+}
+
+func (app *application) createOrUpdatePlatformTokenSecret(ctx context.Context, namespace, notebookName string, bookingID *int64, userID, refreshToken, accessToken, sessionID string) (string, error) {
 	secretName := platformTokenSecretName(notebookName)
 	clientSecret := strings.TrimSpace(app.env.PlatformTokenExchangeClientSecret)
 	if clientSecret == "" {
 		return "", fmt.Errorf("platform token client secret is not configured")
+	}
+	refreshToken = strings.TrimSpace(refreshToken)
+	accessToken = strings.TrimSpace(accessToken)
+	if refreshToken == "" || accessToken == "" {
+		return "", fmt.Errorf("platform refresh and access tokens are required")
 	}
 	encodedToken := base64.StdEncoding.EncodeToString([]byte(refreshToken))
 	encodedClientSecret := base64.StdEncoding.EncodeToString([]byte(clientSecret))
@@ -88,7 +120,7 @@ func (app *application) createOrUpdatePlatformTokenSecret(ctx context.Context, n
 		"app.kubernetes.io/managed-by":           "sandbox-connect",
 		"app.kubernetes.io/component":            "platform-token",
 		"app.kubernetes.io/part-of":              "sandbox-connect",
-		"sandbox-connect/platform-token-version": "v1",
+		"sandbox-connect/platform-token-version": "v2",
 	}
 	if bookingID != nil && *bookingID > 0 {
 		labels["sandbox-connect/booking-id"] = strconv.FormatInt(*bookingID, 10)
@@ -98,6 +130,22 @@ func (app *application) createOrUpdatePlatformTokenSecret(ctx context.Context, n
 	if err != nil {
 		return "", fmt.Errorf("load platform token secret owner: %w", err)
 	}
+
+	existing, getErr := app.k8sClient.Dynamic.Resource(platformTokenSecretGVR).Namespace(namespace).Get(ctx, secretName, metav1.GetOptions{})
+	if getErr != nil && !errors.IsNotFound(getErr) {
+		return "", getErr
+	}
+	if strings.TrimSpace(sessionID) == "" && getErr == nil {
+		sessionID = platformTokenSessionIDFromSecret(existing)
+	}
+	if strings.TrimSpace(sessionID) == "" {
+		sessionID = uuid.NewString()
+	}
+	bootstrapJSON, err := json.Marshal(platformTokenBootstrap{SessionID: sessionID, AccessToken: accessToken})
+	if err != nil {
+		return "", fmt.Errorf("encode platform token bootstrap: %w", err)
+	}
+	encodedBootstrap := base64.StdEncoding.EncodeToString(bootstrapJSON)
 
 	newSecret := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "v1",
@@ -110,6 +158,7 @@ func (app *application) createOrUpdatePlatformTokenSecret(ctx context.Context, n
 		"data": map[string]any{
 			platformTokenSecretKey:       encodedToken,
 			platformTokenClientSecretKey: encodedClientSecret,
+			platformTokenBootstrapKey:    encodedBootstrap,
 		},
 	}}
 	newSecret.SetLabels(labels)
@@ -117,13 +166,11 @@ func (app *application) createOrUpdatePlatformTokenSecret(ctx context.Context, n
 		newSecret.SetOwnerReferences([]metav1.OwnerReference{*ownerRef})
 	}
 
-	existing, err := app.k8sClient.Dynamic.Resource(platformTokenSecretGVR).Namespace(namespace).Get(ctx, secretName, metav1.GetOptions{})
-	if err != nil {
-		if errors.IsNotFound(err) {
+	if getErr != nil {
+		if errors.IsNotFound(getErr) {
 			_, err = app.k8sClient.Dynamic.Resource(platformTokenSecretGVR).Namespace(namespace).Create(ctx, newSecret, metav1.CreateOptions{})
 			return secretName, err
 		}
-		return "", err
 	}
 
 	data, found, err := unstructured.NestedStringMap(existing.Object, "data")
@@ -132,6 +179,7 @@ func (app *application) createOrUpdatePlatformTokenSecret(ctx context.Context, n
 	}
 	data[platformTokenSecretKey] = encodedToken
 	data[platformTokenClientSecretKey] = encodedClientSecret
+	data[platformTokenBootstrapKey] = encodedBootstrap
 	unstructured.SetNestedStringMap(existing.Object, data, "data")
 
 	existingLabels := existing.GetLabels()
@@ -366,7 +414,7 @@ func parseNotebookTokenBookingID(r *http.Request) (int64, error) {
 }
 
 // @Summary      Create notebook token session
-// @Description  Exchanges the caller access token for a notebook-specific delegated refresh token and stores it in a notebook-scoped Kubernetes Secret. Browser refresh tokens are never accepted or stored.
+// @Description  Exchanges the caller access token for notebook-specific delegated tokens and returns 200 only after the access token is usable inside the notebook container. Browser refresh tokens are never accepted or stored.
 // @Tags         bookings
 // @Produce      json
 // @Param        id  path  int  true  "Booking ID"
@@ -376,6 +424,7 @@ func parseNotebookTokenBookingID(r *http.Request) (int64, error) {
 // @Failure      404  {object}  Error404
 // @Failure      429  {object}  Error429
 // @Failure      500  {object}  Error500
+// @Failure      503  {object}  Error503
 // @Security     BearerAuth
 // @Router       /v1/bookings/{id}/notebook-token-session [post]
 func (app *application) createNotebookTokenSession(w http.ResponseWriter, r *http.Request) {
@@ -419,19 +468,28 @@ func (app *application) createNotebookTokenSession(w http.ResponseWriter, r *htt
 		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
 		return
 	}
-	secretName, err := app.createOrUpdatePlatformTokenSecret(r.Context(), userInfo.Sub, booking.NotebookName, &bookingID, userInfo.Sub, exchanged.RefreshToken)
+	sessionID := uuid.NewString()
+	readinessStarted := time.Now()
+	secretName, err := app.createOrUpdatePlatformTokenSecret(r.Context(), userInfo.Sub, booking.NotebookName, &bookingID, userInfo.Sub, exchanged.RefreshToken, exchanged.AccessToken, sessionID)
 	if err != nil {
 		logger.Error("failed to create platform token secret", "error", err, "namespace", userInfo.Sub, "secret", secretName)
 		sendError(w, logger, http.StatusInternalServerError, "Failed to create notebook token session")
 		return
 	}
+	if err := app.waitForPlatformTokenReady(r.Context(), userInfo.Sub, booking.NotebookName, sessionID); err != nil {
+		logger.Warn("platform token is still becoming ready", "error", err, "booking_id", bookingID, "notebook", booking.NotebookName, "readiness_duration_ms", time.Since(readinessStarted).Milliseconds())
+		w.Header().Set("Retry-After", "2")
+		sendError(w, logger, http.StatusServiceUnavailable, "Notebook token is still becoming ready; retry shortly")
+		return
+	}
+	logger.Info("platform token is ready inside notebook", "booking_id", bookingID, "notebook", booking.NotebookName, "readiness_duration_ms", time.Since(readinessStarted).Milliseconds())
 	sendResponseJson(w, logger, http.StatusOK, NotebookTokenSessionResponse{
 		BookingID: bookingID, Status: "ready", SecretName: secretName,
 	})
 }
 
 // @Summary      Create direct notebook token session
-// @Description  Exchanges the caller access token for a notebook-specific delegated refresh token and stores it in a notebook-scoped Kubernetes Secret. Available for direct notebooks when API_BOOKINGS_ENABLED=false.
+// @Description  Exchanges the caller access token for notebook-specific delegated tokens and returns 200 only after the access token is usable inside the notebook container. Available for direct notebooks when API_BOOKINGS_ENABLED=false.
 // @Tags         notebook
 // @Produce      json
 // @Param        notebook_name  path  string  true  "Notebook Name"
@@ -441,6 +499,7 @@ func (app *application) createNotebookTokenSession(w http.ResponseWriter, r *htt
 // @Failure      404  {object}  Error404
 // @Failure      429  {object}  Error429
 // @Failure      500  {object}  Error500
+// @Failure      503  {object}  Error503
 // @Security     BearerAuth
 // @Router       /v1/notebook/{notebook_name}/notebook-token-session [post]
 func (app *application) createDirectNotebookTokenSession(w http.ResponseWriter, r *http.Request) {
@@ -484,12 +543,21 @@ func (app *application) createDirectNotebookTokenSession(w http.ResponseWriter, 
 		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
 		return
 	}
-	secretName, err := app.createOrUpdatePlatformTokenSecret(r.Context(), userInfo.Sub, notebook.NotebookName, nil, userInfo.Sub, exchanged.RefreshToken)
+	sessionID := uuid.NewString()
+	readinessStarted := time.Now()
+	secretName, err := app.createOrUpdatePlatformTokenSecret(r.Context(), userInfo.Sub, notebook.NotebookName, nil, userInfo.Sub, exchanged.RefreshToken, exchanged.AccessToken, sessionID)
 	if err != nil {
 		logger.Error("failed to create platform token secret", "error", err, "namespace", userInfo.Sub, "secret", secretName)
 		sendError(w, logger, http.StatusInternalServerError, "Failed to create notebook token session")
 		return
 	}
+	if err := app.waitForPlatformTokenReady(r.Context(), userInfo.Sub, notebook.NotebookName, sessionID); err != nil {
+		logger.Warn("platform token is still becoming ready", "error", err, "notebook", notebook.NotebookName, "readiness_duration_ms", time.Since(readinessStarted).Milliseconds())
+		w.Header().Set("Retry-After", "2")
+		sendError(w, logger, http.StatusServiceUnavailable, "Notebook token is still becoming ready; retry shortly")
+		return
+	}
+	logger.Info("platform token is ready inside notebook", "notebook", notebook.NotebookName, "readiness_duration_ms", time.Since(readinessStarted).Milliseconds())
 	sendResponseJson(w, logger, http.StatusOK, NotebookTokenSessionResponse{
 		NotebookName: notebook.NotebookName, Status: "ready", SecretName: secretName,
 	})
@@ -541,7 +609,12 @@ func (app *application) rotateDirectNotebookTokenSession(w http.ResponseWriter, 
 		sendError(w, logger, http.StatusBadRequest, err.Error())
 		return
 	}
-	secretName, err := app.createOrUpdatePlatformTokenSecret(r.Context(), userInfo.Sub, notebook.NotebookName, nil, userInfo.Sub, strings.TrimSpace(req.RefreshToken))
+	accessToken, ok := bearerTokenFromAuthorizationHeader(r.Header.Get("Authorization"))
+	if !ok {
+		sendError(w, logger, http.StatusUnauthorized, "Invalid authorization header format")
+		return
+	}
+	secretName, err := app.createOrUpdatePlatformTokenSecret(r.Context(), userInfo.Sub, notebook.NotebookName, nil, userInfo.Sub, strings.TrimSpace(req.RefreshToken), accessToken, "")
 	if err != nil {
 		logger.Error("failed to update platform token secret", "error", err, "namespace", userInfo.Sub, "secret", secretName)
 		sendError(w, logger, http.StatusInternalServerError, "Failed to update notebook token session")
@@ -598,7 +671,12 @@ func (app *application) rotateNotebookTokenSession(w http.ResponseWriter, r *htt
 		sendError(w, logger, http.StatusBadRequest, err.Error())
 		return
 	}
-	secretName, err := app.createOrUpdatePlatformTokenSecret(r.Context(), userInfo.Sub, booking.NotebookName, &bookingID, userInfo.Sub, strings.TrimSpace(req.RefreshToken))
+	accessToken, ok := bearerTokenFromAuthorizationHeader(r.Header.Get("Authorization"))
+	if !ok {
+		sendError(w, logger, http.StatusUnauthorized, "Invalid authorization header format")
+		return
+	}
+	secretName, err := app.createOrUpdatePlatformTokenSecret(r.Context(), userInfo.Sub, booking.NotebookName, &bookingID, userInfo.Sub, strings.TrimSpace(req.RefreshToken), accessToken, "")
 	if err != nil {
 		logger.Error("failed to update platform token secret", "error", err, "namespace", userInfo.Sub, "secret", secretName)
 		sendError(w, logger, http.StatusInternalServerError, "Failed to update notebook token session")

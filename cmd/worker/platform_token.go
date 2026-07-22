@@ -14,6 +14,7 @@ const (
 	platformRefreshTokenFile                = "/var/run/sandbox-connect/refresh/refresh_token"
 	platformClientSecretFile                = "/var/run/sandbox-connect/refresh/client_secret"
 	platformAccessTokenFile                 = "/var/run/sandbox-connect/platform/token"
+	platformTokenNotebookLabel              = "sandbox-connect/notebook-name"
 	defaultPlatformRefreshSkewSeconds       = "60"
 	defaultPlatformCheckIntervalSecs        = "30"
 	defaultPlatformSecretWaitIntervalSecs   = "1"

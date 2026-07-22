@@ -375,7 +375,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Exchanges the caller access token for a notebook-specific delegated refresh token and stores it in a notebook-scoped Kubernetes Secret. Browser refresh tokens are never accepted or stored.",
+                "description": "Exchanges the caller access token for notebook-specific delegated tokens and returns 200 only after the access token is usable inside the notebook container. Browser refresh tokens are never accepted or stored.",
                 "produces": [
                     "application/json"
                 ],
@@ -427,6 +427,12 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/main.Error500"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error503"
                         }
                     }
                 }
@@ -1273,7 +1279,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Exchanges the caller access token for a notebook-specific delegated refresh token and stores it in a notebook-scoped Kubernetes Secret. Available for direct notebooks when API_BOOKINGS_ENABLED=false.",
+                "description": "Exchanges the caller access token for notebook-specific delegated tokens and returns 200 only after the access token is usable inside the notebook container. Available for direct notebooks when API_BOOKINGS_ENABLED=false.",
                 "produces": [
                     "application/json"
                 ],
@@ -1325,6 +1331,12 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/main.Error500"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error503"
                         }
                     }
                 }
@@ -2036,6 +2048,26 @@ const docTemplate = `{
                     "description": "Error title",
                     "type": "string",
                     "example": "Internal Server Error"
+                },
+                "type": {
+                    "type": "string",
+                    "example": "error"
+                }
+            }
+        },
+        "main.Error503": {
+            "description": "Response for dependencies that are still becoming ready",
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "description": "Error message",
+                    "type": "string",
+                    "example": "string"
+                },
+                "title": {
+                    "description": "Error title",
+                    "type": "string",
+                    "example": "Service Unavailable"
                 },
                 "type": {
                     "type": "string",

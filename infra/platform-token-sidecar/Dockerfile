@@ -18,4 +18,6 @@ RUN apk --no-cache add ca-certificates
 
 COPY --from=builder /app/platform-token-sidecar .
 
+EXPOSE 8081
+
 CMD ["./platform-token-sidecar"]

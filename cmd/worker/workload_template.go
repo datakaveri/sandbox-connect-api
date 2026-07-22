@@ -608,7 +608,7 @@ func validatePlatformTokenTemplate(template *SandboxNotebookTemplate, podSpec ma
 			return fmt.Errorf("primary container must define platform token env %s", requiredEnv)
 		}
 	}
-	for _, requiredEnv := range []string{"TOKEN_SESSION_URL", "EXPECTED_USER_ID"} {
+	for _, requiredEnv := range []string{"BOOTSTRAP_TOKEN_FILE", "READY_ADDRESS", "TOKEN_SESSION_URL", "EXPECTED_USER_ID"} {
 		if !containerHasEnv(sidecar, requiredEnv) {
 			return fmt.Errorf("platform token sidecar must define env %s", requiredEnv)
 		}

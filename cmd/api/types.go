@@ -28,6 +28,8 @@ type ApiEnv struct {
 	PlatformTokenExchangeTokenURL     string `env:"API_PLATFORM_TOKEN_EXCHANGE_TOKEN_URL" envDefault:""`
 	PlatformTokenExchangeScope        string `env:"API_PLATFORM_TOKEN_EXCHANGE_SCOPE" envDefault:"openid profile email"`
 	PlatformTokenExchangeAudience     string `env:"API_PLATFORM_TOKEN_EXCHANGE_AUDIENCE" envDefault:""`
+	PlatformTokenReadyPort            int    `env:"API_PLATFORM_TOKEN_READY_PORT" envDefault:"8081"`
+	PlatformTokenReadyTimeoutSecs     int    `env:"API_PLATFORM_TOKEN_READY_TIMEOUT_SECS" envDefault:"40"`
 	CORS_ORIGINS                      string `env:"API_CORS_ORIGINS"`
 	KYCEnabled                        bool   `env:"API_KYC_ENABLED,required"`
 	RateLimit                         int    `env:"API_RATE_LIMIT"`
@@ -564,6 +566,16 @@ type Error429 struct {
 type Error500 struct {
 	// Error title
 	Title string `json:"title" example:"Internal Server Error"`
+	// Error message
+	Detail string `json:"detail" example:"string"`
+	Type   string `json:"type" example:"error"`
+}
+
+// Error503 represents a 503 Service Unavailable response
+// @Description Response for dependencies that are still becoming ready
+type Error503 struct {
+	// Error title
+	Title string `json:"title" example:"Service Unavailable"`
 	// Error message
 	Detail string `json:"detail" example:"string"`
 	Type   string `json:"type" example:"error"`

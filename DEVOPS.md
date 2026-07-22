@@ -225,6 +225,8 @@ Runs every 15 minutes. Uses `ConcurrencyPolicy: Forbid`.
 | `API_KEYCLOAK_REALM` | yes | — | Keycloak realm name |
 | `API_KEYCLOAK_CLIENT_ID` | yes | — | Keycloak client ID |
 | `API_KEYCLOAK_PUBLIC_KEY` | yes | — | RSA public key for JWT validation |
+| `API_PLATFORM_TOKEN_READY_PORT` | no | `8081` | Internal notebook sidecar readiness port |
+| `API_PLATFORM_TOKEN_READY_TIMEOUT_SECS` | no | `40` | Maximum time token-session POST waits for the token to be usable inside the notebook |
 | `API_KYC_ENABLED` | yes | — | Enable KYC check (`true`/`false`) |
 | `API_KUBEFLOW_URL` | yes | — | Kubeflow dashboard URL |
 | `SLOT_CONFIG_PROFILE` | yes | — | Slot config profile name (`production`) |

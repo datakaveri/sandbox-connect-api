@@ -152,7 +152,9 @@ Prefer adding this mapper to the browser client's dedicated scope when every `an
 
 The API authentication realm, sidecar token URL, and file API must form one compatible trust chain. Configure every deployment explicitly; do not reuse another environment's file API URL as a fallback.
 
-The frontend creates the session with a bodyless authenticated `POST /v1/bookings/{id}/notebook-token-session`. The sidecar persists rotated refresh tokens with `PUT` to the same path. Only notebook-client access tokens may use `PUT`.
+The frontend creates the session with a bodyless authenticated `POST /v1/bookings/{id}/notebook-token-session` (or the direct-notebook equivalent). The API stores the exchanged access token in an atomic bootstrap bundle, waits for the matching sidecar session to publish it at `/var/run/sandbox-connect/platform/token`, and returns `200` only after that file is usable inside the notebook container. A `503` with `Retry-After` means publication is still in progress and the frontend must retry before opening `notebookUrl`.
+
+The sidecar persists rotated refresh tokens with `PUT` to the same path. Only notebook-client access tokens may use `PUT`; rotation does not perform the synchronous readiness wait.
 
 ## Notebook Status Categories
 

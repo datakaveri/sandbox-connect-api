@@ -112,8 +112,12 @@ data:
                       value: /var/run/sandbox-connect/refresh/client_secret
                     - name: REFRESH_TOKEN_FILE
                       value: /var/run/sandbox-connect/refresh/refresh_token
+                    - name: BOOTSTRAP_TOKEN_FILE
+                      value: /var/run/sandbox-connect/refresh/bootstrap.json
                     - name: ACCESS_TOKEN_FILE
                       value: /var/run/sandbox-connect/platform/token
+                    - name: READY_ADDRESS
+                      value: 0.0.0.0:8081
                     - name: TOKEN_SESSION_URL
                       value: ""
                     - name: EXPECTED_USER_ID
@@ -128,6 +132,9 @@ data:
                       value: "1"
                     - name: REFRESH_RETRY_INTERVAL_SECONDS
                       value: "5"
+                  ports:
+                    - name: token-ready
+                      containerPort: 8081
                   securityContext:
                     privileged: false
                     procMount: Default
@@ -264,8 +271,12 @@ data:
                       value: /var/run/sandbox-connect/refresh/client_secret
                     - name: REFRESH_TOKEN_FILE
                       value: /var/run/sandbox-connect/refresh/refresh_token
+                    - name: BOOTSTRAP_TOKEN_FILE
+                      value: /var/run/sandbox-connect/refresh/bootstrap.json
                     - name: ACCESS_TOKEN_FILE
                       value: /var/run/sandbox-connect/platform/token
+                    - name: READY_ADDRESS
+                      value: 0.0.0.0:8081
                     - name: TOKEN_SESSION_URL
                       value: ""
                     - name: EXPECTED_USER_ID
@@ -280,6 +291,9 @@ data:
                       value: "1"
                     - name: REFRESH_RETRY_INTERVAL_SECONDS
                       value: "5"
+                  ports:
+                    - name: token-ready
+                      containerPort: 8081
                   securityContext:
                     privileged: false
                     procMount: Default

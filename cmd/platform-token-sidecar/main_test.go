@@ -83,6 +83,74 @@ func TestNextCheckIntervalAdaptsToTokenReadiness(t *testing.T) {
 	}
 }
 
+func TestRefreshIfNeededPublishesBootstrapTokenAndReadiness(t *testing.T) {
+	userID := "00000000-0000-0000-0000-000000000001"
+	clientID := "sandbox-notebook"
+	access := jwt.NewWithClaims(jwt.SigningMethodHS256, accessTokenClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   userID,
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(5 * time.Minute)),
+		},
+		AuthorizedParty: clientID,
+	})
+	accessToken, err := access.SignedString([]byte("test"))
+	if err != nil {
+		t.Fatalf("sign access token: %v", err)
+	}
+
+	dir := t.TempDir()
+	refreshFile := filepath.Join(dir, "refresh_token")
+	bootstrapFile := filepath.Join(dir, "bootstrap.json")
+	accessFile := filepath.Join(dir, "token")
+	statusFile := filepath.Join(dir, "status.json")
+	if err := os.WriteFile(refreshFile, []byte("refresh-token\n"), 0600); err != nil {
+		t.Fatalf("write refresh token: %v", err)
+	}
+	bootstrapData, err := json.Marshal(tokenBootstrap{SessionID: "session-1", AccessToken: accessToken})
+	if err != nil {
+		t.Fatalf("encode bootstrap: %v", err)
+	}
+	if err := os.WriteFile(bootstrapFile, bootstrapData, 0600); err != nil {
+		t.Fatalf("write bootstrap: %v", err)
+	}
+
+	cfg := config{
+		RefreshTokenFile:   refreshFile,
+		BootstrapTokenFile: bootstrapFile,
+		AccessTokenFile:    accessFile,
+		StatusFile:         statusFile,
+		ExpectedUserID:     userID,
+		ExpectedClientID:   clientID,
+		RefreshSkew:        time.Minute,
+	}
+	currentRefreshToken, lastMountedRefreshToken := "", ""
+	currentSessionID, lastMountedSessionID := "", ""
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if err := refreshIfNeeded(context.Background(), cfg, logger, &currentRefreshToken, &lastMountedRefreshToken, &currentSessionID, &lastMountedSessionID); err != nil {
+		t.Fatalf("refreshIfNeeded failed: %v", err)
+	}
+	if got, err := readTrimmedFile(accessFile); err != nil || got != accessToken {
+		t.Fatalf("published access token = %q, err=%v", got, err)
+	}
+	if currentSessionID != "session-1" || lastMountedSessionID != "session-1" {
+		t.Fatalf("session IDs = %q/%q, want session-1", currentSessionID, lastMountedSessionID)
+	}
+
+	handler := readinessHandler(cfg)
+	readyReq := httptest.NewRequest(http.MethodGet, "/readyz?sessionId=session-1", nil)
+	readyRec := httptest.NewRecorder()
+	handler.ServeHTTP(readyRec, readyReq)
+	if readyRec.Code != http.StatusOK {
+		t.Fatalf("matching readiness status = %d, body=%s", readyRec.Code, readyRec.Body.String())
+	}
+	wrongReq := httptest.NewRequest(http.MethodGet, "/readyz?sessionId=session-2", nil)
+	wrongRec := httptest.NewRecorder()
+	handler.ServeHTTP(wrongRec, wrongReq)
+	if wrongRec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("mismatched readiness status = %d, want 503", wrongRec.Code)
+	}
+}
+
 func TestRefreshIfNeededPersistsRotationBeforePublishingAccessToken(t *testing.T) {
 	userID := "00000000-0000-0000-0000-000000000001"
 	clientID := "sandbox-notebook"
@@ -164,8 +232,10 @@ func TestRefreshIfNeededPersistsRotationBeforePublishingAccessToken(t *testing.T
 	}
 	currentRefreshToken := ""
 	lastMountedRefreshToken := ""
+	currentSessionID := ""
+	lastMountedSessionID := ""
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	if err := refreshIfNeeded(context.Background(), cfg, logger, &currentRefreshToken, &lastMountedRefreshToken); err != nil {
+	if err := refreshIfNeeded(context.Background(), cfg, logger, &currentRefreshToken, &lastMountedRefreshToken, &currentSessionID, &lastMountedSessionID); err != nil {
 		t.Fatalf("refreshIfNeeded failed: %v", err)
 	}
 	if !persisted {

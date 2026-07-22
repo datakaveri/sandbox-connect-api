@@ -379,6 +379,21 @@ definitions:
         example: error
         type: string
     type: object
+  main.Error503:
+    description: Response for dependencies that are still becoming ready
+    properties:
+      detail:
+        description: Error message
+        example: string
+        type: string
+      title:
+        description: Error title
+        example: Service Unavailable
+        type: string
+      type:
+        example: error
+        type: string
+    type: object
   main.ExtendBookingResponse:
     properties:
       bookingId:
@@ -832,9 +847,9 @@ paths:
       - bookings
   /v1/bookings/{id}/notebook-token-session:
     post:
-      description: Exchanges the caller access token for a notebook-specific delegated
-        refresh token and stores it in a notebook-scoped Kubernetes Secret. Browser
-        refresh tokens are never accepted or stored.
+      description: Exchanges the caller access token for notebook-specific delegated
+        tokens and returns 200 only after the access token is usable inside the notebook
+        container. Browser refresh tokens are never accepted or stored.
       parameters:
       - description: Booking ID
         in: path
@@ -868,6 +883,10 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/main.Error500'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/main.Error503'
       security:
       - BearerAuth: []
       summary: Create notebook token session
@@ -1066,9 +1085,9 @@ paths:
       - jupyterlite
   /v1/notebook/{notebook_name}/notebook-token-session:
     post:
-      description: Exchanges the caller access token for a notebook-specific delegated
-        refresh token and stores it in a notebook-scoped Kubernetes Secret. Available
-        for direct notebooks when API_BOOKINGS_ENABLED=false.
+      description: Exchanges the caller access token for notebook-specific delegated
+        tokens and returns 200 only after the access token is usable inside the notebook
+        container. Available for direct notebooks when API_BOOKINGS_ENABLED=false.
       parameters:
       - description: Notebook Name
         in: path
@@ -1102,6 +1121,10 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/main.Error500'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/main.Error503'
       security:
       - BearerAuth: []
       summary: Create direct notebook token session

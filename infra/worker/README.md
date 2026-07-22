@@ -60,7 +60,7 @@ Both bundles are strictly validated. Startup fails for unknown wrapper fields, w
 
 The embedded Notebook must contain exactly one marker container named `notebook` and a default image. The worker always enforces `automountServiceAccountToken: false`, `privileged: false`, `allowPrivilegeEscalation: false`, and `procMount: Default` on the rendered object. Broader cluster policy remains the responsibility of Kubernetes admission controls.
 
-Platform-token resources are wholly template-owned. When `spec.lifecycle.platformToken` is absent, no platform-token resources are injected or patched. When present, the template must provide the sidecar, Secret/cache volumes, mounts, static environment, image, client configuration, and URLs; the worker patches only the refresh Secret name, token-session URL, and expected user ID.
+Platform-token resources are wholly template-owned. When `spec.lifecycle.platformToken` is absent, no platform-token resources are injected or patched. When present, the template must provide the sidecar, Secret/cache volumes, mounts, bootstrap-token and readiness environment, image, client configuration, and URLs. The worker patches the refresh Secret name, token-session URL, expected user ID, and a stable Pod label used by the API to locate the sidecar readiness endpoint.
 
 ## Rollout
 

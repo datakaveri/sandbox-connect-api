@@ -25,6 +25,19 @@ func (w *worker) BuildNotebook() (*unstructured.Unstructured, error) {
 	}
 	labels["app"] = nb.Name
 	notebookObj.SetLabels(labels)
+	if w.platformTokenSidecarEnabled() {
+		podLabels, _, err := unstructured.NestedStringMap(notebookObj.Object, "spec", "template", "metadata", "labels")
+		if err != nil {
+			return nil, fmt.Errorf("read notebook pod labels: %w", err)
+		}
+		if podLabels == nil {
+			podLabels = map[string]string{}
+		}
+		podLabels[platformTokenNotebookLabel] = nb.Name
+		if err := unstructured.SetNestedStringMap(notebookObj.Object, podLabels, "spec", "template", "metadata", "labels"); err != nil {
+			return nil, fmt.Errorf("set notebook pod labels: %w", err)
+		}
+	}
 
 	podSpec, found, err := unstructured.NestedMap(notebookObj.Object, "spec", "template", "spec")
 	if err != nil || !found {

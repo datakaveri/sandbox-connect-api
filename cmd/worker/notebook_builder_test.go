@@ -152,8 +152,13 @@ func TestBuildNotebookPatchesTemplateOwnedPlatformTokenResources(t *testing.T) {
 	containers = append(containers, map[string]any{
 		"name": platformTokenSidecarName, "image": "token-sidecar:latest",
 		"securityContext": map[string]any{"privileged": false, "allowPrivilegeEscalation": false, "procMount": "Default"},
-		"env":             []any{map[string]any{"name": "TOKEN_SESSION_URL", "value": ""}, map[string]any{"name": "EXPECTED_USER_ID", "value": ""}},
-		"volumeMounts":    []any{map[string]any{"name": platformRefreshTokenVolumeName, "mountPath": platformRefreshTokenMountPath, "readOnly": true}, map[string]any{"name": platformTokenCacheVolumeName, "mountPath": platformTokenCacheMountPath}},
+		"env": []any{
+			map[string]any{"name": "BOOTSTRAP_TOKEN_FILE", "value": "/refresh/bootstrap.json"},
+			map[string]any{"name": "READY_ADDRESS", "value": "0.0.0.0:8081"},
+			map[string]any{"name": "TOKEN_SESSION_URL", "value": ""},
+			map[string]any{"name": "EXPECTED_USER_ID", "value": ""},
+		},
+		"volumeMounts": []any{map[string]any{"name": platformRefreshTokenVolumeName, "mountPath": platformRefreshTokenMountPath, "readOnly": true}, map[string]any{"name": platformTokenCacheVolumeName, "mountPath": platformTokenCacheMountPath}},
 	})
 	podSpec["volumes"], podSpec["containers"] = mapsToAny(volumes), mapsToAny(containers)
 	_ = unstructured.SetNestedMap(template.Spec.Notebook, podSpec, "spec", "template", "spec")
@@ -182,5 +187,9 @@ func TestBuildNotebookPatchesTemplateOwnedPlatformTokenResources(t *testing.T) {
 	}
 	if values["TOKEN_SESSION_URL"] != "https://sandbox.example.com/api/v1/bookings/42/notebook-token-session" || values["EXPECTED_USER_ID"] != "user-ns" {
 		t.Fatalf("dynamic token env not patched: %#v", values)
+	}
+	podLabels, found, err := unstructured.NestedStringMap(built.Object, "spec", "template", "metadata", "labels")
+	if err != nil || !found || podLabels[platformTokenNotebookLabel] != "demo" {
+		t.Fatalf("platform token pod label missing: found=%v err=%v labels=%#v", found, err, podLabels)
 	}
 }
