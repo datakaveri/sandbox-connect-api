@@ -144,9 +144,12 @@ func TestCreateOrUpdatePlatformTokenSecretSetsNotebookOwnerReference(t *testing.
 		k8sClient: &k8spkg.K8sClient{Dynamic: client},
 	}
 
-	secretName, err := app.createOrUpdatePlatformTokenSecret(ctx, namespace, notebookName, nil, namespace, "refresh-token", "access-token", "session-1")
+	secretName, sessionID, err := app.createOrUpdatePlatformTokenSecret(ctx, namespace, notebookName, nil, namespace, "refresh-token", "access-token", "session-1")
 	if err != nil {
 		t.Fatalf("createOrUpdatePlatformTokenSecret failed: %v", err)
+	}
+	if sessionID != "session-1" {
+		t.Fatalf("returned session ID = %q, want session-1", sessionID)
 	}
 	secret, err := client.Resource(platformTokenSecretGVR).Namespace(namespace).Get(ctx, secretName, metav1.GetOptions{})
 	if err != nil {
@@ -167,8 +170,10 @@ func TestCreateOrUpdatePlatformTokenSecretSetsNotebookOwnerReference(t *testing.
 	if err != nil || !found || data[platformTokenBootstrapKey] == "" {
 		t.Fatalf("bootstrap token data missing: found=%v err=%v data=%#v", found, err, data)
 	}
-	if _, err := app.createOrUpdatePlatformTokenSecret(ctx, namespace, notebookName, nil, namespace, "refresh-token-2", "access-token-2", ""); err != nil {
+	if _, sessionID, err := app.createOrUpdatePlatformTokenSecret(ctx, namespace, notebookName, nil, namespace, "refresh-token-2", "access-token-2", ""); err != nil {
 		t.Fatalf("rotate platform token secret: %v", err)
+	} else if sessionID != "session-1" {
+		t.Fatalf("returned rotated session ID = %q, want session-1", sessionID)
 	}
 	secret, err = client.Resource(platformTokenSecretGVR).Namespace(namespace).Get(ctx, secretName, metav1.GetOptions{})
 	if err != nil {

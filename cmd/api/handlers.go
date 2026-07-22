@@ -377,6 +377,8 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	app.seedDirectNotebookPlatformToken(ctx, logger, namespace, notebookReq.Name, userInfo.Sub, r.Header.Get("Authorization"))
+
 	logger.Info("notebook created successfully",
 		"notebook_id", notebookId,
 		"notebook_name", notebookReq.Name,
