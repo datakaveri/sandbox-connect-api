@@ -14,14 +14,18 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/google/uuid"
 )
 
 const (
-	platformTokenNotebookLabel       = "sandbox-connect/notebook-name"
-	legacyNotebookNameLabel          = "notebook-name"
-	defaultPlatformTokenReadyPort    = 8081
-	defaultPlatformTokenReadyTimeout = 40 * time.Second
-	platformTokenReadyPollInterval   = 500 * time.Millisecond
+	platformTokenNotebookLabel        = "sandbox-connect/notebook-name"
+	legacyNotebookNameLabel           = "notebook-name"
+	platformTokenProjectionAnnotation = "sandbox-connect/platform-token-projection-refresh"
+	defaultPlatformTokenReadyPort     = 8081
+	defaultPlatformTokenReadyTimeout  = 40 * time.Second
+	platformTokenReadyPollInterval    = 500 * time.Millisecond
 )
 
 var platformTokenPodGVR = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}
@@ -86,6 +90,46 @@ func (app *application) listPlatformTokenReadyPods(ctx context.Context, namespac
 	}
 
 	return &unstructured.UnstructuredList{}, nil
+}
+
+func (app *application) triggerPlatformTokenProjection(ctx context.Context, namespace, notebookName string) (int, error) {
+	pods, err := app.listPlatformTokenReadyPods(ctx, namespace, notebookName)
+	if err != nil {
+		return 0, err
+	}
+	if len(pods.Items) == 0 {
+		return 0, nil
+	}
+
+	patch, err := json.Marshal(map[string]any{
+		"metadata": map[string]any{
+			"annotations": map[string]any{
+				platformTokenProjectionAnnotation: uuid.NewString(),
+			},
+		},
+	})
+	if err != nil {
+		return 0, fmt.Errorf("encode platform token projection pod patch: %w", err)
+	}
+
+	patched := 0
+	for i := range pods.Items {
+		podName := pods.Items[i].GetName()
+		if podName == "" {
+			continue
+		}
+		if _, err := app.k8sClient.Dynamic.Resource(platformTokenPodGVR).Namespace(namespace).Patch(
+			ctx,
+			podName,
+			types.MergePatchType,
+			patch,
+			metav1.PatchOptions{},
+		); err != nil {
+			return patched, fmt.Errorf("trigger platform token projection for pod %s: %w", podName, err)
+		}
+		patched++
+	}
+	return patched, nil
 }
 
 func (app *application) isPlatformTokenReady(ctx context.Context, client *http.Client, namespace, notebookName, sessionID string) (bool, error) {
