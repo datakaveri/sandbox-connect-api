@@ -53,7 +53,6 @@ data:
   API_GPU_NODE_INSTANCE_TYPES: "g4dn.xlarge,p4d.24xlarge,p5.48xlarge"
   SLOT_CONFIG_PROFILE: "production"
   API_LOG_LEVEL: "debug"
-  API_AAA_URL: "https://dx.tgdex.telangana.gov.in"
   # Registry secret configuration
   # Set API_REGISTRY_SECRET_TYPE to one of: ecr | private-registry | none
   #
@@ -62,9 +61,10 @@ data:
   API_REGISTRY_URL: "108779579607.dkr.ecr.ap-south-1.amazonaws.com"
   API_REGISTRY_SECRET_NAME: "v2-registry-cred"
   API_REGISTRY_ECR_REGION: "ap-south-1"
-  API_OPENCOST_URL: "http://opencost.opencost:9003"
-  API_KEYCLOAK_BILLING_CLIENT_ID: "frontend-client"
-  # RabbitMQ Configuration (Audit)
+  # RabbitMQ Configuration (Audit).
+  # NOTE: a non-empty placeholder host ENABLES auditing and then fails DNS on
+  # every publish. Set a real host or delete these five keys entirely.
+  # Credentials belong in Secret api-creds, never here.
   RABBITMQ_HOST: "<your-rabbitmq-host>"
   RABBITMQ_PORT: "5672"
   RABBITMQ_VHOST: "/"
