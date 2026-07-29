@@ -167,7 +167,7 @@ key `POSTGRES_URL`.
   `failed to connect to host=… dial tcp: connect: connection refused`. Wrong password gives
   `FATAL: password authentication failed for user`. An `sslmode` mismatch against a TLS-enforcing
   server gives `pq: SSL is not enabled on the server` — commonly misread as a network fault.
-- **Change impact:** schema is shared with the worker and both crons; a host change is a
+- **Change impact:** schema is shared with the worker, slot lifecycle, and profile credit sync; a host change is a
   coordinated cutover across all four.
 - **Notes / gotchas:** an `@` or `/` inside an un-encoded password truncates the URI and produces a
   confusing "database does not exist" rather than an auth error.
@@ -257,10 +257,12 @@ hands the refresh token to the notebook's `platform-token-sidecar` — see
 - **Type / format:** string, Keycloak client ID.
 - **Required:** no
 - **Purpose:** the **confidential** client used to perform the OAuth token-exchange grant.
-- **Expected value:** a confidential client with token exchange enabled; see §3.
+- **Expected value:** the confidential client described in the
+  [canonical Keycloak setup](#canonical-keycloak-setup).
 - **Example value:** `sandbox-notebook`
 - **Default if omitted:** `sandbox-notebook`.
-- **How to obtain:** Keycloak operator, following §3.
+- **How to obtain:** import and configure the client as described in the
+  [canonical Keycloak setup](#canonical-keycloak-setup).
 - **Failure mode:** unknown client → `invalid_client` from the token endpoint; notebooks start but
   never become token-ready and are culled after `API_PLATFORM_TOKEN_READY_TIMEOUT_SECS`.
 - **Change impact:** must change together with the sidecar's `KEYCLOAK_CLIENT_ID` and
@@ -272,17 +274,17 @@ hands the refresh token to the notebook's `platform-token-sidecar` — see
 
 - **Type / format:** string, Keycloak client ID.
 - **Required:** no
-- **Purpose:** the **audience** the exchanged token is minted for — the identity the notebook
-  presents to downstream platform APIs.
-- **Expected value:** normally identical to `API_PLATFORM_TOKEN_EXCHANGE_CLIENT_ID`. Separate only
-  when exchanging *into* a different client.
+- **Purpose:** the expected `azp` (authorized party) in delegated notebook access tokens.
+- **Expected value:** identical to `API_PLATFORM_TOKEN_EXCHANGE_CLIENT_ID`; the API rejects
+  configuration where the two values differ.
 - **Example value:** `sandbox-notebook`
 - **Default if omitted:** `sandbox-notebook`.
 - **How to obtain:** Keycloak operator.
-- **Failure mode:** a value the exchange client is not permitted to target returns
-  `invalid_target`; downstream APIs otherwise reject the token's audience with 403.
-- **Change impact:** coordinate with the downstream file API's accepted audience.
-- **Notes / gotchas:** the deployed ConfigMap comments note both intentionally use one client.
+- **Failure mode:** a mismatch prevents token exchange before Keycloak is called; an exchanged
+  token whose `azp` differs is rejected before it is written to the notebook.
+- **Change impact:** change together with `API_PLATFORM_TOKEN_EXCHANGE_CLIENT_ID`,
+  `KEYCLOAK_CLIENT_ID`, and `EXPECTED_CLIENT_ID` in both notebook templates.
+- **Notes / gotchas:** this is a validation identity, not the optional downstream audience.
 
 ### `API_PLATFORM_TOKEN_EXCHANGE_CLIENT_SECRET`
 
@@ -295,7 +297,7 @@ hands the refresh token to the notebook's `platform-token-sidecar` — see
 - **Default if omitted:** `""`, which disables delegation rather than failing startup.
 - **How to obtain:** Keycloak admin console → Clients → `sandbox-notebook` → Credentials →
   Client secret. Stored in Secret `api-creds`.
-- **Privileges required:** see §3.
+- **Privileges required:** see the [canonical Keycloak setup](#canonical-keycloak-setup).
 - **Failure mode:** empty or wrong → `unauthorized_client` / `invalid_client_credentials` from the
   token endpoint. Because the empty case does not fail startup, the symptom is notebooks that
   launch and then never reach ready — check the API log for the exchange error, not the notebook.
@@ -338,15 +340,16 @@ hands the refresh token to the notebook's `platform-token-sidecar` — see
 
 - **Type / format:** string, audience identifier.
 - **Required:** no
-- **Purpose:** explicit `audience` parameter on the exchange request.
-- **Expected value:** the downstream API's client ID, or empty to let Keycloak decide.
+- **Purpose:** optional `audience` filter on the exchange request.
+- **Expected value:** empty unless the downstream API requires one audience already available to
+  the notebook client through an allowed client scope.
 - **Example value:** `""`
 - **Default if omitted:** `""` — deployed as empty.
 - **How to obtain:** downstream API owner.
-- **Failure mode:** an audience the client cannot target returns `invalid_target`.
+- **Failure mode:** an audience not already available to the client returns `invalid_target`.
 - **Change impact:** coordinate with the downstream API's audience validation.
-- **Notes / gotchas:** leave empty unless the downstream API explicitly requires a distinct
-  audience.
+- **Notes / gotchas:** the parameter only filters audiences already present; it does not grant a
+  new audience. Add downstream audiences through an explicitly allowed client scope first.
 
 ### `API_PLATFORM_TOKEN_READY_PORT`
 
@@ -525,10 +528,10 @@ the same thing for each — the distinction is the point of this subsection.
 - **Example value:** `true`
 - **Default if omitted:** `true`.
 - **Fields that become required when true:** `SLOT_CONFIG_PROFILE` should be set to a profile
-  defined in `pkg/gpuconfig`, and the slot-lifecycle cron must be deployed — without it, bookings
+  defined in `pkg/gpuconfig`, and the slot-lifecycle Deployment must be running — without it, bookings
   are accepted but never transition state.
 - **How to obtain:** product decision.
-- **Failure mode:** enabled without the slot-lifecycle cron running, bookings sit in their initial
+- **Failure mode:** enabled without the slot-lifecycle Deployment running, bookings sit in their initial
   state forever and users see reservations that never start. No error is logged by the API.
 - **Change impact:** disabling with live bookings in the table strands them; drain first.
 - **Notes / gotchas:** also read via `os.Getenv` in a test helper; the struct tag is authoritative.
@@ -619,9 +622,9 @@ the same thing for each — the distinction is the point of this subsection.
 - **How to obtain:** read the profile names in `pkg/gpuconfig`.
 - **Failure mode:** an unknown profile name means slot lookups find no matching configuration and
   bookings fail to schedule.
-- **Change impact:** must match the slot-lifecycle cron's `SLOT_CONFIG_PROFILE`; a mismatch has the
+- **Change impact:** must match the slot-lifecycle controller's `SLOT_CONFIG_PROFILE`; a mismatch has the
   two components disagreeing about slot boundaries.
-- **Notes / gotchas:** unprefixed on purpose — the same variable name is shared with the cron.
+- **Notes / gotchas:** unprefixed on purpose — the same variable name is shared with slot lifecycle.
 
 ### `API_GPU_SLOT_CONFIG_PROFILE` — **deprecated**
 
@@ -991,7 +994,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO sandbox_api;
 ```
 
-Created by the DBA/DevOps owner of `database-creds`. The worker and both crons may share this role
+Created by the DBA/DevOps owner of `database-creds`. The worker and both background components may share this role
 or use separate roles with the same grants.
 
 #### RabbitMQ — `RABBITMQ_USERNAME` / `RABBITMQ_PASSWORD`
@@ -1057,18 +1060,91 @@ fields: tokens are verified against `API_KEYCLOAK_PUBLIC_KEY` for realm `API_KEY
 |---|---|
 | **Naming convention** | `sandbox-notebook` |
 | **Client type** | **Confidential** — holds `API_PLATFORM_TOKEN_EXCHANGE_CLIENT_SECRET` |
-| **Flows enabled** | Service accounts **on**; standard flow off; direct grant off |
-| **Token exchange** | Must be enabled — this is the whole purpose of the client. On modern Keycloak, enable the `token-exchange` feature and grant the exchange permission on the target client |
-| **Service-account role mappings** | Only what the downstream file API requires. It does **not** need `realm-management` roles such as `manage-users` or `view-clients` — grant none unless a specific downstream check demands one |
-| **Scopes** | Must include everything in `API_PLATFORM_TOKEN_EXCHANGE_SCOPE` (`openid profile email`) |
-| **Audience mappers** | Add an audience mapper for `API_PLATFORM_TOKEN_EXCHANGE_AUDIENCE` when a distinct audience is required; otherwise none |
+| **Flows enabled** | Standard flow off, implicit flow off, direct grant off, service accounts off |
+| **Token exchange** | **Standard Token Exchange** on, including **Allow refresh token in Standard Token Exchange** |
+| **Full scope allowed** | Off — explicitly grant only required scopes, roles, and claims |
+| **Role mappings** | Only what the downstream file API requires, such as `consumer`, `provider`, and organisation claims; no `realm-management` roles unless a specific downstream check requires one |
+| **Scopes** | Must permit the values requested by `API_PLATFORM_TOKEN_EXCHANGE_SCOPE` and any downstream file-service audience |
 | **Redirect URIs** | None — no browser flow |
-| **Offline access** | Required: the sidecar holds a refresh token for the notebook's lifetime, so the client must permit offline/long-lived refresh tokens |
+| **Session lifetime** | Realm and client idle/maximum lifetimes must cover the longest booking; refresh-token rotation cannot exceed Keycloak's absolute limits |
 
 Relation to other fields: the same client ID appears as `KEYCLOAK_CLIENT_ID` and
 `EXPECTED_CLIENT_ID` in the sidecar block of both notebook templates, and its secret is mounted
-into the notebook as `KEYCLOAK_CLIENT_SECRET_FILE`. **Coordinate creation with DevOps** — token
-exchange is a privileged capability and is disabled by default.
+into the notebook as `KEYCLOAK_CLIENT_SECRET_FILE`.
+
+#### Canonical Keycloak setup
+
+1. Import
+   [`infra/platform-token-sidecar/sandbox-notebook-client.json`](../../infra/platform-token-sidecar/sandbox-notebook-client.json)
+   into the target realm. The import creates the `sandbox-notebook` confidential client with
+   Standard Token Exchange and refresh-token exchange enabled.
+2. Regenerate the imported `CHANGE_ME_AFTER_IMPORT` client secret immediately. Store the new value
+   as `API_PLATFORM_TOKEN_EXCHANGE_CLIENT_SECRET` in Kubernetes Secret `api-creds`; never put it
+   in a ConfigMap or commit it to the repository.
+3. Keep `API_PLATFORM_TOKEN_EXCHANGE_CLIENT_ID`, `API_PLATFORM_TOKEN_NOTEBOOK_CLIENT_ID`,
+   sidecar `KEYCLOAK_CLIENT_ID`, and sidecar `EXPECTED_CLIENT_ID` set to the same client ID in both
+   notebook templates.
+4. Keep the delegated subject unchanged. The API validates that the exchanged token's `sub`
+   matches the notebook owner and its `azp` matches `API_PLATFORM_TOKEN_NOTEBOOK_CLIENT_ID`.
+5. Keep full-scope inheritance disabled. Explicitly assign only the file-service roles, claims,
+   scopes, and audiences required inside the notebook.
+6. Configure sidecar `KEYCLOAK_TOKEN_URL` for the same realm used by API authentication. The API
+   realm, token endpoint, and downstream file API must form one compatible trust chain.
+7. Size the realm and client idle/maximum session lifetimes for the longest booking. A rotated
+   refresh token cannot extend the session beyond Keycloak's absolute lifetime.
+
+The optional `API_PLATFORM_TOKEN_EXCHANGE_AUDIENCE` only filters audiences already available to
+the notebook client. Add a distinct file-service audience through an allowed client scope before
+requesting it.
+
+##### Add the notebook audience to the browser client
+
+The browser access token used as the exchange subject must contain `sandbox-notebook` in its
+`aud` claim. Keycloak rejects exchange when the requesting notebook client is outside the subject
+token's audience.
+
+For the default browser client `angular-client`:
+
+1. In the Keycloak Admin Console, open the target realm and select
+   **Clients → angular-client → Client scopes**.
+2. Open the browser client's dedicated scope, normally `angular-client-dedicated`.
+3. Select **Mappers → Configure a new mapper → Audience**.
+4. Configure and save:
+
+   | Field | Value |
+   |---|---|
+   | `Name` | `sandbox-notebook-audience` |
+   | `Included Client Audience` | `sandbox-notebook` |
+   | `Add to access token` | On |
+   | `Add to ID token` | Off |
+
+5. Log in again so the frontend receives a new access token, then confirm its claims include:
+
+   ```json
+   {
+     "azp": "angular-client",
+     "aud": ["sandbox-notebook"]
+   }
+   ```
+
+Other audiences may appear alongside `sandbox-notebook`. Prefer the browser client's dedicated
+scope when every login should support notebook token exchange. If an optional scope supplies the
+mapper, the frontend must explicitly request that scope during login.
+
+##### Runtime session flow
+
+The frontend creates a session with a bodyless authenticated
+`POST /v1/bookings/{id}/notebook-token-session`, or
+`POST /v1/notebook/{notebook_name}/notebook-token-session` when bookings are disabled. The API
+exchanges the browser access token, stores the delegated bootstrap bundle in the per-notebook
+Secret, and waits for the matching sidecar session to publish a usable access token. It returns
+`200` only after readiness succeeds. A `503` with `Retry-After` means the frontend must retry
+before opening the notebook URL.
+
+The sidecar refreshes the delegated session and persists rotated refresh tokens with `PUT` to the
+same endpoint. Only a delegated access token whose `sub` and `azp` match the notebook session may
+perform that update; rotation does not repeat the synchronous readiness wait. Browser refresh
+tokens are never sent to or stored by Sandbox Connect.
 
 ### Domains / URLs
 
@@ -1105,7 +1181,7 @@ There is no connection-pool size knob — the `pgx` pool uses its defaults. If P
 | Flag | Turns on | Becomes required as a result |
 |---|---|---|
 | `API_KYC_ENABLED=true` | KYC gating on notebook creation | nothing in this service |
-| `API_BOOKINGS_ENABLED=true` | slot booking routes | `SLOT_CONFIG_PROFILE`; the slot-lifecycle cron must be deployed |
+| `API_BOOKINGS_ENABLED=true` | slot booking routes | `SLOT_CONFIG_PROFILE`; the slot-lifecycle Deployment must be running |
 | `API_DISABLE_INIT=true` | notebook URLs point at the JupyterLab auto workspace | `demoFiles.enabled: false` in both notebook templates |
 | `WORKSPACE_ENABLED=true` | per-profile CephFS `workspace` PVC creation | a `ceph-filesystem` RWX storage class in the cluster; the **same** value on the worker |
 | `API_REGISTRY_SECRET_TYPE=ecr` | ECR token minting | `API_REGISTRY_ECR_REGION`, `API_REGISTRY_AWS_ACCESS_KEY_ID`, `API_REGISTRY_AWS_SECRET_KEY`, `API_REGISTRY_URL` |

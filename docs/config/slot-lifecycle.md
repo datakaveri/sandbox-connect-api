@@ -39,7 +39,7 @@ Without this component running, bookings are accepted by the API but never trans
 - **Privileges required:** see §3.
 - **Failure mode:** standard connection errors at startup. The dangerous case is pointing at a
   *different* database from the API: both start cleanly and bookings simply never advance.
-- **Change impact:** shared schema; coordinated cutover with the API, worker and the other cron.
+- **Change impact:** shared schema; coordinated cutover with the API, worker, and profile credit sync.
 - **Notes / gotchas:** the example file previously showed `?sslmode=disable` with a `local`
   kubeconfig — developer values, not deployment values. Use `require` or stronger against a
   production database.

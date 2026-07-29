@@ -77,7 +77,8 @@ As above, loaded with kind `"gpu"` and used for GPU notebooks.
 - **Failure mode:** as for the API. Pointing the worker at a *different* database than the API is
   the dangerous case: both start cleanly, but notebooks created via the API are never reconciled
   and simply stay pending forever.
-- **Change impact:** shared schema with the API and both crons — any host change is a coordinated
+- **Change impact:** shared schema with the API, slot lifecycle, and profile credit sync — any host
+  change is a coordinated
   cutover.
 - **Notes / gotchas:** must be the same database as `API_POSTGRES_URL`.
 
@@ -298,12 +299,12 @@ placeholders substituted by the worker.
 
 - **Type / format:** string, absolute URL with scheme.
 - **Required:** conditional — required when the token sidecar is present.
-- **Purpose:** base URL the sidecar calls to validate the notebook session.
+- **Purpose:** base URL used to construct the per-notebook API endpoint where the sidecar persists
+  rotated refresh tokens.
 - **Expected value:** the Sandbox Connect API's public base URL, including any path prefix.
 - **Example value:** `https://api-sandbox.example.org/api`
-- **Failure mode:** unreachable → the sidecar never reports ready, and every notebook is culled at
-  `API_PLATFORM_TOKEN_READY_TIMEOUT_SECS`. This is the most common cause of "all notebooks time
-  out after a cluster move".
+- **Failure mode:** empty → template validation fails. Unreachable → rotated refresh tokens cannot
+  be persisted and long-running notebooks eventually lose platform access.
 - **Change impact:** must track the API's ingress hostname.
 - **Notes / gotchas:** resolved from **inside** a notebook pod — if network policy blocks egress
   to the public ingress, an internal Service DNS name is required instead.
@@ -363,8 +364,19 @@ For MinIO, the equivalent `readonly` policy scoped to the bucket. No `s3:PutObje
 ### Keycloak client IDs / secrets
 
 The worker holds none directly. The notebook token sidecar it injects does — its client
-requirements are documented in [api.md](api.md) §3 (the `sandbox-notebook` confidential client)
-and its fields in [platform-token-sidecar.md](platform-token-sidecar.md).
+requirements are documented in the API reference's
+[canonical Keycloak setup](api.md#canonical-keycloak-setup), and its runtime fields are documented
+in [platform-token-sidecar.md](platform-token-sidecar.md).
+
+The worker's responsibility is wiring, not client administration. In both CPU and GPU templates
+it must:
+
+- set sidecar `KEYCLOAK_CLIENT_ID` and `EXPECTED_CLIENT_ID` to the same value as the API's two
+  notebook-client ID fields;
+- set `KEYCLOAK_TOKEN_URL` to the token endpoint for the API authentication realm;
+- retain empty `TOKEN_SESSION_URL` and `EXPECTED_USER_ID` placeholders for the worker to replace
+  per notebook; and
+- mount the API-projected client secret and refresh token only into the sidecar.
 
 ### Domains / URLs
 

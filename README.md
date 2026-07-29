@@ -5,34 +5,47 @@ A backend service for managing Jupyter notebooks in Kubernetes with a RESTful AP
 ## Table of Contents
 
 - [Overview](#overview)
+- [Documentation](#documentation)
 - [System Architecture](#system-architecture)
 - [Installation](#installation)
 - [API Documentation](#api-documentation)
   - [Notebook Endpoints](#notebook-endpoints)
   - [Request and Response Examples](#request-and-response-examples)
+- [Notebook Download Token Sessions](#notebook-download-token-sessions)
 - [Notebook Status Categories](#notebook-status-categories)
 
 ## Overview
 
-Sandbox Connect API provides a RESTful API for managing Jupyter notebooks in a Kubernetes cluster. It allows users to create, start, stop, delete, and list notebooks. The system consists of two main components:
+Sandbox Connect provides APIs and background controllers for managing Jupyter notebooks in a
+Kubernetes cluster. It supports scheduled bookings and a direct-notebook mode.
 
-1. **API Server**: Handles HTTP requests and communicates with the database
-2. **Worker**: Processes notebook creation requests and interacts with Kubernetes
+The deployable components are the API, worker, slot-lifecycle controller, profile-credit-sync
+CronJob, and platform-token sidecar. PostgreSQL coordinates state, while Kubernetes and Kubeflow
+host the notebook workloads.
+
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [Architecture](docs/architecture.md)
+- [Operations guide](docs/operations.md)
+- [Configuration reference](docs/config/README.md)
+- [Generated OpenAPI specification](docs/swagger.yaml)
 
 ## System Architecture
 
-The system is designed with the following components:
+The API records user intent in PostgreSQL. In booking mode, slot lifecycle creates and advances
+notebook work at the configured times. The worker claims pending notebook rows, resolves the
+selected CPU/GPU template and storage policies, then creates the Kubeflow resources. The API
+combines database events with live Kubernetes state when reporting notebook status.
 
-- **API Server**: Handles HTTP requests, validates user input, and communicates with the database
-- **Worker**: Monitors the database for new notebook requests and creates the necessary Kubernetes resources
-- **PostgreSQL Database**: Stores notebook configurations and states
-- **Kubernetes**: Hosts the Jupyter notebook instances
+See [docs/architecture.md](docs/architecture.md) for component boundaries, lifecycle diagrams,
+storage ownership, token sessions, and concurrency behavior.
 
 ## Installation
 
 ### Prerequisites
 
-- Go 1.21 or higher
+- Go 1.24.2 or a compatible newer version
 - PostgreSQL database
 - Kubernetes cluster (or access to one)
 - Docker (for containerized deployment)
@@ -40,27 +53,32 @@ The system is designed with the following components:
 ### Setup
 
 1. Clone the repository
+
 ```bash
 git clone https://github.com/datakaveri/sandbox-connect-api.git
 cd sandbox-connect-api
 ```
 
 2. Copy `.env.all.example` to `.env` and configure all required variables
+
 ```bash
 cp .env.all.example .env
 ```
 
-4. Initialize the database
+3. Initialize the database
+
 ```bash
 psql -U <username> -d <database_name> -f db.sql
 ```
 
-5. Run the API server
+4. Run the API server
+
 ```bash
 go run ./cmd/api/
 ```
 
-6. In a separate terminal, run the worker
+5. In a separate terminal, run the worker
+
 ```bash
 go run ./cmd/worker/
 ```
@@ -83,84 +101,38 @@ User-facing docs and tutorials live in `user-docs/`. They are authored separatel
 
 ### Notebook Endpoints
 
-CPU/GPU sandboxes are **created via bookings** (`POST /v1/bookings`); the worker provisions the notebook at the scheduled time. Direct `POST /v1/notebook/create` is not supported.
-Notebook lifecycle writes are intentionally not exposed; use booking cancel, terminate, reset, or extend endpoints for lifecycle changes.
+When `API_BOOKINGS_ENABLED=true`, CPU/GPU sandboxes are created via `POST /v1/bookings` and
+booking lifecycle endpoints. When it is false, the direct notebook create/start/stop/delete routes
+are enabled instead.
 
 | Endpoint | Method | Description | Success Response |
 |----------|--------|-------------|------------------|
 | `/v1/bookings` | POST | Create a CPU/GPU slot booking (notebook name + category + slot) | 201 Created |
-| `/notebook/list` | GET | List all notebooks (optionally filter by date range) | 200 OK |
-| `/notebook/check-exists/{notebook_name}` | GET | Check if notebook exists  | 200 OK |
-| `/notebook/status/{notebook_name}` | GET | Get notebook status  | 200 OK |
-| `/profile/create` | POST   | Create a new Kubeflow user profile/namespace | 201 Created      |
+| `/v1/notebook/list` | GET | List all notebooks (optionally filter by date range) | 200 OK |
+| `/v1/notebook/check-exists/{notebook_name}` | GET | Check if notebook exists | 200 OK |
+| `/v1/notebook/status/{notebook_name}` | GET | Get notebook status | 200 OK |
+| `/v1/profile/create` | POST | Create a new Kubeflow user profile/namespace | 201 Created |
 
 ## Notebook Download Token Sessions
 
-CPU notebook downloads use a delegated Keycloak session; browser refresh tokens are never sent to Sandbox Connect.
+CPU notebook downloads use a delegated Keycloak session; browser refresh tokens are never sent to
+or stored by Sandbox Connect.
 
-Import [`infra/platform-token-sidecar/sandbox-notebook-client.json`](infra/platform-token-sidecar/sandbox-notebook-client.json)
-into the target Keycloak realm to create the `sandbox-notebook` client required
-for token sessions. Treat the bundled client secret as a template value: rotate
-it after import and configure the same environment-specific secret in
-`api-creds`.
+Configuration is documented in one place per responsibility:
 
-1. Configure one confidential notebook client. Use the same client ID for `API_PLATFORM_TOKEN_EXCHANGE_CLIENT_ID`, `API_PLATFORM_TOKEN_NOTEBOOK_CLIENT_ID`, and the static sidecar client settings in both worker Notebook templates. Store its secret in `api-creds`.
-2. Enable Standard Token Exchange and **Allow refresh token in Standard Token Exchange** on that client. The exchanged access token must contain this client as `azp`, and the response must include a refresh token.
-3. Keep the delegated subject unchanged and add any file-service audience through an allowed client scope; the optional `audience` parameter only filters existing audiences.
-4. Configure `KEYCLOAK_TOKEN_URL` in both embedded platform-token sidecars. Sandbox Connect copies the confidential client secret into the notebook token Secret, which is mounted only into the sidecar.
-5. Set the realm/client idle and maximum session lifetimes to cover the longest booking. Rotation cannot extend a session past Keycloak absolute limits.
-6. Add `sandbox-notebook` as an access-token audience on the browser client; Keycloak rejects exchange when the requester is outside the subject token audience.
-7. Keep full-scope inheritance disabled on the notebook client and explicitly scope only the file-service roles and claims it needs, such as `consumer`, `provider`, and organisation identifiers.
+- [Canonical Keycloak and API setup](docs/config/api.md#canonical-keycloak-setup) covers the client
+  import, secret rotation, Standard Token Exchange, browser audience mapper, scopes, and session
+  lifetimes.
+- [Platform token sidecar configuration](docs/config/platform-token-sidecar.md) covers refresh,
+  identity validation, token publication, and readiness.
+- [Worker configuration](docs/config/worker.md) covers the CPU/GPU Notebook template wiring and
+  per-notebook session values.
 
-### Add the notebook audience to the browser client
-
-The browser/client application token must include `sandbox-notebook` in the access-token `aud` claim before Keycloak will allow Sandbox Connect to exchange it for a delegated notebook token. For the default browser client `angular-client`, configure this in Keycloak:
-
-1. Open the Keycloak Admin Console and select the target realm.
-2. Go to **Clients** and open `angular-client`.
-3. Go to **Client scopes**.
-4. Open the dedicated client scope for the browser client. In recent Keycloak versions this is usually named `angular-client-dedicated`.
-5. Open the **Mappers** tab.
-6. Select **Configure a new mapper**.
-7. Select the mapper type **Audience**.
-8. Configure the mapper:
-
-   | Field | Value |
-   |---|---|
-   | `Name` | `sandbox-notebook-audience` |
-   | `Included Client Audience` | `sandbox-notebook` |
-   | `Add to access token` | `On` |
-   | `Add to ID token` | `Off` |
-
-9. Save the mapper.
-10. Log in again from the frontend so the browser receives a fresh access token.
-11. Decode the new access token and confirm the `aud` claim contains `sandbox-notebook`.
-
-Expected access-token claim:
-
-```json
-{
-  "azp": "angular-client",
-  "aud": ["sandbox-notebook"]
-}
-```
-
-If the token already has other audiences, `sandbox-notebook` should appear alongside them:
-
-```json
-{
-  "azp": "angular-client",
-  "aud": ["account", "sandbox-notebook"]
-}
-```
-
-Prefer adding this mapper to the browser client's dedicated scope when every `angular-client` token should support notebook token exchange. If the mapper is added through an optional client scope instead, the frontend must request that optional scope during login; otherwise the `aud` claim will not include `sandbox-notebook`.
-
-The API authentication realm, sidecar token URL, and file API must form one compatible trust chain. Configure every deployment explicitly; do not reuse another environment's file API URL as a fallback.
-
-The frontend creates the session with a bodyless authenticated `POST /v1/bookings/{id}/notebook-token-session` (or the direct-notebook equivalent). The API stores the exchanged access token in an atomic bootstrap bundle, waits for the matching sidecar session to publish it at `/var/run/sandbox-connect/platform/token`, and returns `200` only after that file is usable inside the notebook container. A `503` with `Retry-After` means publication is still in progress and the frontend must retry before opening `notebookUrl`.
-
-The sidecar persists rotated refresh tokens with `PUT` to the same path. Only notebook-client access tokens may use `PUT`; rotation does not perform the synchronous readiness wait.
+At runtime, the frontend creates a token session with an authenticated bodyless `POST` to the
+booking or direct-notebook token-session endpoint. The API returns `200` only after the delegated
+access token is usable in the notebook; a `503` with `Retry-After` means the frontend must retry
+before opening the notebook URL. The sidecar later persists refresh-token rotation with `PUT` to
+the same endpoint.
 
 ## Notebook Status Categories
 
@@ -184,7 +156,7 @@ Notebooks in the `stopped` category are valid notebooks that have been temporari
 
 These notebooks can be restarted using the start endpoint.
 
-### creating 
+### Creating
 
 Notebooks in the `creating` category are still in the process of being created or are waiting for resources. A notebook is categorized as creating if:
 - Its latest event is not `notebook-applied` and not one of the failure events

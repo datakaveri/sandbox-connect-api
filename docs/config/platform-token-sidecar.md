@@ -61,12 +61,13 @@ replaced by the default rather than rejected.
 ### `KEYCLOAK_CLIENT_ID`
 
 - **Type / format:** string, Keycloak client ID.
-- **Required:** effectively yes
+- **Required:** yes
 - **Purpose:** the confidential client used for the refresh grant.
 - **Expected value:** the same client as `API_PLATFORM_TOKEN_EXCHANGE_CLIENT_ID`.
 - **Example value:** `sandbox-notebook`
 - **Default if omitted:** `""` → `invalid_client` on every refresh.
-- **How to obtain:** Keycloak operator; client requirements are in [api.md](api.md) §3.
+- **How to obtain:** Keycloak operator; follow the
+  [canonical Keycloak setup](api.md#canonical-keycloak-setup).
 - **Failure mode:** a mismatch with the client that **minted** the refresh token fails with
   `invalid_grant`, because refresh tokens are bound to the issuing client. The confusing part is
   that the API-side exchange succeeds and only the in-notebook refresh fails.
@@ -78,7 +79,7 @@ replaced by the default rather than rejected.
 ### `KEYCLOAK_CLIENT_SECRET_FILE`
 
 - **Type / format:** string, absolute path to a file containing the client secret.
-- **Required:** effectively yes
+- **Required:** yes
 - **Purpose:** path to the mounted client secret. The secret is read **from a file**, never from an
   environment variable — deliberately, so it does not appear in `kubectl describe pod` or in the
   notebook's own environment.
@@ -88,7 +89,8 @@ replaced by the default rather than rejected.
   `unauthorized_client`.
 - **How to obtain:** the mount path of the `platform-refresh-token` volume plus the Secret key
   name. The Secret's content originates from `API_PLATFORM_TOKEN_EXCHANGE_CLIENT_SECRET`.
-- **Privileges required:** see [api.md](api.md) §3 for the client.
+- **Privileges required:** see the
+  [canonical Keycloak setup](api.md#canonical-keycloak-setup).
 - **Failure mode:** a path that does not exist → refresh fails on every attempt. Because the volume
   is `optional: true`, a missing Secret does **not** fail the pod — the notebook starts, the file
   is simply absent, and only readiness fails.
@@ -186,57 +188,54 @@ replaced by the default rather than rejected.
 
 ### `TOKEN_SESSION_URL`
 
-- **Type / format:** string, absolute URL, or empty.
-- **Required:** no
-- **Purpose:** endpoint used to validate the notebook session before refreshing, so a token stops
-  being minted once the session ends.
-- **Expected value:** derived from `spec.lifecycle.platformToken.sessionAPIBaseURL`, or empty to
-  disable session validation.
-- **Example value:** `""` (as deployed) or `https://api-sandbox.example.org/api/session`
-- **Default if omitted:** `""` → **session validation is skipped**.
-- **How to obtain:** the Sandbox Connect API's session endpoint.
-- **Failure mode:** left empty, the sidecar keeps refreshing a valid user token for as long as the
-  pod lives, regardless of whether the platform session was revoked. That is a security-relevant
-  default, not a neutral one: revoking a user's session does not revoke their notebook's access.
-  Set it wherever session revocation must propagate.
-- **Change impact:** enabling it makes notebooks depend on the API's availability for continued
-  token refresh.
-- **Notes / gotchas:** empty in both templates today. Worth revisiting alongside
-  `sessionAPIBaseURL`, which *is* set — the base URL is configured while the endpoint that uses it
-  is not.
+- **Type / format:** string, absolute URL.
+- **Required:** yes
+- **Purpose:** API endpoint used to persist a rotated refresh token for this notebook session.
+- **Expected value:** populated by the worker from
+  `spec.lifecycle.platformToken.sessionAPIBaseURL` plus the booking or direct-notebook session
+  path.
+- **Example value:** `https://api-sandbox.example.org/api/v1/bookings/42/notebook-token-session`
+- **Default if omitted:** none — sidecar startup fails.
+- **How to obtain:** set the worker template's `sessionAPIBaseURL`; the worker constructs the
+  per-notebook endpoint.
+- **Failure mode:** empty → sidecar startup failure. Unreachable or unauthorized → Keycloak may
+  rotate the refresh token, but the sidecar cannot persist the replacement in the notebook
+  Secret, so later refreshes eventually fail.
+- **Change impact:** notebooks depend on the API being reachable when refresh-token rotation
+  occurs.
+- **Notes / gotchas:** the empty value in the static template is a placeholder. The worker
+  replaces it before submitting each Notebook resource.
 
 ### `EXPECTED_USER_ID`
 
-- **Type / format:** string, user identifier (Keycloak `sub`), or empty.
-- **Required:** no
+- **Type / format:** string, user identifier (Keycloak `sub`).
+- **Required:** yes
 - **Purpose:** asserts the refreshed token belongs to the expected user — a guard against a Secret
   from one user's notebook being mounted into another's.
-- **Expected value:** the notebook owner's user ID, templated per notebook; empty disables the
-  check.
-- **Example value:** `""` (as deployed)
-- **Default if omitted:** `""` → **no user binding is verified**.
-- **How to obtain:** set by the worker per notebook from the owning profile.
-- **Failure mode:** empty means a misprojected Secret would be used without complaint, and the
-  notebook would act as the wrong user. Populated, a mismatch fails the refresh and the notebook
-  never becomes ready — a loud, safe failure.
-- **Change impact:** enabling it requires the worker to template the value per notebook.
-- **Notes / gotchas:** this is a defence-in-depth check that is currently switched off. Populating
-  it is the cheapest hardening available in this component.
+- **Expected value:** the notebook owner's user ID, populated per notebook.
+- **Example value:** `8eaf0f3d-50dc-4f5c-9f38-3a5a29a24b22`
+- **Default if omitted:** none — sidecar startup fails.
+- **How to obtain:** the worker injects the notebook namespace/owner identifier.
+- **Failure mode:** empty → sidecar startup failure. A token subject mismatch fails refresh and
+  prevents readiness — a loud, safe failure.
+- **Change impact:** none when the worker performs normal template rendering.
+- **Notes / gotchas:** the empty static-template value is replaced for every notebook.
 
 ### `EXPECTED_CLIENT_ID`
 
 - **Type / format:** string, Keycloak client ID.
-- **Required:** no
+- **Required:** yes
 - **Purpose:** asserts the refreshed token was issued to the expected client.
 - **Expected value:** the same value as `KEYCLOAK_CLIENT_ID`.
 - **Example value:** `sandbox-notebook`
-- **Default if omitted:** `""` → check skipped.
+- **Default if omitted:** none — sidecar startup fails.
 - **How to obtain:** Keycloak operator.
-- **Failure mode:** a mismatch fails refresh and the notebook never becomes ready — the intended
-  behaviour.
+- **Failure mode:** empty → sidecar startup failure. A mismatch fails refresh and the notebook
+  never becomes ready — the intended behaviour.
 - **Change impact:** change with `KEYCLOAK_CLIENT_ID` and
-  `API_PLATFORM_TOKEN_EXCHANGE_CLIENT_ID`.
-- **Notes / gotchas:** set in both templates; unlike `EXPECTED_USER_ID`, this check is active.
+  both API notebook-client ID fields.
+- **Notes / gotchas:** set in both templates and must remain identical to the delegated token's
+  `azp`.
 
 ### Timing knobs
 
@@ -282,15 +281,15 @@ token.
 
 ### Keycloak client IDs / secrets
 
-The sidecar uses the `sandbox-notebook` confidential client documented in [api.md](api.md) §3.
-Sidecar-specific requirements on that client:
+The canonical client import, browser audience mapper, secret rotation, and scope requirements are
+documented in [api.md](api.md#canonical-keycloak-setup). Sidecar-specific requirements are:
 
-- **Refresh token grant must be enabled** — the sidecar's entire loop depends on it.
-- **Offline/long-lived refresh tokens must be permitted**, since a notebook may run far longer than
-  the default refresh-token idle timeout. If the realm's *SSO Session Idle* or *Client Session
-  Idle* is shorter than a typical notebook session, long-running notebooks lose platform access
-  partway through — a failure that only appears under real usage patterns and never in a short
-  test.
+- The Standard Token Exchange response must contain a refresh token. Enable
+  **Allow refresh token in Standard Token Exchange** on the notebook client.
+- The normal refresh-token grant must remain available because the sidecar exchanges the
+  delegated refresh token for new access and refresh tokens.
+- Realm and client idle/maximum lifetimes must cover the longest booking. Rotation cannot extend a
+  session beyond Keycloak's absolute limits.
 - The client must accept refresh requests from the notebook's network position.
 
 ### Domains / URLs
@@ -301,7 +300,7 @@ network policy context than the API. Verify reachability from there, not from th
 | Field | Scheme | Trailing slash | Must match |
 |---|---|---|---|
 | `KEYCLOAK_TOKEN_URL` | required | no | `API_KEYCLOAK_URL` + `API_KEYCLOAK_REALM` |
-| `TOKEN_SESSION_URL` | required if set | no | `spec.lifecycle.platformToken.sessionAPIBaseURL` |
+| `TOKEN_SESSION_URL` | required | no | `spec.lifecycle.platformToken.sessionAPIBaseURL` + the per-notebook path |
 | `READY_ADDRESS` | none — `host:port` | n/a | `API_PLATFORM_TOKEN_READY_PORT`; `containerPort` |
 
 ### Tuning knobs
@@ -315,16 +314,12 @@ CHECK_INTERVAL_SECONDS  <  REFRESH_SKEW_SECONDS  <  access token lifetime
 Violating either inequality produces intermittent, hard-to-reproduce 401s inside notebooks rather
 than a clean failure.
 
-### Feature flags
+### Worker-injected session identity
 
-| Flag | Turns on | Becomes required as a result |
-|---|---|---|
-| `TOKEN_SESSION_URL` non-empty | session validation before each refresh | the API session endpoint must be reachable from notebook pods |
-| `EXPECTED_USER_ID` non-empty | per-notebook user binding | the worker must template the owner's user ID |
-| `EXPECTED_CLIENT_ID` non-empty | client binding check | must equal `KEYCLOAK_CLIENT_ID` |
-
-The first two are empty today, so both checks are disabled. Neither is required for correct
-operation, but both narrow the blast radius of a projection bug — worth enabling.
+`TOKEN_SESSION_URL` and `EXPECTED_USER_ID` are intentionally empty placeholders in the static
+Notebook templates. Before creating a Notebook resource, the worker replaces them with the
+per-session endpoint and notebook owner. `EXPECTED_CLIENT_ID` is static but required. The
+sidecar refuses to start if any of these three values is empty at runtime.
 
 ### External provider fields
 
