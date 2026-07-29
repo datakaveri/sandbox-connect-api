@@ -27,6 +27,7 @@ const (
 	demoInitContainerName         = "init-demo-ipynb"
 	builtInNotebookInitName       = "extract-built-in-notebooks"
 	platformTokenSidecarName      = "platform-token-sidecar"
+	sharedWorkspaceVolumeName     = "shared-workspace"
 )
 
 var templateTokenPattern = regexp.MustCompile(`{[^{}]+}`)

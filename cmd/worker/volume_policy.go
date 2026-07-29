@@ -48,6 +48,9 @@ func (w *worker) SelectWorkloadTemplate() error {
 	}
 	w.template = template
 	w.omittedVolumes = map[string]struct{}{}
+	if !w.app.env.WorkspaceEnabled {
+		w.omittedVolumes[sharedWorkspaceVolumeName] = struct{}{}
+	}
 	w.logger.Info("selected worker notebook template", "workload", workload, "volume_policy_count", len(template.Spec.Lifecycle.VolumePolicies))
 	return nil
 }
@@ -139,6 +142,9 @@ func (w *worker) resolvePVCMounts() ([]ResolvedPVCMount, error) {
 	policies := w.template.Spec.Lifecycle.VolumePolicies
 	resolved := make([]ResolvedPVCMount, 0, len(policies))
 	for _, cfg := range policies {
+		if _, omitted := w.omittedVolumes[cfg.Name]; omitted {
+			continue
+		}
 		volume, ok := findNamedItem(volumes, cfg.Name)
 		if !ok {
 			return nil, fmt.Errorf("lifecycle volume %s is missing from embedded Notebook", cfg.Name)

@@ -351,6 +351,12 @@ func (app *application) createGPUBooking(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	if err := app.ensureProfileWorkspacePVC(ctx, logger, namespace); err != nil {
+		logger.Error("failed to ensure profile workspace PVC for booking flow", "error", err, "namespace", namespace)
+		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+
 	if req.GitAccessToken != nil || req.GitTokenSecretName != nil {
 		if err := app.waitForNamespace(ctx, logger, namespace); err != nil {
 			logger.Error("namespace not ready for git token setup", "error", err, "namespace", namespace)

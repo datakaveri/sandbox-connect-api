@@ -26,6 +26,8 @@ spec:
           value: "/etc/sandbox-worker/templates/cpu-notebook-template.yaml"
         - name: WORKER_GPU_NOTEBOOK_TEMPLATE_PATH
           value: "/etc/sandbox-worker/templates/gpu-notebook-template.yaml"
+        - name: WORKSPACE_ENABLED
+          value: "true"
         - name: WORKER_POSTGRES_URL
           valueFrom:
             secretKeyRef:

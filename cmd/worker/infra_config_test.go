@@ -50,7 +50,7 @@ func TestCheckedInWorkerNotebookTemplates(t *testing.T) {
 		if err != nil {
 			t.Fatalf("load checked-in %s template: %v", workload, err)
 		}
-		if template.Spec.Lifecycle.WorkspaceVolumeName != "user-data" || len(template.Spec.Lifecycle.VolumePolicies) != 1 {
+		if template.Spec.Lifecycle.WorkspaceVolumeName != "user-data" || len(template.Spec.Lifecycle.VolumePolicies) != 2 {
 			t.Fatalf("unexpected %s lifecycle: %#v", workload, template.Spec.Lifecycle)
 		}
 		if pvcTemplate, exists := template.PVCTemplate("user-data"); !exists || pvcTemplate["kind"] != "PersistentVolumeClaim" {
@@ -61,8 +61,30 @@ func TestCheckedInWorkerNotebookTemplates(t *testing.T) {
 			t.Fatalf("unexpected %s pod settings", workload)
 		}
 		volumes, _ := templateNamedItems(podSpec, "volumes")
-		if len(volumes) != 5 {
-			t.Fatalf("%s template has %d volumes, want 5", workload, len(volumes))
+		if len(volumes) != 6 {
+			t.Fatalf("%s template has %d volumes, want 6", workload, len(volumes))
+		}
+		workspaceVol, ok := findNamedItem(volumes, sharedWorkspaceVolumeName)
+		if !ok {
+			t.Fatalf("%s template is missing the shared workspace volume", workload)
+		}
+		claimName, _, _ := unstructured.NestedString(workspaceVol, "persistentVolumeClaim", "claimName")
+		volumeReadOnly, _, _ := unstructured.NestedBool(workspaceVol, "persistentVolumeClaim", "readOnly")
+		if claimName != "workspace" || !volumeReadOnly {
+			t.Fatalf("%s shared workspace PVC volume is wrong: %#v", workload, workspaceVol)
+		}
+		inits, _ := templateNamedItems(podSpec, "initContainers")
+		if _, ok := findNamedItem(inits, "ensure-artifacts-dir"); ok {
+			t.Fatalf("%s template still contains the obsolete NFS init container", workload)
+		}
+		primary, _ := findNamedItem(func() []map[string]any { c, _ := templateNamedItems(podSpec, "containers"); return c }(), "notebook")
+		mounts, _ := containerVolumeMounts(primary)
+		workspaceMount, ok := findMountByName(mounts, sharedWorkspaceVolumeName)
+		if !ok || workspaceMount["readOnly"] != true || workspaceMount["mountPath"] != "/home/jovyan/workspace" {
+			t.Fatalf("%s notebook must mount the profile workspace read-only: %#v", workload, workspaceMount)
+		}
+		if _, hasSubPath := workspaceMount["subPath"]; hasSubPath {
+			t.Fatalf("%s shared workspace mount must use the PVC root: %#v", workload, workspaceMount)
 		}
 	}
 }

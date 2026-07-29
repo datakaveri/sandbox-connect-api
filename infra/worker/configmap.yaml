@@ -17,6 +17,11 @@ data:
           - name: user-data
             managed:
               retentionPolicy: DeleteWithNotebook
+          - name: shared-workspace
+            existing:
+              expected:
+                accessModes: [ReadWriteMany]
+                volumeMode: Filesystem
         runtimeInjection:
           image: alpine/git:2.45.2
         demoFiles:
@@ -64,6 +69,10 @@ data:
                     server: 10.0.0.91
                     path: /gpfs/data/tata/Neuroimaging_Lab/TATA_MRI_Backup/TLSA_MRI_IISc
                     readOnly: true
+                - name: shared-workspace
+                  persistentVolumeClaim:
+                    claimName: workspace
+                    readOnly: true
                 - name: platform-refresh-token
                   secret:
                     secretName: ""
@@ -97,6 +106,9 @@ data:
                       readOnly: true
                     - name: cbr-tlsa
                       mountPath: /mnt/cbr/TLSA
+                      readOnly: true
+                    - name: shared-workspace
+                      mountPath: /home/jovyan/workspace
                       readOnly: true
                     - name: platform-token-cache
                       mountPath: /var/run/sandbox-connect/platform
@@ -173,6 +185,11 @@ data:
           - name: user-data
             managed:
               retentionPolicy: DeleteWithNotebook
+          - name: shared-workspace
+            existing:
+              expected:
+                accessModes: [ReadWriteMany]
+                volumeMode: Filesystem
         instanceTypeOverride:
           selectorKey: node.kubernetes.io/instance-type
           required: false
@@ -223,6 +240,10 @@ data:
                     server: 10.0.0.91
                     path: /gpfs/data/tata/Neuroimaging_Lab/TATA_MRI_Backup/TLSA_MRI_IISc
                     readOnly: true
+                - name: shared-workspace
+                  persistentVolumeClaim:
+                    claimName: workspace
+                    readOnly: true
                 - name: platform-refresh-token
                   secret:
                     secretName: ""
@@ -256,6 +277,9 @@ data:
                       readOnly: true
                     - name: cbr-tlsa
                       mountPath: /mnt/cbr/TLSA
+                      readOnly: true
+                    - name: shared-workspace
+                      mountPath: /home/jovyan/workspace
                       readOnly: true
                     - name: platform-token-cache
                       mountPath: /var/run/sandbox-connect/platform

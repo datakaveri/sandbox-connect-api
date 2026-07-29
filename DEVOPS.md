@@ -233,6 +233,7 @@ Runs every 15 minutes. Uses `ConcurrencyPolicy: Forbid`.
 | `API_STARTUP_NOTEBOOK_FILENAME` | no | `""` | Notebook file `notebookUrl` opens; empty opens the file browser |
 | `API_KUBE_CONFIG_MODE` | no | `cluster` | `cluster` (in-cluster) or `local` |
 | `API_KUBE_CONFIG_PATH` | no | `""` | Path to kubeconfig (local mode only) |
+| `WORKSPACE_ENABLED` | no | `false` | Create a profile-scoped `workspace` CephFS PVC and make it available to notebooks |
 | `API_LOG_LEVEL` | no | `info` | `debug`, `info`, `warn`, `error` |
 | `API_CORS_ORIGINS` | no | `*` | Allowed CORS origins |
 | `API_RATE_LIMIT` | no | `80` | Requests per window |
@@ -259,12 +260,15 @@ Runs every 15 minutes. Uses `ConcurrencyPolicy: Forbid`.
 | `WORKER_S3_TEMPLATE_BUCKET_NAME` | yes | — | S3 bucket for notebook templates |
 | `WORKER_KUBE_CONFIG_MODE` | no | `cluster` | `cluster` or `local` |
 | `WORKER_KUBE_CONFIG_PATH` | no | `""` | Path to kubeconfig in local mode |
+| `WORKSPACE_ENABLED` | no | `false` | Mount the profile `workspace` PVC read-only at `/home/jovyan/workspace` |
 
 ### Runtime Asset Injection
 
 Bookings can optionally include `fileUrl`, `gitUrl`, and `gitAccessToken`. The API creates or updates an internal Kubernetes Secret for `gitAccessToken`, stores only the Secret name on the booking, slot-lifecycle copies that metadata to the notebook row, and the worker runs a short-lived injection pod after PVC creation and before Notebook creation.
 
 Operators can still use `gitTokenSecretName` to reference a pre-created Secret in the user namespace. The Secret must contain key `token`.
+
+When `WORKSPACE_ENABLED=true`, profile provisioning creates a retained `workspace` PVC using `ceph-filesystem`, `ReadWriteMany`, and `50Gi`. The no-code copy pod can mount that claim writable. CPU and GPU notebooks mount the same claim read-only at `/home/jovyan/workspace`. Disabling the flag omits the notebook volume and does not delete existing workspace claims.
 
 ### Slot Lifecycle
 
