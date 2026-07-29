@@ -100,6 +100,30 @@ As above, loaded with kind `"gpu"` and used for GPU notebooks.
 - **Notes / gotchas:** `0` is accepted by `env.Parse` because the field is only `,required`, not
   validated. A worker with `0` starts, logs normally, and processes nothing — it looks healthy.
 
+### `WORKSPACE_ENABLED`
+
+- **Type / format:** bool.
+- **Required:** no
+- **Purpose:** controls whether the `shared-workspace` volume survives template selection. When
+  false, `SelectWorkloadTemplate` in `cmd/worker/volume_policy.go` adds `shared-workspace` to the
+  worker's omitted-volumes set, so the volume and its mount are stripped from the notebook spec.
+  When true, the notebook mounts PVC `workspace` read-only at `/home/jovyan/workspace`.
+- **Expected value:** the **same value as the API's `WORKSPACE_ENABLED`**.
+- **Example value:** `false`
+- **Default if omitted:** `false`.
+- **How to obtain:** not an independent decision — copy the API's value.
+- **Failure mode:** disagreeing with the API is the whole hazard, and the two directions fail
+  differently:
+  - worker `true`, API `false` → the notebook spec keeps a `shared-workspace` volume backed by PVC
+    `workspace`, which the API never creates. The template's `existing` volume policy expects a
+    bound `ReadWriteMany` claim, so notebooks stall instead of starting.
+  - worker `false`, API `true` → PVCs are created per profile and never mounted; users see no
+    workspace and 50 GiB per profile is wasted.
+- **Change impact:** applies to newly created notebooks only, since templates are resolved per
+  notebook at creation.
+- **Notes / gotchas:** unprefixed and shared with the API — set both from one source of truth. The
+  worker only *omits or keeps* the volume; it never creates the PVC. That is the API's job.
+
 ### `WORKER_KUBE_CONFIG_MODE` / `WORKER_KUBE_CONFIG_PATH`
 
 Identical semantics to the API's `API_KUBE_CONFIG_MODE` / `API_KUBE_CONFIG_PATH` — see
@@ -364,6 +388,7 @@ and its fields in [platform-token-sidecar.md](platform-token-sidecar.md).
 |---|---|---|
 | `demoFiles.enabled: true` | demo-file seeding init container | `demoFiles.initImage`; `API_DISABLE_INIT=false` on the API |
 | `instanceTypeOverride.required: true` | strict node-type pinning from the DB | node labels matching every `instance_type` value in use |
+| `WORKSPACE_ENABLED=true` | keeps the `shared-workspace` volume in the notebook spec | the same value on the API, which creates the PVC; a `ceph-filesystem` RWX class |
 | `volumePolicies[].managed.retentionPolicy` | workspace PVC lifecycle | a deliberate data-retention decision — see the block above |
 
 ### External provider fields

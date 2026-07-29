@@ -551,6 +551,42 @@ the same thing for each — the distinction is the point of this subsection.
 - **Change impact:** must be changed in lockstep with the worker templates.
 - **Notes / gotchas:** the tightest API↔worker coupling in the system and the least obvious.
 
+### `WORKSPACE_ENABLED`
+
+- **Type / format:** bool.
+- **Required:** no
+- **Purpose:** enables the profile-scoped shared CephFS workspace used by the no-code sharing flow.
+  When true, `ensureProfileWorkspacePVC` in `cmd/api/k8s.go` creates a PVC named `workspace` in
+  each user's profile namespace — storage class `ceph-filesystem`, `ReadWriteMany`, `Filesystem`,
+  `50Gi` — labelled `sandbox-connect.tgdex.io/profile-workspace: true`. The API waits for Kubeflow
+  to create the namespace first.
+- **Expected value:** `true` only on clusters that provide a `ReadWriteMany` CephFS storage class.
+- **Example value:** `false`
+- **Default if omitted:** `false`.
+- **How to obtain:** determined by the cluster's storage capability, not by preference — check for
+  the storage class with `kubectl get storageclass ceph-filesystem`.
+- **Fields that become required as a result:** none in config, but the cluster **must** provide a
+  `ceph-filesystem` storage class supporting `ReadWriteMany`. The size, class, access mode and
+  volume mode are compile-time constants in `cmd/api/k8s.go`, not configurable.
+- **Failure mode:** **this flag is read by both the API and the worker and the two must agree.**
+  The split cases fail differently and neither is obvious:
+  - API `true`, worker `false` → a 50 GiB RWX PVC is created per profile and never mounted. Silent
+    storage waste that scales with user count.
+  - API `false`, worker `true` → the worker keeps the `shared-workspace` volume in the notebook
+    spec and waits for a PVC the API never creates, so notebooks stall against the template's
+    `existing` volume policy rather than starting.
+
+  On a cluster with no `ceph-filesystem` class, the PVC is created but stays `Pending` forever, and
+  every notebook then blocks waiting for it to bind.
+- **Change impact:** enabling it on an existing deployment provisions a PVC per profile namespace
+  on next reconcile. Disabling it leaves those PVCs behind — they are not garbage-collected, so
+  reclaim them manually.
+- **Notes / gotchas:** deliberately unprefixed, like `SLOT_CONFIG_PROFILE`, because it is shared
+  across services. Notebooks mount the claim **read-only** at `/home/jovyan/workspace`; the claim
+  stays writable so an external copy pod can populate it. If an existing `workspace` PVC does not
+  match the expected class, access mode, volume mode and size, the API logs a mismatch rather than
+  silently adopting it.
+
 ### Notebook defaults and quotas
 
 `SLOT_CONFIG_PROFILE`, `API_KUBEFLOW_URL` and the notebook resource defaults live in
@@ -1071,6 +1107,7 @@ There is no connection-pool size knob — the `pgx` pool uses its defaults. If P
 | `API_KYC_ENABLED=true` | KYC gating on notebook creation | nothing in this service |
 | `API_BOOKINGS_ENABLED=true` | slot booking routes | `SLOT_CONFIG_PROFILE`; the slot-lifecycle cron must be deployed |
 | `API_DISABLE_INIT=true` | notebook URLs point at the JupyterLab auto workspace | `demoFiles.enabled: false` in both notebook templates |
+| `WORKSPACE_ENABLED=true` | per-profile CephFS `workspace` PVC creation | a `ceph-filesystem` RWX storage class in the cluster; the **same** value on the worker |
 | `API_REGISTRY_SECRET_TYPE=ecr` | ECR token minting | `API_REGISTRY_ECR_REGION`, `API_REGISTRY_AWS_ACCESS_KEY_ID`, `API_REGISTRY_AWS_SECRET_KEY`, `API_REGISTRY_URL` |
 | `API_REGISTRY_SECRET_TYPE=private-registry` | static registry credentials | `API_REGISTRY_USERNAME`, `API_REGISTRY_PASSWORD`, `API_REGISTRY_URL` |
 | `RABBITMQ_HOST` non-empty | audit publishing | `RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD`, `RABBITMQ_EXCHANGE`, `RABBITMQ_ROUTING_KEY` |

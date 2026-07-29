@@ -78,4 +78,5 @@ others is the most common cause of a broken deployment.
 | Sidecar readiness port | `API_PLATFORM_TOKEN_READY_PORT` and `READY_ADDRESS` + `ports.containerPort` in the notebook templates | Same port (default `8081`). |
 | Demo-file init | `API_DISABLE_INIT` and `spec.lifecycle.demoFiles.enabled` in both notebook templates | Inverses of each other. `API_DISABLE_INIT=false` requires `demoFiles.enabled: true`. |
 | Slot profile | `SLOT_CONFIG_PROFILE` on both the API and the slot-lifecycle cron | Same profile name. |
+| Shared workspace | `WORKSPACE_ENABLED` on both the API and the worker | Same boolean. The API creates the `workspace` PVC; the worker mounts it. Disagreeing either way breaks notebooks or wastes 50 GiB per profile. |
 | Registry pull secret | `API_REGISTRY_SECRET_NAME` and `spec…imagePullSecrets[].name` in both notebook templates | Same secret name, same namespace. |
