@@ -69,8 +69,8 @@ def deployService(String key, Map svc, String imageRef) {
     }
 
     // PR builds are validated (build + scan + push) but not rolled onto the shared dev cluster.
-    if (!(env.GIT_BRANCH == 'origin/dev')) {
-        echo "Branch ${env.GIT_BRANCH} is not dev; skipping CD for ${key}."
+    if (!(env.BRANCH_NAME == 'dev')) {
+        echo "Branch ${env.BRANCH_NAME} is not dev; skipping CD for ${key}."
         return
     }
 
@@ -151,12 +151,6 @@ pipeline {
         }
 
         stage('Conditional Execution') {
-            when {
-                expression {
-                    return env.GIT_BRANCH == 'origin/dev' || env.GIT_BRANCH?.startsWith('origin/PR-')
-                }
-            }
-
             stages {
                 stage('Trivy Code Scan (Dependencies)') {
                     steps {
@@ -251,7 +245,7 @@ pipeline {
     post {
         failure {
             script {
-                if (env.GIT_BRANCH == 'origin/dev') {
+                if (env.BRANCH_NAME == 'dev') {
                     emailext(
                         recipientProviders: [buildUser(), developers()],
                         to: '$AAA_RECIPIENTS, $DEFAULT_RECIPIENTS',
