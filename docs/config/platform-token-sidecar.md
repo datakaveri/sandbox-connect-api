@@ -180,8 +180,9 @@ replaced by the default rather than rejected.
 - **Change impact:** update `API_PLATFORM_TOKEN_READY_PORT`, both templates' `containerPort`, and
   `infra/istio/notebook-token-ready-authorizationpolicy.yaml` where Istio is enforced.
 - **Notes / gotchas:** in a cluster with strict mTLS, the API's plain-HTTP probe to this port must
-  be explicitly permitted — that is what the Istio `AuthorizationPolicy` in the live cluster is
-  for.
+  be explicitly permitted — that is what `infra/istio/` is for. Without it Istio returns `403` on
+  `/readyz` and every notebook times out at the readiness deadline. See `infra/istio/README.md`
+  for why this must be mesh policy rather than an annotation on the notebook template.
 
 ### `TOKEN_SESSION_URL`
 
