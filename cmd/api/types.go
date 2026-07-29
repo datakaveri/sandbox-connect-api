@@ -37,6 +37,7 @@ type ApiEnv struct {
 	TimeoutInSecs                     int    `env:"API_TIMEOUT_SECS"`
 	IdleTimeoutSecs                   int    `env:"API_IDLE_TIMEOUT_SECS"`
 	BookingsEnabled                   bool   `env:"API_BOOKINGS_ENABLED" envDefault:"true"`
+	WorkspaceEnabled                  bool   `env:"WORKSPACE_ENABLED" envDefault:"false"`
 	MaxBodySizeInMB                   int    `env:"API_MAX_BODY_SIZE_IN_MB"`
 	WriteTimeoutSecs                  int    `env:"API_WRITE_TIMEOUT_SECS"`
 	ReadTimeoutSecs                   int    `env:"API_READ_TIMEOUT_SECS"`

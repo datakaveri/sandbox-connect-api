@@ -9,11 +9,24 @@ import (
 	"time"
 
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
+
+const (
+	profileWorkspacePVCName      = "workspace"
+	profileWorkspaceStorageClass = "ceph-filesystem"
+	profileWorkspaceStorageSize  = "50Gi"
+	profileWorkspaceAccessMode   = "ReadWriteMany"
+	profileWorkspaceVolumeMode   = "Filesystem"
+)
+
+var profileWorkspacePVCGVR = schema.GroupVersionResource{
+	Group: "", Version: "v1", Resource: "persistentvolumeclaims",
+}
 
 // waitForNamespace polls until the given Kubernetes namespace exists.
 // Kubeflow creates the namespace asynchronously after receiving a Profile CR,
@@ -53,6 +66,105 @@ func (app *application) waitForNamespace(ctx context.Context, logger *slog.Logge
 	}
 }
 
+// ensureProfileWorkspacePVC creates the profile-scoped CephFS claim used by
+// the no-code sharing flow. The claim remains writable for the external copy
+// pod; notebook templates mount it read-only.
+func (app *application) ensureProfileWorkspacePVC(ctx context.Context, logger *slog.Logger, namespace string) error {
+	if !app.env.WorkspaceEnabled {
+		return nil
+	}
+	if err := app.waitForNamespace(ctx, logger, namespace); err != nil {
+		return err
+	}
+
+	pvc := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "v1",
+		"kind":       "PersistentVolumeClaim",
+		"metadata": map[string]any{
+			"name":      profileWorkspacePVCName,
+			"namespace": namespace,
+			"labels": map[string]any{
+				"sandbox-connect.tgdex.io/profile-workspace": "true",
+			},
+		},
+		"spec": map[string]any{
+			"storageClassName": profileWorkspaceStorageClass,
+			"accessModes":      []any{profileWorkspaceAccessMode},
+			"volumeMode":       profileWorkspaceVolumeMode,
+			"resources": map[string]any{
+				"requests": map[string]any{
+					"storage": profileWorkspaceStorageSize,
+				},
+			},
+		},
+	}}
+
+	workspaceLogger := logger.With("operation", "ensureProfileWorkspacePVC", "namespace", namespace, "pvc", profileWorkspacePVCName)
+	return WithK8sRetry(ctx, workspaceLogger, func() (constants.ShouldContinue, error) {
+		_, err := app.k8sClient.Dynamic.Resource(profileWorkspacePVCGVR).Namespace(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+		if err == nil {
+			workspaceLogger.Info("profile workspace PVC created")
+			return constants.RetryStop, nil
+		}
+		if !k8serrors.IsAlreadyExists(err) {
+			return constants.RetryContinue, err
+		}
+
+		existing, getErr := app.k8sClient.Dynamic.Resource(profileWorkspacePVCGVR).Namespace(namespace).Get(ctx, profileWorkspacePVCName, metav1.GetOptions{})
+		if getErr != nil {
+			return constants.RetryContinue, getErr
+		}
+		if validateErr := validateProfileWorkspacePVC(existing); validateErr != nil {
+			return constants.RetryStop, validateErr
+		}
+		workspaceLogger.Info("compatible profile workspace PVC already exists")
+		return constants.RetryStop, nil
+	})
+}
+
+func validateProfileWorkspacePVC(pvc *unstructured.Unstructured) error {
+	storageClass, _, err := unstructured.NestedString(pvc.Object, "spec", "storageClassName")
+	if err != nil || storageClass != profileWorkspaceStorageClass {
+		return fmt.Errorf("workspace PVC storageClassName is %q, expected %q", storageClass, profileWorkspaceStorageClass)
+	}
+	accessModes, _, err := unstructured.NestedStringSlice(pvc.Object, "spec", "accessModes")
+	if err != nil {
+		return fmt.Errorf("read workspace PVC accessModes: %w", err)
+	}
+	hasRWX := false
+	for _, mode := range accessModes {
+		if mode == profileWorkspaceAccessMode {
+			hasRWX = true
+			break
+		}
+	}
+	if !hasRWX {
+		return fmt.Errorf("workspace PVC must include access mode %s", profileWorkspaceAccessMode)
+	}
+	volumeMode, found, err := unstructured.NestedString(pvc.Object, "spec", "volumeMode")
+	if err != nil {
+		return fmt.Errorf("read workspace PVC volumeMode: %w", err)
+	}
+	if !found || volumeMode == "" {
+		volumeMode = "Filesystem"
+	}
+	if volumeMode != profileWorkspaceVolumeMode {
+		return fmt.Errorf("workspace PVC volumeMode is %q, expected %q", volumeMode, profileWorkspaceVolumeMode)
+	}
+	storage, _, err := unstructured.NestedString(pvc.Object, "spec", "resources", "requests", "storage")
+	if err != nil {
+		return fmt.Errorf("read workspace PVC storage request: %w", err)
+	}
+	actualSize, err := resource.ParseQuantity(storage)
+	if err != nil {
+		return fmt.Errorf("parse workspace PVC storage request %q: %w", storage, err)
+	}
+	requiredSize := resource.MustParse(profileWorkspaceStorageSize)
+	if actualSize.Cmp(requiredSize) < 0 {
+		return fmt.Errorf("workspace PVC storage request is %s, expected at least %s", actualSize.String(), requiredSize.String())
+	}
+	return nil
+}
 func (app *application) addStoppedAnnotationToNotebook(ctx context.Context, namespace, notebookName string) error {
 	notebookGVR := schema.GroupVersionResource{
 		Group:    "kubeflow.org",

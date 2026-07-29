@@ -36,6 +36,24 @@ func boundPVC(namespace, name string, accessModes ...string) *unstructured.Unstr
 	}}
 }
 
+func addSharedWorkspaceMount(t *testing.T, template *SandboxNotebookTemplate) {
+	t.Helper()
+	template.Spec.Lifecycle.VolumePolicies = append(template.Spec.Lifecycle.VolumePolicies, VolumeLifecyclePolicy{
+		Name: sharedWorkspaceVolumeName,
+		Existing: &ExistingVolumePolicy{Expected: &PVCExpectationConfig{
+			AccessModes: []string{"ReadWriteMany"}, VolumeMode: "Filesystem",
+		}},
+	})
+	podSpec, _, _ := unstructured.NestedMap(template.Spec.Notebook, "spec", "template", "spec")
+	volumes, _ := templateNamedItems(podSpec, "volumes")
+	volumes = append(volumes, map[string]any{"name": sharedWorkspaceVolumeName, "persistentVolumeClaim": map[string]any{"claimName": "workspace", "readOnly": true}})
+	containers, _ := templateNamedItems(podSpec, "containers")
+	mounts, _ := nestedSliceOrEmpty(containers[0], "volumeMounts")
+	containers[0]["volumeMounts"] = append(mounts, map[string]any{"name": sharedWorkspaceVolumeName, "mountPath": "/home/jovyan/workspace", "readOnly": true})
+	podSpec["volumes"], podSpec["containers"] = mapsToAny(volumes), mapsToAny(containers)
+	_ = unstructured.SetNestedMap(template.Spec.Notebook, podSpec, "spec", "template", "spec")
+}
+
 func TestPreparePVCMountsCreatesManagedWorkspace(t *testing.T) {
 	template := testSandboxTemplate("cpu")
 	w := newVolumePolicyTestWorker(t, template)
@@ -85,6 +103,62 @@ func TestPreparePVCMountsOmitsUnavailableOptionalExistingClaim(t *testing.T) {
 	}
 	if len(w.resolvedPVCMounts) != 1 || w.resolvedPVCMounts[0].Name != "user-data" {
 		t.Fatalf("unexpected available PVCs: %#v", w.resolvedPVCMounts)
+	}
+}
+
+func TestWorkspaceFlagDisabledOmitsSharedWorkspace(t *testing.T) {
+	template := testSandboxTemplate("cpu")
+	addSharedWorkspaceMount(t, template)
+	w := newVolumePolicyTestWorker(t, template)
+	if err := w.PreparePVCMounts(); err != nil {
+		t.Fatal(err)
+	}
+	built, err := w.BuildNotebook()
+	if err != nil {
+		t.Fatal(err)
+	}
+	podSpec, _, _ := unstructured.NestedMap(built.Object, "spec", "template", "spec")
+	volumes, _ := templateNamedItems(podSpec, "volumes")
+	if _, ok := findNamedItem(volumes, sharedWorkspaceVolumeName); ok {
+		t.Fatal("disabled workspace volume was rendered")
+	}
+	containers, _ := templateNamedItems(podSpec, "containers")
+	primary, _ := findNamedItem(containers, "demo")
+	mounts, _ := containerVolumeMounts(primary)
+	if _, ok := findMountByName(mounts, sharedWorkspaceVolumeName); ok {
+		t.Fatal("disabled workspace mount was rendered")
+	}
+}
+
+func TestWorkspaceFlagEnabledMountsSharedWorkspaceReadOnly(t *testing.T) {
+	template := testSandboxTemplate("cpu")
+	addSharedWorkspaceMount(t, template)
+	w := newVolumePolicyTestWorker(t, template, boundPVC("user-ns", "workspace", "ReadWriteMany"))
+	w.app.env.WorkspaceEnabled = true
+	if err := w.PreparePVCMounts(); err != nil {
+		t.Fatal(err)
+	}
+	built, err := w.BuildNotebook()
+	if err != nil {
+		t.Fatal(err)
+	}
+	podSpec, _, _ := unstructured.NestedMap(built.Object, "spec", "template", "spec")
+	volumes, _ := templateNamedItems(podSpec, "volumes")
+	workspaceVolume, ok := findNamedItem(volumes, sharedWorkspaceVolumeName)
+	if !ok {
+		t.Fatal("enabled workspace volume was omitted")
+	}
+	claim, _, _ := unstructured.NestedString(workspaceVolume, "persistentVolumeClaim", "claimName")
+	volumeReadOnly, _, _ := unstructured.NestedBool(workspaceVolume, "persistentVolumeClaim", "readOnly")
+	if claim != "workspace" || !volumeReadOnly {
+		t.Fatalf("workspace PVC source is not read-only: %#v", workspaceVolume)
+	}
+	containers, _ := templateNamedItems(podSpec, "containers")
+	primary, _ := findNamedItem(containers, "demo")
+	mounts, _ := containerVolumeMounts(primary)
+	workspaceMount, ok := findMountByName(mounts, sharedWorkspaceVolumeName)
+	if !ok || workspaceMount["mountPath"] != "/home/jovyan/workspace" || workspaceMount["readOnly"] != true {
+		t.Fatalf("workspace mount is wrong: %#v", workspaceMount)
 	}
 }
 

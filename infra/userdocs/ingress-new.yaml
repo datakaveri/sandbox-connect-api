@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: userdocs-ui-ingress
+  namespace: sandbox
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: v2.dev.sandbox.iudx.io
+    http:
+      paths:
+      - path: /user-docs
+        pathType: Prefix
+        backend:
+          service:
+            name: userdocs-ui
+            port:
+              number: 80

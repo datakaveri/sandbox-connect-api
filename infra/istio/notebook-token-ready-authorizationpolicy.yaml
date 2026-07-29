@@ -1,0 +1,28 @@
+# Allow the (non-mesh) sandbox-api to reach platform-token readiness endpoints
+# on port 8081 in every mesh namespace, which Istio otherwise rejects with 403.
+#
+# WHY THIS IS MESH-WIDE: user notebook namespaces are created dynamically. Istio
+# policies in the configured root namespace apply across the mesh, avoiding a
+# race or provisioning dependency for every new user namespace.
+#
+# SECURITY SCOPE: the existing global-deny-all ALLOW policy in istio-system
+# already applies deny-by-default across the mesh. This additive policy opens
+# only GET /readyz on port 8081. The endpoint returns status + sessionId only,
+# never token material. All other ports, methods, and paths remain governed by
+# their existing authorization.
+#
+# This relies on meshConfig.rootNamespace=istio-system and the existing
+# global-deny-all policy shipped in manifests/common/istio/istio-install/base.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-platform-token-readyz
+  namespace: istio-system
+spec:
+  action: ALLOW
+  rules:
+    - to:
+        - operation:
+            ports: ["8081"]
+            methods: ["GET"]
+            paths: ["/readyz"]

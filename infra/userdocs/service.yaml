@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: userdocs-ui
+  namespace: sandbox
+  labels:
+    app: userdocs-ui
+spec:
+  type: ClusterIP
+  selector:
+    app: userdocs-ui
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80

@@ -23,6 +23,7 @@ type Env struct {
 	GPUNotebookTemplatePath string `env:"WORKER_GPU_NOTEBOOK_TEMPLATE_PATH,required"`
 	POSTGRES_URL            string `env:"WORKER_POSTGRES_URL,required"`
 	MAX_CONCURRENT_WORKER   int    `env:"WORKER_MAX_CONCURRENT_WORKER,required"`
+	WorkspaceEnabled        bool   `env:"WORKSPACE_ENABLED" envDefault:"false"`
 	S3_ENDPOINT             string `env:"WORKER_S3_ENDPOINT,required"`
 	S3_REGION               string `env:"WORKER_S3_REGION,required"`
 	S3_ACCESS_KEY           string `env:"WORKER_S3_ACCESS_KEY,required"`

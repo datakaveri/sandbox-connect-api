@@ -184,6 +184,12 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if err := app.ensureProfileWorkspacePVC(ctx, logger, namespace); err != nil {
+		logger.Error("failed to ensure profile workspace PVC", "error", err, "namespace", namespace)
+		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+
 	if app.registrySecret.SecretType != "none" {
 		if err := app.ensureRegistrySecret(ctx, logger, namespace); err != nil {
 			logger.Error("failed to ensure registry secret for namespace", "error", err, "namespace", namespace)
@@ -1411,6 +1417,12 @@ func (app *application) createProfile(w http.ResponseWriter, r *http.Request) {
 	if err != nil && !errors.IsAlreadyExists(err) {
 		logger.Warn("failed to create kubeflow profile", "error", err, "profileName", userId)
 		sendError(w, logger, http.StatusInternalServerError, "Failed to create Kubeflow Profile")
+		return
+	}
+
+	if err := app.ensureProfileWorkspacePVC(r.Context(), logger, userId); err != nil {
+		logger.Error("failed to create profile workspace PVC", "error", err, "namespace", userId)
+		sendError(w, logger, http.StatusInternalServerError, "Failed to create profile workspace")
 		return
 	}
 
