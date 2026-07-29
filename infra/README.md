@@ -276,8 +276,9 @@ The schema includes:
 - `failed_aaa_requests`: Tracks failed accounting requests
 - Necessary indexes and triggers for performance optimization
 
-## deploying sandbox servies 
-1. Build and pull Docker images:
+## Deploying sandbox services
+
+1. Build and push Docker images:
 
 ```bash
 docker build -t ghcr.io/datakaveri/tgdex-sandbox-connect-api:tgdex-1.0.0 -f infra/api/Dockerfile .
@@ -286,6 +287,34 @@ docker build -t ghcr.io/datakaveri/tgdex-sandbox-credit-sync-cron:tgdex-1.0.0 -f
 docker push ghcr.io/datakaveri/tgdex-sandbox-connect-api:tgdex-1.0.0
 docker push ghcr.io/datakaveri/tgdex-sandbox-connect-worker:tgdex-1.0.0
 docker push ghcr.io/datakaveri/tgdex-sandbox-credit-sync-cron:tgdex-1.0.0
+```
+
+### MahaAGX project
+
+Use the following image URL configuration for the MahaAGX API, worker, and
+platform token sidecar:
+
+```yaml
+imageUrl:
+  api: ghcr.io/datakaveri/mahaagx-sandbox-connect-api:1.0.0-96767d2
+  worker: ghcr.io/datakaveri/tgdex-sandbox-connect-worker:mahaagx-1.0.0-96767d2
+  sidecar: ghcr.io/datakaveri/platform-token-sidecar:1.0.1-66517a
+```
+
+Build the images from the repository root:
+
+```bash
+docker build --file infra/api/Dockerfile --tag ghcr.io/datakaveri/mahaagx-sandbox-connect-api:1.0.0-96767d2 .
+docker build --file infra/worker/Dockerfile --tag ghcr.io/datakaveri/tgdex-sandbox-connect-worker:mahaagx-1.0.0-96767d2 .
+docker build --file infra/platform-token-sidecar/Dockerfile --tag ghcr.io/datakaveri/platform-token-sidecar:1.0.1-66517a .
+```
+
+Push the images after logging in to GHCR:
+
+```bash
+docker push ghcr.io/datakaveri/mahaagx-sandbox-connect-api:1.0.0-96767d2
+docker push ghcr.io/datakaveri/tgdex-sandbox-connect-worker:mahaagx-1.0.0-96767d2
+docker push ghcr.io/datakaveri/platform-token-sidecar:1.0.1-66517a
 ```
 
 JupyterLite is bundled into the API image built by `infra/api/Dockerfile`. The Dockerfile has a `jupyterlite-builder` stage that copies `jupyterlite-content/files`, runs `jupyter lite build`, and places the generated static site at `/app/jupyterlite` in the final API image. The API config serves that directory through `API_JUPYTERLITE_STATIC_DIR=/app/jupyterlite` and `API_JUPYTERLITE_BASE_URL=/jupyterlite`.

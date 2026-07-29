@@ -98,6 +98,12 @@ Notebook lifecycle writes are intentionally not exposed; use booking cancel, ter
 
 CPU notebook downloads use a delegated Keycloak session; browser refresh tokens are never sent to Sandbox Connect.
 
+Import [`infra/platform-token-sidecar/sandbox-notebook-client.json`](infra/platform-token-sidecar/sandbox-notebook-client.json)
+into the target Keycloak realm to create the `sandbox-notebook` client required
+for token sessions. Treat the bundled client secret as a template value: rotate
+it after import and configure the same environment-specific secret in
+`api-creds`.
+
 1. Configure one confidential notebook client. Use the same client ID for `API_PLATFORM_TOKEN_EXCHANGE_CLIENT_ID`, `API_PLATFORM_TOKEN_NOTEBOOK_CLIENT_ID`, and the static sidecar client settings in both worker Notebook templates. Store its secret in `api-creds`.
 2. Enable Standard Token Exchange and **Allow refresh token in Standard Token Exchange** on that client. The exchanged access token must contain this client as `azp`, and the response must include a refresh token.
 3. Keep the delegated subject unchanged and add any file-service audience through an allowed client scope; the optional `audience` parameter only filters existing audiences.

@@ -1,0 +1,103 @@
+{
+  "clientId": "sandbox-notebook",
+  "name": "Sandbox Notebook Token Client",
+  "description": "Confidential client for delegated notebook file-download sessions",
+  "surrogateAuthRequired": false,
+  "enabled": true,
+  "alwaysDisplayInConsole": false,
+  "clientAuthenticatorType": "client-secret",
+  "secret": "KPlu6f9bvDOBWNzFLuNftOAMS1xSme5s",
+  "redirectUris": [],
+  "webOrigins": [],
+  "notBefore": 0,
+  "bearerOnly": false,
+  "consentRequired": false,
+  "standardFlowEnabled": false,
+  "implicitFlowEnabled": false,
+  "directAccessGrantsEnabled": false,
+  "serviceAccountsEnabled": false,
+  "publicClient": false,
+  "frontchannelLogout": false,
+  "protocol": "openid-connect",
+  "attributes": {
+    "client.secret.creation.time": "1782119117",
+    "standard.token.exchange.enabled": "true",
+    "frontchannel.logout.session.required": "false",
+    "oauth2.device.authorization.grant.enabled": "false",
+    "backchannel.logout.revoke.offline.tokens": "false",
+    "use.refresh.tokens": "true",
+    "standard.token.exchange.enableRefreshRequestedTokenType": "SAME_SESSION",
+    "realm_client": "false",
+    "oidc.ciba.grant.enabled": "false",
+    "client.use.lightweight.access.token.enabled": "false",
+    "backchannel.logout.session.required": "true",
+    "client_credentials.use_refresh_token": "false",
+    "tls.client.certificate.bound.access.tokens": "false"
+  },
+  "authenticationFlowBindingOverrides": {},
+  "fullScopeAllowed": false,
+  "nodeReRegistrationTimeout": -1,
+  "protocolMappers": [
+    {
+      "name": "organisation_name",
+      "protocol": "openid-connect",
+      "protocolMapper": "oidc-usermodel-attribute-mapper",
+      "consentRequired": false,
+      "config": {
+        "aggregate.attrs": "false",
+        "introspection.token.claim": "true",
+        "multivalued": "false",
+        "userinfo.token.claim": "false",
+        "user.attribute": "organisation_name",
+        "id.token.claim": "false",
+        "access.token.claim": "true",
+        "claim.name": "organisation_name",
+        "jsonType.label": "String"
+      }
+    },
+    {
+      "name": "organisation_id",
+      "protocol": "openid-connect",
+      "protocolMapper": "oidc-usermodel-attribute-mapper",
+      "consentRequired": false,
+      "config": {
+        "aggregate.attrs": "false",
+        "introspection.token.claim": "true",
+        "multivalued": "false",
+        "userinfo.token.claim": "false",
+        "user.attribute": "organisation_id",
+        "id.token.claim": "false",
+        "access.token.claim": "true",
+        "claim.name": "organisation_id",
+        "jsonType.label": "String"
+      }
+    },
+    {
+      "name": "kyc_verified",
+      "protocol": "openid-connect",
+      "protocolMapper": "oidc-hardcoded-claim-mapper",
+      "consentRequired": false,
+      "config": {
+        "introspection.token.claim": "true",
+        "claim.value": "true",
+        "userinfo.token.claim": "false",
+        "id.token.claim": "false",
+        "access.token.claim": "true",
+        "claim.name": "kyc_verified",
+        "jsonType.label": "boolean"
+      }
+    }
+  ],
+  "defaultClientScopes": [
+    "profile",
+    "roles",
+    "basic",
+    "email"
+  ],
+  "optionalClientScopes": [],
+  "access": {
+    "view": true,
+    "configure": true,
+    "manage": true
+  }
+}
