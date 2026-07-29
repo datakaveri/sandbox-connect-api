@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -25,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
+	clienttesting "k8s.io/client-go/testing"
 )
 
 func TestPlatformTokenSecretName(t *testing.T) {
@@ -193,6 +195,99 @@ func TestCreateOrUpdatePlatformTokenSecretSetsNotebookOwnerReference(t *testing.
 	}
 	if bootstrap.AccessToken != "access-token-2" {
 		t.Fatalf("rotated bootstrap access token = %q", bootstrap.AccessToken)
+	}
+}
+
+func TestTriggerPlatformTokenProjectionPatchesFallbackPod(t *testing.T) {
+	ctx := context.Background()
+	namespace := "user-namespace"
+	notebookName := "demo-notebook"
+	podName := notebookName + "-0"
+
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	pod := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "v1",
+		"kind":       "Pod",
+		"metadata": map[string]any{
+			"name":      podName,
+			"namespace": namespace,
+			"labels": map[string]any{
+				legacyNotebookNameLabel: notebookName,
+			},
+		},
+	}}
+	client := dynamicfake.NewSimpleDynamicClient(scheme, pod)
+	app := application{k8sClient: &k8spkg.K8sClient{Dynamic: client}}
+
+	patched, err := app.triggerPlatformTokenProjection(ctx, namespace, notebookName)
+	if err != nil || patched != 1 {
+		t.Fatalf("triggerPlatformTokenProjection patched=%d err=%v, want 1, nil", patched, err)
+	}
+	updated, err := client.Resource(platformTokenPodGVR).Namespace(namespace).Get(ctx, podName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get patched pod: %v", err)
+	}
+	firstValue := updated.GetAnnotations()[platformTokenProjectionAnnotation]
+	if firstValue == "" {
+		t.Fatal("projection refresh annotation is empty")
+	}
+
+	patched, err = app.triggerPlatformTokenProjection(ctx, namespace, notebookName)
+	if err != nil || patched != 1 {
+		t.Fatalf("second triggerPlatformTokenProjection patched=%d err=%v, want 1, nil", patched, err)
+	}
+	updated, err = client.Resource(platformTokenPodGVR).Namespace(namespace).Get(ctx, podName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get repatched pod: %v", err)
+	}
+	secondValue := updated.GetAnnotations()[platformTokenProjectionAnnotation]
+	if secondValue == "" || secondValue == firstValue {
+		t.Fatalf("projection refresh annotation did not change: first=%q second=%q", firstValue, secondValue)
+	}
+}
+
+func TestTriggerPlatformTokenProjectionWithoutPod(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	client := dynamicfake.NewSimpleDynamicClient(scheme)
+	app := application{k8sClient: &k8spkg.K8sClient{Dynamic: client}}
+
+	patched, err := app.triggerPlatformTokenProjection(context.Background(), "user-namespace", "missing-notebook")
+	if err != nil || patched != 0 {
+		t.Fatalf("triggerPlatformTokenProjection patched=%d err=%v, want 0, nil", patched, err)
+	}
+}
+
+func TestTriggerPlatformTokenProjectionReturnsPatchError(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	pod := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "v1",
+		"kind":       "Pod",
+		"metadata": map[string]any{
+			"name":      "demo-notebook-0",
+			"namespace": "user-namespace",
+			"labels": map[string]any{
+				platformTokenNotebookLabel: "demo-notebook",
+			},
+		},
+	}}
+	client := dynamicfake.NewSimpleDynamicClient(scheme, pod)
+	client.PrependReactor("patch", "pods", func(clienttesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("patch denied")
+	})
+	app := application{k8sClient: &k8spkg.K8sClient{Dynamic: client}}
+
+	patched, err := app.triggerPlatformTokenProjection(context.Background(), "user-namespace", "demo-notebook")
+	if err == nil || patched != 0 || !strings.Contains(err.Error(), "patch denied") {
+		t.Fatalf("triggerPlatformTokenProjection patched=%d err=%v, want patch error", patched, err)
 	}
 }
 

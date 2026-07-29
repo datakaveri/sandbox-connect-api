@@ -499,6 +499,12 @@ func (app *application) createNotebookTokenSession(w http.ResponseWriter, r *htt
 		sendError(w, logger, http.StatusInternalServerError, "Failed to create notebook token session")
 		return
 	}
+	patchedPods, err := app.triggerPlatformTokenProjection(r.Context(), userInfo.Sub, booking.NotebookName)
+	if err != nil {
+		logger.Warn("failed to trigger platform token secret projection", "error", err, "booking_id", bookingID, "notebook", booking.NotebookName)
+	} else if patchedPods > 0 {
+		logger.Info("triggered platform token secret projection", "booking_id", bookingID, "notebook", booking.NotebookName, "pod_count", patchedPods)
+	}
 	if err := app.waitForPlatformTokenReady(r.Context(), userInfo.Sub, booking.NotebookName, sessionID); err != nil {
 		logger.Warn("platform token is still becoming ready", "error", err, "booking_id", bookingID, "notebook", booking.NotebookName, "readiness_duration_ms", time.Since(readinessStarted).Milliseconds())
 		w.Header().Set("Retry-After", "2")
