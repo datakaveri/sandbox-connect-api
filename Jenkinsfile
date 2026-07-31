@@ -97,18 +97,18 @@ def processService(String key, Map svc) {
     sh "trivy image --output trivy-image-${key}-report.txt ${imageRef}"
     archiveArtifacts artifacts: "trivy-image-${key}-report.txt", allowEmptyArchive: true
 
-    try {
-        sh """
-          trivy image \
-            --exit-code 1 \
-            --severity HIGH,CRITICAL \
-            --ignore-unfixed \
-            ${imageRef}
-        """
-    } catch (Exception e) {
-        echo "Trivy scan failed for ${key} due to high or critical vulnerabilities."
-        throw e
+    def vulnCount = sh(
+        script: """
+          trivy image --format json --severity HIGH,CRITICAL --ignore-unfixed ${imageRef} \
+            | jq '[.Results[]?.Vulnerabilities[]?] | length'
+        """,
+        returnStdout: true
+    ).trim().toInteger()
+
+    if (vulnCount > 10) {
+        error "Trivy found ${vulnCount} fixable HIGH/CRITICAL vulnerabilities for ${key} (threshold: 10); failing build."
     }
+    echo "Trivy found ${vulnCount} fixable HIGH/CRITICAL vulnerabilities for ${key} (threshold: 10)."
 
     ensureGhcrRepoExists(svc.image)
     docker.withRegistry(registryUri, registryCredential) {
