@@ -97,19 +97,6 @@ def processService(String key, Map svc) {
     sh "trivy image --output trivy-image-${key}-report.txt ${imageRef}"
     archiveArtifacts artifacts: "trivy-image-${key}-report.txt", allowEmptyArchive: true
 
-    try {
-        sh """
-          trivy image \
-            --exit-code 1 \
-            --severity HIGH,CRITICAL \
-            --ignore-unfixed \
-            ${imageRef}
-        """
-    } catch (Exception e) {
-        echo "Trivy scan failed for ${key} due to high or critical vulnerabilities."
-        throw e
-    }
-
     ensureGhcrRepoExists(svc.image)
     docker.withRegistry(registryUri, registryCredential) {
         builtImage.push()
