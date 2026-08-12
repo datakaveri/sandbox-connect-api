@@ -77,7 +77,8 @@ func TestCheckedInWorkerNotebookTemplates(t *testing.T) {
 		if _, ok := findNamedItem(inits, "ensure-artifacts-dir"); ok {
 			t.Fatalf("%s template still contains the obsolete NFS init container", workload)
 		}
-		primary, _ := findNamedItem(func() []map[string]any { c, _ := templateNamedItems(podSpec, "containers"); return c }(), "notebook")
+		containers, _ := templateNamedItems(podSpec, "containers")
+		primary, _ := findNamedItem(containers, "notebook")
 		mounts, _ := containerVolumeMounts(primary)
 		workspaceMount, ok := findMountByName(mounts, sharedWorkspaceVolumeName)
 		if !ok || workspaceMount["readOnly"] != true || workspaceMount["mountPath"] != "/home/jovyan/workspace" {
@@ -85,6 +86,15 @@ func TestCheckedInWorkerNotebookTemplates(t *testing.T) {
 		}
 		if _, hasSubPath := workspaceMount["subPath"]; hasSubPath {
 			t.Fatalf("%s shared workspace mount must use the PVC root: %#v", workload, workspaceMount)
+		}
+		sidecar, ok := findNamedItem(containers, platformTokenSidecarName)
+		if !ok {
+			t.Fatalf("%s template is missing the platform token sidecar", workload)
+		}
+		requests, _, _ := unstructured.NestedStringMap(sidecar, "resources", "requests")
+		limits, _, _ := unstructured.NestedStringMap(sidecar, "resources", "limits")
+		if requests["cpu"] == "" || requests["memory"] == "" || limits["cpu"] == "" || limits["memory"] == "" {
+			t.Fatalf("%s platform token sidecar must define CPU and memory requests and limits: %#v", workload, sidecar["resources"])
 		}
 	}
 }

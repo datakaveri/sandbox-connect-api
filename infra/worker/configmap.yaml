@@ -115,6 +115,13 @@ data:
                       readOnly: true
                 - name: platform-token-sidecar
                   image: ghcr.io/datakaveri/platform-token-sidecar:1.0.1-e07b220
+                  resources:
+                    requests:
+                      cpu: 10m
+                      memory: 32Mi
+                    limits:
+                      cpu: 100m
+                      memory: 128Mi
                   env:
                     - name: KEYCLOAK_TOKEN_URL
                       value: https://keycloak.cbr-iisc.ac.in/auth/realms/cbr/protocol/openid-connect/token
@@ -286,6 +293,13 @@ data:
                       readOnly: true
                 - name: platform-token-sidecar
                   image: ghcr.io/datakaveri/platform-token-sidecar:1.0.1-e07b220
+                  resources:
+                    requests:
+                      cpu: 10m
+                      memory: 32Mi
+                    limits:
+                      cpu: 100m
+                      memory: 128Mi
                   env:
                     - name: KEYCLOAK_TOKEN_URL
                       value: https://keycloak.cbr-iisc.ac.in/auth/realms/cbr/protocol/openid-connect/token

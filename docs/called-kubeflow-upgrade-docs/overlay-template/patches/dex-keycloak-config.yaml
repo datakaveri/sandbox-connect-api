@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dex
+  namespace: auth
+data:
+  config.yaml: |
+    issuer: https://REPLACE_TARGET_HOST/dex
+    storage:
+      type: kubernetes
+      config:
+        inCluster: true
+    web:
+      http: 0.0.0.0:5556
+    logger:
+      level: info
+      format: json
+    oauth2:
+      skipApprovalScreen: true
+    enablePasswordDB: false
+    staticClients:
+      - idEnv: OIDC_CLIENT_ID
+        redirectURIs: ["/oauth2/callback"]
+        name: Dex Login Application
+        secretEnv: OIDC_CLIENT_SECRET
+    connectors:
+      - type: oidc
+        id: keycloak
+        name: Keycloak
+        config:
+          issuer: https://REPLACE_KEYCLOAK_HOST/realms/REPLACE_REALM
+          clientID: $KEYCLOAK_CLIENT_ID
+          clientSecret: $KEYCLOAK_CLIENT_SECRET
+          redirectURI: https://REPLACE_TARGET_HOST/dex/callback
+          insecure: false
+          insecureSkipEmailVerified: false
+          userNameKey: email
+          scopes:
+            - openid
+            - profile
+            - email
+            - offline_access
