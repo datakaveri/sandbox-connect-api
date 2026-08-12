@@ -1,0 +1,923 @@
+{
+    "info":  {
+                 "name":  "Sandbox Connect API - Direct Notebook APIs",
+                 "_postman_id":  "b7da7cae-8e56-4ac4-b6c1-684924372102",
+                 "description":  "Postman collection for the API surface active when API_BOOKINGS_ENABLED=false. Booking lifecycle, category, and slot APIs are intentionally excluded because they return 404 in this mode.",
+                 "schema":  "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+             },
+    "auth":  {
+                 "type":  "bearer",
+                 "bearer":  [
+                                {
+                                    "key":  "token",
+                                    "value":  "{{access_token}}",
+                                    "type":  "string"
+                                }
+                            ]
+             },
+    "item":  [
+                 {
+                     "name":  "Authentication",
+                     "description":  "Obtains a user access token from Keycloak and saves it into the active mode environment.",
+                     "item":  [
+                                  {
+                                      "name":  "Get Access Token - Password Grant",
+                                      "request":  {
+                                                      "auth":  {
+                                                                   "type":  "noauth"
+                                                               },
+                                                      "method":  "POST",
+                                                      "header":  [
+                                                                     {
+                                                                         "key":  "Content-Type",
+                                                                         "value":  "application/x-www-form-urlencoded",
+                                                                         "type":  "text"
+                                                                     }
+                                                                 ],
+                                                      "body":  {
+                                                                   "mode":  "urlencoded",
+                                                                   "urlencoded":  [
+                                                                                       {
+                                                                                           "key":  "grant_type",
+                                                                                           "value":  "password",
+                                                                                           "type":  "text"
+                                                                                       },
+                                                                                       {
+                                                                                           "key":  "username",
+                                                                                           "value":  "{{auth_username}}",
+                                                                                           "type":  "text"
+                                                                                       },
+                                                                                       {
+                                                                                           "key":  "client_id",
+                                                                                           "value":  "{{auth_client_id}}",
+                                                                                           "type":  "text"
+                                                                                       },
+                                                                                       {
+                                                                                           "key":  "password",
+                                                                                           "value":  "{{auth_password}}",
+                                                                                           "type":  "text"
+                                                                                       }
+                                                                                   ]
+                                                               },
+                                                      "url":  {
+                                                                  "raw":  "{{auth_token_url}}",
+                                                                  "host":  [
+                                                                               "{{auth_token_url}}"
+                                                                           ]
+                                                              },
+                                                      "description":  "Uses the Keycloak resource-owner password grant. On a 200 response, the test script saves access_token into the active Postman environment for subsequent collection requests."
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Status code is 200\", function () {",
+                                                                                    "    pm.response.to.have.status(200);",
+                                                                                    "});",
+                                                                                    "",
+                                                                                    "if (pm.response.code === 200) {",
+                                                                                    "    const tokenResponse = pm.response.json();",
+                                                                                    "    pm.test(\"Response contains access_token\", function () {",
+                                                                                    "        pm.expect(tokenResponse.access_token).to.be.a(\"string\").and.not.empty;",
+                                                                                    "    });",
+                                                                                    "    pm.environment.set(\"access_token\", tokenResponse.access_token);",
+                                                                                    "}"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  }
+                              ]
+                 },
+                 {
+                     "name":  "Public",
+                     "description":  "Routes mounted outside API authentication.",
+                     "item":  [
+                                  {
+                                      "name":  "Health Check",
+                                      "request":  {
+                                                      "method":  "GET",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/health",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "health"
+                                                                           ]
+                                                              },
+                                                      "description":  "Returns service health and version.",
+                                                      "auth":  {
+                                                                   "type":  "noauth"
+                                                               }
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  },
+                                  {
+                                      "name":  "API Docs - ReDoc HTML",
+                                      "request":  {
+                                                      "method":  "GET",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/apis/",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "apis"
+                                                                           ]
+                                                              },
+                                                      "description":  "Serves the generated ReDoc API documentation UI.",
+                                                      "auth":  {
+                                                                   "type":  "noauth"
+                                                               }
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  },
+                                  {
+                                      "name":  "API Docs - Swagger JSON",
+                                      "request":  {
+                                                      "method":  "GET",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/apis/swagger.json",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "apis",
+                                                                               "swagger.json"
+                                                                           ]
+                                                              },
+                                                      "description":  "Serves generated Swagger/OpenAPI JSON.",
+                                                      "auth":  {
+                                                                   "type":  "noauth"
+                                                               }
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  },
+                                  {
+                                      "name":  "API Docs - Swagger YAML",
+                                      "request":  {
+                                                      "method":  "GET",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/apis/swagger.yaml",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "apis",
+                                                                               "swagger.yaml"
+                                                                           ]
+                                                              },
+                                                      "description":  "Serves generated Swagger/OpenAPI YAML.",
+                                                      "auth":  {
+                                                                   "type":  "noauth"
+                                                               }
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  }
+                              ]
+                 },
+                 {
+                     "name":  "Direct Notebook Lifecycle",
+                     "description":  "Direct create/start/stop/delete operations available only when bookings are disabled.",
+                     "item":  [
+                                  {
+                                      "name":  "Create Direct Notebook",
+                                      "request":  {
+                                                      "method":  "POST",
+                                                      "header":  [
+                                                                     {
+                                                                         "key":  "Content-Type",
+                                                                         "value":  "application/json",
+                                                                         "type":  "text"
+                                                                     }
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/notebook/create",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "notebook",
+                                                                               "create"
+                                                                           ]
+                                                              },
+                                                      "description":  "Creates a CPU or GPU notebook when API_BOOKINGS_ENABLED=false. For GPU, instanceType is required. Empty optional runtime-asset fields are normalized away.",
+                                                      "body":  {
+                                                                   "mode":  "raw",
+                                                                   "raw":  "{\n  \"name\": \"{{notebook_name}}\",\n  \"type\": \"{{notebook_type}}\",\n  \"instanceType\": \"{{instance_type}}\",\n  \"imageName\": \"{{image_name}}\",\n  \"fileUrl\": \"{{file_url}}\",\n  \"gitUrl\": \"{{git_url}}\",\n  \"gitAccessToken\": \"{{git_access_token}}\",\n  \"gitTokenSecretName\": \"{{git_token_secret_name}}\"\n}",
+                                                                   "options":  {
+                                                                                   "raw":  {
+                                                                                               "language":  "json"
+                                                                                           }
+                                                                               }
+                                                               }
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([201]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  },
+                                  {
+                                      "name":  "Start Direct Notebook",
+                                      "request":  {
+                                                      "method":  "PATCH",
+                                                      "header":  [
+                                                                     {
+                                                                         "key":  "Content-Type",
+                                                                         "value":  "application/json",
+                                                                         "type":  "text"
+                                                                     }
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/notebook/start",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "notebook",
+                                                                               "start"
+                                                                           ]
+                                                              },
+                                                      "description":  "Starts a stopped directly managed notebook.",
+                                                      "body":  {
+                                                                   "mode":  "raw",
+                                                                   "raw":  "{\n  \"name\": \"{{notebook_name}}\"\n}",
+                                                                   "options":  {
+                                                                                   "raw":  {
+                                                                                               "language":  "json"
+                                                                                           }
+                                                                               }
+                                                               }
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  },
+                                  {
+                                      "name":  "Stop Direct Notebook",
+                                      "request":  {
+                                                      "method":  "PATCH",
+                                                      "header":  [
+                                                                     {
+                                                                         "key":  "Content-Type",
+                                                                         "value":  "application/json",
+                                                                         "type":  "text"
+                                                                     }
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/notebook/stop",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "notebook",
+                                                                               "stop"
+                                                                           ]
+                                                              },
+                                                      "description":  "Stops a running directly managed notebook.",
+                                                      "body":  {
+                                                                   "mode":  "raw",
+                                                                   "raw":  "{\n  \"name\": \"{{notebook_name}}\"\n}",
+                                                                   "options":  {
+                                                                                   "raw":  {
+                                                                                               "language":  "json"
+                                                                                           }
+                                                                               }
+                                                               }
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  },
+                                  {
+                                      "name":  "Delete Direct Notebook",
+                                      "request":  {
+                                                      "method":  "DELETE",
+                                                      "header":  [
+                                                                     {
+                                                                         "key":  "Content-Type",
+                                                                         "value":  "application/json",
+                                                                         "type":  "text"
+                                                                     }
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/notebook/delete",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "notebook",
+                                                                               "delete"
+                                                                           ]
+                                                              },
+                                                      "description":  "Deletes a directly managed notebook and its PVC.",
+                                                      "body":  {
+                                                                   "mode":  "raw",
+                                                                   "raw":  "{\n  \"name\": \"{{notebook_name}}\"\n}",
+                                                                   "options":  {
+                                                                                   "raw":  {
+                                                                                               "language":  "json"
+                                                                                           }
+                                                                               }
+                                                               }
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  }
+                              ]
+                 },
+                 {
+                     "name":  "Direct Notebook Token Sessions",
+                     "description":  "Delegated platform-token setup and rotation for directly managed notebooks.",
+                     "item":  [
+                                  {
+                                      "name":  "Create Direct Notebook Token Session",
+                                      "request":  {
+                                                      "method":  "POST",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/notebook/{{notebook_name}}/notebook-token-session",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "notebook",
+                                                                               "{{notebook_name}}",
+                                                                               "notebook-token-session"
+                                                                           ]
+                                                              },
+                                                      "description":  "Exchanges the caller access token for notebook-scoped delegated tokens. A 503 is retryable while the token is being projected into the notebook."
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200, 503]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  },
+                                  {
+                                      "name":  "Persist Rotated Direct Notebook Token",
+                                      "request":  {
+                                                      "method":  "PUT",
+                                                      "header":  [
+                                                                     {
+                                                                         "key":  "Content-Type",
+                                                                         "value":  "application/json",
+                                                                         "type":  "text"
+                                                                     }
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/notebook/{{notebook_name}}/notebook-token-session",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "notebook",
+                                                                               "{{notebook_name}}",
+                                                                               "notebook-token-session"
+                                                                           ]
+                                                              },
+                                                      "description":  "Persists a refresh-token rotation. This request requires a delegated notebook-client access token, not the browser access token.",
+                                                      "auth":  {
+                                                                   "type":  "bearer",
+                                                                   "bearer":  [
+                                                                                  {
+                                                                                      "key":  "token",
+                                                                                      "value":  "{{notebook_access_token}}",
+                                                                                      "type":  "string"
+                                                                                  }
+                                                                              ]
+                                                               },
+                                                      "body":  {
+                                                                   "mode":  "raw",
+                                                                   "raw":  "{\n  \"refreshToken\": \"{{rotated_refresh_token}}\"\n}",
+                                                                   "options":  {
+                                                                                   "raw":  {
+                                                                                               "language":  "json"
+                                                                                           }
+                                                                               }
+                                                               }
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  }
+                              ]
+                 },
+                 {
+                     "name":  "Booking Token Session Compatibility",
+                     "description":  "The router keeps booking token-session endpoints available in direct mode for existing booked notebooks; other booking routes are disabled.",
+                     "item":  [
+                                  {
+                                      "name":  "Create Notebook Token Session",
+                                      "request":  {
+                                                      "method":  "POST",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/bookings/{{booking_id}}/notebook-token-session",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "bookings",
+                                                                               "{{booking_id}}",
+                                                                               "notebook-token-session"
+                                                                           ]
+                                                              },
+                                                      "description":  "Exchanges the caller access token for notebook-scoped delegated tokens. A 503 is retryable while the token is being projected into the notebook."
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200, 503]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  },
+                                  {
+                                      "name":  "Persist Rotated Notebook Token",
+                                      "request":  {
+                                                      "method":  "PUT",
+                                                      "header":  [
+                                                                     {
+                                                                         "key":  "Content-Type",
+                                                                         "value":  "application/json",
+                                                                         "type":  "text"
+                                                                     }
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/bookings/{{booking_id}}/notebook-token-session",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "bookings",
+                                                                               "{{booking_id}}",
+                                                                               "notebook-token-session"
+                                                                           ]
+                                                              },
+                                                      "description":  "Persists a refresh-token rotation. This request requires a delegated notebook-client access token, not the browser access token.",
+                                                      "auth":  {
+                                                                   "type":  "bearer",
+                                                                   "bearer":  [
+                                                                                  {
+                                                                                      "key":  "token",
+                                                                                      "value":  "{{notebook_access_token}}",
+                                                                                      "type":  "string"
+                                                                                  }
+                                                                              ]
+                                                               },
+                                                      "body":  {
+                                                                   "mode":  "raw",
+                                                                   "raw":  "{\n  \"refreshToken\": \"{{rotated_refresh_token}}\"\n}",
+                                                                   "options":  {
+                                                                                   "raw":  {
+                                                                                               "language":  "json"
+                                                                                           }
+                                                                               }
+                                                               }
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  }
+                              ]
+                 },
+                 {
+                     "name":  "Notebook Discovery",
+                     "description":  "Notebook read/status routes shared by both operating modes.",
+                     "item":  [
+                                  {
+                                      "name":  "List Notebooks",
+                                      "request":  {
+                                                      "method":  "GET",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/notebook/list?limit={{limit}}\u0026offset={{offset}}\u0026order={{order}}",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "notebook",
+                                                                               "list"
+                                                                           ],
+                                                                  "query":  [
+                                                                                {
+                                                                                    "key":  "limit",
+                                                                                    "value":  "{{limit}}",
+                                                                                    "description":  "Maximum number of notebooks to return (max 50).",
+                                                                                    "disabled":  false
+                                                                                },
+                                                                                {
+                                                                                    "key":  "offset",
+                                                                                    "value":  "{{offset}}",
+                                                                                    "description":  "Pagination offset.",
+                                                                                    "disabled":  false
+                                                                                },
+                                                                                {
+                                                                                    "key":  "order",
+                                                                                    "value":  "{{order}}",
+                                                                                    "description":  "Sort order: asc or desc.",
+                                                                                    "disabled":  false
+                                                                                },
+                                                                                {
+                                                                                    "key":  "filter",
+                                                                                    "value":  "{{date_filter}}",
+                                                                                    "description":  "Optional JSON date range, for example [\"2026-08-01\",\"2026-08-31\"].",
+                                                                                    "disabled":  true
+                                                                                }
+                                                                            ]
+                                                              },
+                                                      "description":  "Lists notebooks for the authenticated user. Enable and populate date_filter to filter by a JSON date range."
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  },
+                                  {
+                                      "name":  "Check Notebook Exists",
+                                      "request":  {
+                                                      "method":  "GET",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/notebook/check-exists/{{notebook_name}}",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "notebook",
+                                                                               "check-exists",
+                                                                               "{{notebook_name}}"
+                                                                           ]
+                                                              },
+                                                      "description":  "Checks whether the current user owns a non-deleted notebook with this name."
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  },
+                                  {
+                                      "name":  "Get Notebook Status",
+                                      "request":  {
+                                                      "method":  "GET",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/notebook/status/{{notebook_name}}",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "notebook",
+                                                                               "status",
+                                                                               "{{notebook_name}}"
+                                                                           ]
+                                                              },
+                                                      "description":  "Returns the current notebook status and booking metadata when bookings are enabled."
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  },
+                                  {
+                                      "name":  "List Notebook Instance Types",
+                                      "request":  {
+                                                      "method":  "GET",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/notebook/instance-types",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "notebook",
+                                                                               "instance-types"
+                                                                           ]
+                                                              },
+                                                      "description":  "Returns configured GPU instance types and their display metadata."
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  },
+                                  {
+                                      "name":  "List GPU Instance Types - Legacy Alias",
+                                      "request":  {
+                                                      "method":  "GET",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/notebook/gpu-instance-types",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "notebook",
+                                                                               "gpu-instance-types"
+                                                                           ]
+                                                              },
+                                                      "description":  "Backward-compatible alias for the notebook instance-types endpoint."
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  }
+                              ]
+                 },
+                 {
+                     "name":  "JupyterLite",
+                     "description":  "Browser-only notebook session API shared by both operating modes.",
+                     "item":  [
+                                  {
+                                      "name":  "Create JupyterLite Session",
+                                      "request":  {
+                                                      "method":  "POST",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/jupyterlite/session",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "jupyterlite",
+                                                                               "session"
+                                                                           ]
+                                                              },
+                                                      "description":  "Validates the bearer token, sets the HttpOnly JupyterLite authentication cookie, and returns the launch URL."
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  }
+                              ]
+                 },
+                 {
+                     "name":  "Profile",
+                     "description":  "Authenticated Kubeflow profile setup.",
+                     "item":  [
+                                  {
+                                      "name":  "Create Kubeflow Profile",
+                                      "request":  {
+                                                      "method":  "POST",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/profile/create",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "profile",
+                                                                               "create"
+                                                                           ]
+                                                              },
+                                                      "description":  "Creates the authenticated user\u0027s Kubeflow Profile and workspace PVC, or succeeds if they already exist."
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([201]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  }
+                              ]
+                 }
+             ]
+}

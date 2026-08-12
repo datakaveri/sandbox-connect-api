@@ -1,0 +1,1026 @@
+{
+    "info":  {
+                 "name":  "Sandbox Connect API - Bookings Enabled Notebook APIs",
+                 "_postman_id":  "ae20db81-fcce-48e0-82a8-8af61a1e2101",
+                 "description":  "Postman collection for the API surface active when API_BOOKINGS_ENABLED=true (the server default). Direct notebook create/start/stop/delete routes are intentionally excluded because the router does not register them in this mode.",
+                 "schema":  "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+             },
+    "auth":  {
+                 "type":  "bearer",
+                 "bearer":  [
+                                {
+                                    "key":  "token",
+                                    "value":  "{{access_token}}",
+                                    "type":  "string"
+                                }
+                            ]
+             },
+    "item":  [
+                 {
+                     "name":  "Authentication",
+                     "description":  "Obtains a user access token from Keycloak and saves it into the active mode environment.",
+                     "item":  [
+                                  {
+                                      "name":  "Get Access Token - Password Grant",
+                                      "request":  {
+                                                      "auth":  {
+                                                                   "type":  "noauth"
+                                                               },
+                                                      "method":  "POST",
+                                                      "header":  [
+                                                                     {
+                                                                         "key":  "Content-Type",
+                                                                         "value":  "application/x-www-form-urlencoded",
+                                                                         "type":  "text"
+                                                                     }
+                                                                 ],
+                                                      "body":  {
+                                                                   "mode":  "urlencoded",
+                                                                   "urlencoded":  [
+                                                                                       {
+                                                                                           "key":  "grant_type",
+                                                                                           "value":  "password",
+                                                                                           "type":  "text"
+                                                                                       },
+                                                                                       {
+                                                                                           "key":  "username",
+                                                                                           "value":  "{{auth_username}}",
+                                                                                           "type":  "text"
+                                                                                       },
+                                                                                       {
+                                                                                           "key":  "client_id",
+                                                                                           "value":  "{{auth_client_id}}",
+                                                                                           "type":  "text"
+                                                                                       },
+                                                                                       {
+                                                                                           "key":  "password",
+                                                                                           "value":  "{{auth_password}}",
+                                                                                           "type":  "text"
+                                                                                       }
+                                                                                   ]
+                                                               },
+                                                      "url":  {
+                                                                  "raw":  "{{auth_token_url}}",
+                                                                  "host":  [
+                                                                               "{{auth_token_url}}"
+                                                                           ]
+                                                              },
+                                                      "description":  "Uses the Keycloak resource-owner password grant. On a 200 response, the test script saves access_token into the active Postman environment for subsequent collection requests."
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Status code is 200\", function () {",
+                                                                                    "    pm.response.to.have.status(200);",
+                                                                                    "});",
+                                                                                    "",
+                                                                                    "if (pm.response.code === 200) {",
+                                                                                    "    const tokenResponse = pm.response.json();",
+                                                                                    "    pm.test(\"Response contains access_token\", function () {",
+                                                                                    "        pm.expect(tokenResponse.access_token).to.be.a(\"string\").and.not.empty;",
+                                                                                    "    });",
+                                                                                    "    pm.environment.set(\"access_token\", tokenResponse.access_token);",
+                                                                                    "}"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  }
+                              ]
+                 },
+                 {
+                     "name":  "Public",
+                     "description":  "Routes mounted outside API authentication.",
+                     "item":  [
+                                  {
+                                      "name":  "Health Check",
+                                      "request":  {
+                                                      "method":  "GET",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/health",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "health"
+                                                                           ]
+                                                              },
+                                                      "description":  "Returns service health and version.",
+                                                      "auth":  {
+                                                                   "type":  "noauth"
+                                                               }
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  },
+                                  {
+                                      "name":  "API Docs - ReDoc HTML",
+                                      "request":  {
+                                                      "method":  "GET",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/apis/",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "apis"
+                                                                           ]
+                                                              },
+                                                      "description":  "Serves the generated ReDoc API documentation UI.",
+                                                      "auth":  {
+                                                                   "type":  "noauth"
+                                                               }
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  },
+                                  {
+                                      "name":  "API Docs - Swagger JSON",
+                                      "request":  {
+                                                      "method":  "GET",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/apis/swagger.json",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "apis",
+                                                                               "swagger.json"
+                                                                           ]
+                                                              },
+                                                      "description":  "Serves generated Swagger/OpenAPI JSON.",
+                                                      "auth":  {
+                                                                   "type":  "noauth"
+                                                               }
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  },
+                                  {
+                                      "name":  "API Docs - Swagger YAML",
+                                      "request":  {
+                                                      "method":  "GET",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/apis/swagger.yaml",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "apis",
+                                                                               "swagger.yaml"
+                                                                           ]
+                                                              },
+                                                      "description":  "Serves generated Swagger/OpenAPI YAML.",
+                                                      "auth":  {
+                                                                   "type":  "noauth"
+                                                               }
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  }
+                              ]
+                 },
+                 {
+                     "name":  "Booking Discovery",
+                     "description":  "Categories, slot availability, and calendar APIs available only when bookings are enabled.",
+                     "item":  [
+                                  {
+                                      "name":  "List Booking Categories",
+                                      "request":  {
+                                                      "method":  "GET",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/categories",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "categories"
+                                                                           ]
+                                                              },
+                                                      "description":  "Returns the configured CPU, GPU, and browser categories. Bookable categories include their slot templates."
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  },
+                                  {
+                                      "name":  "List Available Slots",
+                                      "request":  {
+                                                      "method":  "GET",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/slots/available?category={{category}}\u0026date={{slot_date}}",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "slots",
+                                                                               "available"
+                                                                           ],
+                                                                  "query":  [
+                                                                                {
+                                                                                    "key":  "category",
+                                                                                    "value":  "{{category}}",
+                                                                                    "description":  "Bookable category name, for example cpu_basic.",
+                                                                                    "disabled":  false
+                                                                                },
+                                                                                {
+                                                                                    "key":  "date",
+                                                                                    "value":  "{{slot_date}}",
+                                                                                    "description":  "Date in YYYY-MM-DD; defaults to tomorrow through the collection pre-request script.",
+                                                                                    "disabled":  false
+                                                                                }
+                                                                            ]
+                                                              },
+                                                      "description":  "Returns slot-level availability for a bookable category on an IST date."
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  },
+                                  {
+                                      "name":  "List Monthly Calendar Availability",
+                                      "request":  {
+                                                      "method":  "GET",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/slots/calendar?category={{category}}\u0026month={{month}}",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "slots",
+                                                                               "calendar"
+                                                                           ],
+                                                                  "query":  [
+                                                                                {
+                                                                                    "key":  "category",
+                                                                                    "value":  "{{category}}",
+                                                                                    "description":  "Bookable category name, for example cpu_basic.",
+                                                                                    "disabled":  false
+                                                                                },
+                                                                                {
+                                                                                    "key":  "month",
+                                                                                    "value":  "{{month}}",
+                                                                                    "description":  "Month in YYYY-MM; defaults to the slot_date month.",
+                                                                                    "disabled":  false
+                                                                                }
+                                                                            ]
+                                                              },
+                                                      "description":  "Returns day-level availability totals for a category and month."
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  }
+                              ]
+                 },
+                 {
+                     "name":  "Bookings",
+                     "description":  "Booking creation, listing, and lifecycle operations.",
+                     "item":  [
+                                  {
+                                      "name":  "List Bookings",
+                                      "request":  {
+                                                      "method":  "GET",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/bookings?status={{status_filter}}\u0026limit={{limit}}\u0026offset={{offset}}",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "bookings"
+                                                                           ],
+                                                                  "query":  [
+                                                                                {
+                                                                                    "key":  "status",
+                                                                                    "value":  "{{status_filter}}",
+                                                                                    "description":  "Comma-separated booking statuses, or all.",
+                                                                                    "disabled":  false
+                                                                                },
+                                                                                {
+                                                                                    "key":  "limit",
+                                                                                    "value":  "{{limit}}",
+                                                                                    "description":  "Maximum rows (default 10, max 50).",
+                                                                                    "disabled":  false
+                                                                                },
+                                                                                {
+                                                                                    "key":  "offset",
+                                                                                    "value":  "{{offset}}",
+                                                                                    "description":  "Pagination offset.",
+                                                                                    "disabled":  false
+                                                                                }
+                                                                            ]
+                                                              },
+                                                      "description":  "Lists the current user\u0027s bookings. Use all to omit status filtering."
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  },
+                                  {
+                                      "name":  "Create Booking",
+                                      "request":  {
+                                                      "method":  "POST",
+                                                      "header":  [
+                                                                     {
+                                                                         "key":  "Content-Type",
+                                                                         "value":  "application/json",
+                                                                         "type":  "text"
+                                                                     }
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/bookings",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "bookings"
+                                                                           ]
+                                                              },
+                                                      "description":  "Creates a CPU or GPU booking. Empty optional runtime-asset fields are normalized away; use either gitAccessToken or gitTokenSecretName, not both.",
+                                                      "body":  {
+                                                                   "mode":  "raw",
+                                                                   "raw":  "{\n  \"notebookName\": \"{{notebook_name}}\",\n  \"category\": \"{{category}}\",\n  \"slotDate\": \"{{slot_date}}\",\n  \"slotKeys\": [\n    \"{{slot_key}}\"\n  ],\n  \"fileUrl\": \"{{file_url}}\",\n  \"gitUrl\": \"{{git_url}}\",\n  \"gitAccessToken\": \"{{git_access_token}}\",\n  \"gitTokenSecretName\": \"{{git_token_secret_name}}\"\n}",
+                                                                   "options":  {
+                                                                                   "raw":  {
+                                                                                               "language":  "json"
+                                                                                           }
+                                                                               }
+                                                               }
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([201]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  },
+                                  {
+                                      "name":  "Cancel Scheduled Booking",
+                                      "request":  {
+                                                      "method":  "PATCH",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/bookings/{{booking_id}}/cancel",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "bookings",
+                                                                               "{{booking_id}}",
+                                                                               "cancel"
+                                                                           ]
+                                                              },
+                                                      "description":  "Cancels a scheduled booking before its resources become ready."
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  },
+                                  {
+                                      "name":  "Extend Active Booking",
+                                      "request":  {
+                                                      "method":  "PATCH",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/bookings/{{booking_id}}/extend",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "bookings",
+                                                                               "{{booking_id}}",
+                                                                               "extend"
+                                                                           ]
+                                                              },
+                                                      "description":  "Extends an active booking by one contiguous slot when category and capacity rules allow it."
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  },
+                                  {
+                                      "name":  "Reset Stuck Booking",
+                                      "request":  {
+                                                      "method":  "PATCH",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/bookings/{{booking_id}}/reset",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "bookings",
+                                                                               "{{booking_id}}",
+                                                                               "reset"
+                                                                           ]
+                                                              },
+                                                      "description":  "Resets a scheduled or ready booking that needs cleanup."
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  },
+                                  {
+                                      "name":  "Terminate Booking Session",
+                                      "request":  {
+                                                      "method":  "PATCH",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/bookings/{{booking_id}}/terminate",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "bookings",
+                                                                               "{{booking_id}}",
+                                                                               "terminate"
+                                                                           ]
+                                                              },
+                                                      "description":  "Ends a ready, active, or shutting_down booking early."
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  }
+                              ]
+                 },
+                 {
+                     "name":  "Booking Notebook Token Sessions",
+                     "description":  "Delegated platform-token setup and rotation for booked notebooks.",
+                     "item":  [
+                                  {
+                                      "name":  "Create Notebook Token Session",
+                                      "request":  {
+                                                      "method":  "POST",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/bookings/{{booking_id}}/notebook-token-session",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "bookings",
+                                                                               "{{booking_id}}",
+                                                                               "notebook-token-session"
+                                                                           ]
+                                                              },
+                                                      "description":  "Exchanges the caller access token for notebook-scoped delegated tokens. A 503 is retryable while the token is being projected into the notebook."
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200, 503]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  },
+                                  {
+                                      "name":  "Persist Rotated Notebook Token",
+                                      "request":  {
+                                                      "method":  "PUT",
+                                                      "header":  [
+                                                                     {
+                                                                         "key":  "Content-Type",
+                                                                         "value":  "application/json",
+                                                                         "type":  "text"
+                                                                     }
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/bookings/{{booking_id}}/notebook-token-session",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "bookings",
+                                                                               "{{booking_id}}",
+                                                                               "notebook-token-session"
+                                                                           ]
+                                                              },
+                                                      "description":  "Persists a refresh-token rotation. This request requires a delegated notebook-client access token, not the browser access token.",
+                                                      "auth":  {
+                                                                   "type":  "bearer",
+                                                                   "bearer":  [
+                                                                                  {
+                                                                                      "key":  "token",
+                                                                                      "value":  "{{notebook_access_token}}",
+                                                                                      "type":  "string"
+                                                                                  }
+                                                                              ]
+                                                               },
+                                                      "body":  {
+                                                                   "mode":  "raw",
+                                                                   "raw":  "{\n  \"refreshToken\": \"{{rotated_refresh_token}}\"\n}",
+                                                                   "options":  {
+                                                                                   "raw":  {
+                                                                                               "language":  "json"
+                                                                                           }
+                                                                               }
+                                                               }
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  }
+                              ]
+                 },
+                 {
+                     "name":  "Notebook Discovery",
+                     "description":  "Notebook read/status routes shared by both operating modes.",
+                     "item":  [
+                                  {
+                                      "name":  "List Notebooks",
+                                      "request":  {
+                                                      "method":  "GET",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/notebook/list?limit={{limit}}\u0026offset={{offset}}\u0026order={{order}}",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "notebook",
+                                                                               "list"
+                                                                           ],
+                                                                  "query":  [
+                                                                                {
+                                                                                    "key":  "limit",
+                                                                                    "value":  "{{limit}}",
+                                                                                    "description":  "Maximum number of notebooks to return (max 50).",
+                                                                                    "disabled":  false
+                                                                                },
+                                                                                {
+                                                                                    "key":  "offset",
+                                                                                    "value":  "{{offset}}",
+                                                                                    "description":  "Pagination offset.",
+                                                                                    "disabled":  false
+                                                                                },
+                                                                                {
+                                                                                    "key":  "order",
+                                                                                    "value":  "{{order}}",
+                                                                                    "description":  "Sort order: asc or desc.",
+                                                                                    "disabled":  false
+                                                                                },
+                                                                                {
+                                                                                    "key":  "filter",
+                                                                                    "value":  "{{date_filter}}",
+                                                                                    "description":  "Optional JSON date range, for example [\"2026-08-01\",\"2026-08-31\"].",
+                                                                                    "disabled":  true
+                                                                                }
+                                                                            ]
+                                                              },
+                                                      "description":  "Lists notebooks for the authenticated user. Enable and populate date_filter to filter by a JSON date range."
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  },
+                                  {
+                                      "name":  "Check Notebook Exists",
+                                      "request":  {
+                                                      "method":  "GET",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/notebook/check-exists/{{notebook_name}}",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "notebook",
+                                                                               "check-exists",
+                                                                               "{{notebook_name}}"
+                                                                           ]
+                                                              },
+                                                      "description":  "Checks whether the current user owns a non-deleted notebook with this name."
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  },
+                                  {
+                                      "name":  "Get Notebook Status",
+                                      "request":  {
+                                                      "method":  "GET",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/notebook/status/{{notebook_name}}",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "notebook",
+                                                                               "status",
+                                                                               "{{notebook_name}}"
+                                                                           ]
+                                                              },
+                                                      "description":  "Returns the current notebook status and booking metadata when bookings are enabled."
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  },
+                                  {
+                                      "name":  "List Notebook Instance Types",
+                                      "request":  {
+                                                      "method":  "GET",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/notebook/instance-types",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "notebook",
+                                                                               "instance-types"
+                                                                           ]
+                                                              },
+                                                      "description":  "Returns configured GPU instance types and their display metadata."
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  },
+                                  {
+                                      "name":  "List GPU Instance Types - Legacy Alias",
+                                      "request":  {
+                                                      "method":  "GET",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/notebook/gpu-instance-types",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "notebook",
+                                                                               "gpu-instance-types"
+                                                                           ]
+                                                              },
+                                                      "description":  "Backward-compatible alias for the notebook instance-types endpoint."
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  }
+                              ]
+                 },
+                 {
+                     "name":  "JupyterLite",
+                     "description":  "Browser-only notebook session API shared by both operating modes.",
+                     "item":  [
+                                  {
+                                      "name":  "Create JupyterLite Session",
+                                      "request":  {
+                                                      "method":  "POST",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/jupyterlite/session",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "jupyterlite",
+                                                                               "session"
+                                                                           ]
+                                                              },
+                                                      "description":  "Validates the bearer token, sets the HttpOnly JupyterLite authentication cookie, and returns the launch URL."
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([200]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  }
+                              ]
+                 },
+                 {
+                     "name":  "Profile",
+                     "description":  "Authenticated Kubeflow profile setup.",
+                     "item":  [
+                                  {
+                                      "name":  "Create Kubeflow Profile",
+                                      "request":  {
+                                                      "method":  "POST",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{base_url}}/v1/profile/create",
+                                                                  "host":  [
+                                                                               "{{base_url}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "v1",
+                                                                               "profile",
+                                                                               "create"
+                                                                           ]
+                                                              },
+                                                      "description":  "Creates the authenticated user\u0027s Kubeflow Profile and workspace PVC, or succeeds if they already exist."
+                                                  },
+                                      "event":  [
+                                                    {
+                                                        "listen":  "test",
+                                                        "script":  {
+                                                                       "type":  "text/javascript",
+                                                                       "exec":  [
+                                                                                    "pm.test(\"Expected status code\", function () {",
+                                                                                    "    pm.expect([201]).to.include(pm.response.code);",
+                                                                                    "});"
+                                                                                ]
+                                                                   }
+                                                    }
+                                                ]
+                                  }
+                              ]
+                 }
+             ],
+    "event":  [
+                  {
+                      "listen":  "prerequest",
+                      "script":  {
+                                     "type":  "text/javascript",
+                                     "exec":  [
+                                                  "const configuredDate = pm.environment.get(\u0027slot_date\u0027);",
+                                                  "const tomorrow = new Date();",
+                                                  "tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);",
+                                                  "const slotDate = configuredDate || tomorrow.toISOString().slice(0, 10);",
+                                                  "pm.variables.set(\u0027slot_date\u0027, slotDate);",
+                                                  "pm.variables.set(\u0027month\u0027, pm.environment.get(\u0027month\u0027) || slotDate.slice(0, 7));"
+                                              ]
+                                 }
+                  }
+              ]
+}

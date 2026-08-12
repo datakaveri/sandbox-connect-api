@@ -30,6 +30,7 @@ host the notebook workloads.
 - [Operations guide](docs/operations.md)
 - [Configuration reference](docs/config/README.md)
 - [Generated OpenAPI specification](docs/swagger.yaml)
+- [Mode-specific Postman collections](postman/README.md)
 
 ## System Architecture
 
@@ -98,6 +99,8 @@ Regenerate OpenAPI artifacts after changing Swag annotations or API response typ
 ```
 
 User-facing docs and tutorials live in `user-docs/`. They are authored separately from the generated API reference and sync `docs/swagger.yaml` plus `docs/swagger.json` into the docs site before start/build.
+
+Postman collections and isolated example environments are available under [`postman/`](postman/README.md). Import the collection/environment pair for the configured `API_BOOKINGS_ENABLED` mode. These files are maintained manually when routes or request models change.
 
 ### Notebook Endpoints
 

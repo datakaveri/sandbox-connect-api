@@ -1,0 +1,376 @@
+{
+  "info": {
+    "name": "Sandbox Connect API - Auditing Subset",
+    "_postman_id": "c66b40ba-43de-4741-9a20-58b29c3465bc",
+    "description": "Minimal bookings-enabled collection for auditing category, slot, booking creation/listing, and selected lifecycle APIs. The access-token request stores access_token but intentionally has no test assertions.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const configuredDate = pm.environment.get('slot_date');",
+          "const tomorrow = new Date();",
+          "tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);",
+          "pm.variables.set('slot_date', configuredDate || tomorrow.toISOString().slice(0, 10));"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "0) Get Access Token (Not to be tested)",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "grant_type",
+              "value": "password",
+              "type": "text"
+            },
+            {
+              "key": "username",
+              "value": "{{auth_username}}",
+              "type": "text"
+            },
+            {
+              "key": "client_id",
+              "value": "{{auth_client_id}}",
+              "type": "text"
+            },
+            {
+              "key": "password",
+              "value": "{{auth_password}}",
+              "type": "text"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{auth_token_url}}",
+          "host": [
+            "{{auth_token_url}}"
+          ]
+        },
+        "description": "Setup request only; it is excluded from audit assertions. A successful response stores access_token in the active environment."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    const tokenResponse = pm.response.json();",
+              "    if (tokenResponse.access_token) {",
+              "        pm.environment.set('access_token', tokenResponse.access_token);",
+              "    }",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "1) List Category",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/v1/categories",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "v1",
+            "categories"
+          ]
+        },
+        "description": "Returns configured categories. Select a category where isBookable is true."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2) List Slots",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/v1/slots/available?category={{category}}&date={{slot_date}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "v1",
+            "slots",
+            "available"
+          ],
+          "query": [
+            {
+              "key": "category",
+              "value": "{{category}}",
+              "description": "Bookable category name."
+            },
+            {
+              "key": "date",
+              "value": "{{slot_date}}",
+              "description": "Date in YYYY-MM-DD; defaults to tomorrow when the environment value is blank."
+            }
+          ]
+        },
+        "description": "Lists availability for the selected category and date."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3) Create Booking",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"notebookName\": \"{{notebook_name}}\",\n  \"category\": \"{{category}}\",\n  \"slotDate\": \"{{slot_date}}\",\n  \"slotKeys\": [\n    \"{{slot_key}}\"\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/v1/bookings",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "v1",
+            "bookings"
+          ]
+        },
+        "description": "Creates a booking and stores the returned bookingId in the active environment."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 201', function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "if (pm.response.code === 201) {",
+              "    const created = pm.response.json();",
+              "    pm.test('Response contains bookingId', function () {",
+              "        pm.expect(created.bookingId).to.exist;",
+              "    });",
+              "    if (created.bookingId) {",
+              "        pm.environment.set('booking_id', String(created.bookingId));",
+              "    }",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "4) List Bookings",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/v1/bookings?status={{status_filter}}&limit={{limit}}&offset={{offset}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "v1",
+            "bookings"
+          ],
+          "query": [
+            {
+              "key": "status",
+              "value": "{{status_filter}}",
+              "description": "Comma-separated booking statuses, or all."
+            },
+            {
+              "key": "limit",
+              "value": "{{limit}}",
+              "description": "Maximum rows, up to 50."
+            },
+            {
+              "key": "offset",
+              "value": "{{offset}}",
+              "description": "Pagination offset."
+            }
+          ]
+        },
+        "description": "Lists bookings for the authenticated user."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "5) Extend Booking",
+      "request": {
+        "method": "PATCH",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/v1/bookings/{{booking_id}}/extend",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "v1",
+            "bookings",
+            "{{booking_id}}",
+            "extend"
+          ]
+        },
+        "description": "Extends an active booking by one contiguous slot when category and capacity rules allow it."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "6) Cancel Booking",
+      "request": {
+        "method": "PATCH",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/v1/bookings/{{booking_id}}/cancel",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "v1",
+            "bookings",
+            "{{booking_id}}",
+            "cancel"
+          ]
+        },
+        "description": "Cancels a scheduled booking before resources are ready."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "7) Terminate Booking",
+      "request": {
+        "method": "PATCH",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/v1/bookings/{{booking_id}}/terminate",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "v1",
+            "bookings",
+            "{{booking_id}}",
+            "terminate"
+          ]
+        },
+        "description": "Ends a ready, active, or shutting_down booking early."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
