@@ -228,6 +228,15 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		if isEmailDomainBlocked(jwtPayload.Email, app.env.BlockedEmailDomains) {
+			logger.Warn("Authorization failed: Email domain is blocked from sandbox access",
+				"user_id", jwtPayload.Sub,
+				"email", jwtPayload.Email,
+			)
+			sendError(w, logger, http.StatusForbidden, "Sandbox access is not allowed for this email domain")
+			return
+		}
+
 		// Check KYC verification
 		needKYC := app.env.KYCEnabled
 		if r.URL.Path == "/v1/profile/create" ||
@@ -268,6 +277,22 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func isEmailDomainBlocked(email, blockedDomains string) bool {
+	at := strings.LastIndex(email, "@")
+	if at <= 0 || at == len(email)-1 {
+		return false
+	}
+
+	emailDomain := strings.TrimSpace(email[at+1:])
+	for _, configuredDomain := range strings.Split(blockedDomains, ",") {
+		if strings.EqualFold(emailDomain, strings.TrimSpace(configuredDomain)) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // getClientIP extracts the real client IP address from the request,

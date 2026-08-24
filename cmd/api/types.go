@@ -22,6 +22,7 @@ type ApiEnv struct {
 	KeycloakRealm                     string `env:"API_KEYCLOAK_REALM,required"`
 	KeycloakClientID                  string `env:"API_KEYCLOAK_CLIENT_ID,required"`
 	KeycloakPublicKey                 string `env:"API_KEYCLOAK_PUBLIC_KEY,required"`
+	BlockedEmailDomains               string `env:"API_BLOCKED_EMAIL_DOMAINS" envDefault:""`
 	PlatformTokenExchangeClientID     string `env:"API_PLATFORM_TOKEN_EXCHANGE_CLIENT_ID" envDefault:"sandbox-notebook"`
 	PlatformTokenExchangeClientSecret string `env:"API_PLATFORM_TOKEN_EXCHANGE_CLIENT_SECRET" envDefault:""`
 	PlatformTokenNotebookClientID     string `env:"API_PLATFORM_TOKEN_NOTEBOOK_CLIENT_ID" envDefault:"sandbox-notebook"`

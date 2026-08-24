@@ -246,6 +246,21 @@ Client-level requirements are in §3. The fields:
   automatic key rotation. If the IdP team rotates on a schedule, that schedule is an outage
   schedule unless this is updated in the same window.
 
+### `API_BLOCKED_EMAIL_DOMAINS`
+
+- **Type / format:** string containing a comma-separated list of exact email domains.
+- **Required:** no
+- **Purpose:** denies otherwise-authenticated users access to all sandbox API and JupyterLite routes
+  when the domain in their JWT `email` claim matches a configured domain.
+- **Expected value:** domain names without `@`, separated by commas when more than one is required.
+- **Example value:** `cbr.synthetic.org`
+- **Default if omitted:** empty; domain blocking is disabled.
+- **Failure mode:** a matching user receives HTTP 403. Invalid JWTs and unverified email addresses
+  continue to receive their existing HTTP 401 responses.
+- **Change impact:** takes effect on the next request; no restart-time migration or data change.
+- **Notes / gotchas:** matching is exact and case-insensitive. Subdomains and suffix lookalikes are
+  not blocked unless listed explicitly.
+
 ### Platform token exchange (notebook delegation)
 
 The API mints a delegated token so a user's notebook can call platform file APIs as that user. It
