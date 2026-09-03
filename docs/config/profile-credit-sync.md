@@ -5,11 +5,11 @@
 | | |
 |---|---|
 | **Service** | `profile-credit-sync` (`cmd/cron/profile-credit-sync`) |
-| **Code repo / branch** | `github.com/datakaveri/sandbox-connect-api`, `stable/v2.3` |
+| **Code repo / branch** | `github.com/datakaveri/sandbox-connect-api`, reviewed on `feature/evaluation-argo-service` at `5ed2930` |
 | **Config source** | `infra/cron/profile-credit-sync/configmap.yaml` + `secret.yaml` + Secret `database-creds` |
 | **Config schema** | `cmd/cron/profile-credit-sync/types.go` |
 | **Maintainer / point of contact** | Sandbox Connect backend team |
-| **Last updated** | 2026-07-29 |
+| **Last updated** | 2026-09-03 |
 
 Read [README.md](README.md) first for the loading order and baseline startup-failure mode.
 

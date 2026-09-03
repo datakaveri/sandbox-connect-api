@@ -5,11 +5,11 @@
 | | |
 |---|---|
 | **Service** | `sandbox-worker` (`cmd/worker`) |
-| **Code repo / branch** | `github.com/datakaveri/sandbox-connect-api`, `stable/v2.3` |
+| **Code repo / branch** | `github.com/datakaveri/sandbox-connect-api`, reviewed on `feature/evaluation-argo-service` at `5ed2930` |
 | **Config source** | `infra/worker/deployment.yaml` (inline env + Secrets `database-creds`, `s3-creds`), `infra/worker/configmap.yaml` (notebook templates) |
 | **Config schema** | `cmd/worker/types.go` → `Env`; template schema in `cmd/worker/workload_template.go` |
 | **Maintainer / point of contact** | Sandbox Connect backend team |
-| **Last updated** | 2026-07-29 |
+| **Last updated** | 2026-09-03 |
 
 Read [README.md](README.md) first for the loading order and baseline startup-failure mode.
 
@@ -309,6 +309,32 @@ placeholders substituted by the worker.
 - **Notes / gotchas:** resolved from **inside** a notebook pod — if network policy blocks egress
   to the public ingress, an internal Service DNS name is required instead.
 
+### `spec.notebook.spec.template.spec.containers[name=platform-token-sidecar].resources.requests` / `.limits`
+
+- **Type / format:** Kubernetes resource maps. `cpu` is a CPU quantity such as `10m`; `memory` is
+  a binary memory quantity such as `32Mi`.
+- **Required:** operationally yes in both CPU and GPU templates; Kubernetes itself permits them to
+  be omitted unless a namespace policy requires them.
+- **Purpose:** reserves enough CPU and memory for token refresh/readiness while bounding a broken
+  sidecar's consumption. These values also determine pod scheduling and QoS classification.
+- **Expected value:** current baseline requests `cpu: 10m`, `memory: 32Mi`; limits `cpu: 100m`,
+  `memory: 128Mi`. Keep requests no greater than their corresponding limits.
+- **Example value:** `requests: {cpu: 10m, memory: 32Mi}` and
+  `limits: {cpu: 100m, memory: 128Mi}`.
+- **Default if omitted:** none in this repository. A namespace `LimitRange` may inject a default;
+  otherwise the sidecar has no reservation or container-level ceiling for the omitted resource.
+- **How to obtain:** begin with the checked-in/live baseline, then size from sidecar CPU and
+  working-set metrics during simultaneous notebook startup and Keycloak recovery bursts.
+- **Failure mode:** an undersized CPU limit causes throttling and delayed readiness/token refresh;
+  an undersized memory limit produces `OOMKilled`. Excessive requests make notebooks remain
+  `Pending` with `Insufficient cpu` or `Insufficient memory` even though the notebook container
+  itself would fit.
+- **Change impact:** affects only notebooks created after the worker reloads the edited templates;
+  existing pods retain their resource settings.
+- **Notes / gotchas:** this block was added to both templates in August 2026. Keep the CPU and GPU
+  copies identical unless measurements demonstrate different sidecar workloads. See
+  [platform-token-sidecar.md](platform-token-sidecar.md#container-resource-requests-and-limits).
+
 ### `spec.notebook`
 
 The embedded Kubeflow `Notebook` spec, passed to Kubernetes largely verbatim. The fields that most
@@ -325,6 +351,7 @@ often need environment-specific attention:
 | `volumes[] platform-refresh-token.secretName` | set per-notebook by the worker at creation | must remain `""` with `optional: true` in the template; hard-coding a name breaks delegation |
 | `containers[].env MAHAAGX_FILE_API_BASE_URL` | file API the notebook talks to | wrong host → file operations fail inside the notebook only |
 | `…containers[1] platform-token-sidecar` | the sidecar block | see [platform-token-sidecar.md](platform-token-sidecar.md) |
+| `…containers[1].resources.requests/limits` | sidecar CPU/memory reservation and ceiling | too low → throttling or `OOMKilled`; too high → unschedulable notebook pod |
 | PVC doc `spec.storageClassName` | workspace storage class | non-existent class → PVC stays `Pending`, notebook never starts. **This is where storage class is set — `WORKER_STORAGE_CLASS_NAME` is dead** |
 | PVC doc `spec.accessModes` | `ReadWriteOnce` vs `ReadWriteMany` | `RWO` restricts the notebook to one node; a class that cannot satisfy the mode leaves the PVC `Pending` |
 

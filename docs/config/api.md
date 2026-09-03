@@ -5,11 +5,11 @@
 | | |
 |---|---|
 | **Service** | `sandbox-api` (`cmd/api`) |
-| **Code repo / branch** | `github.com/datakaveri/sandbox-connect-api`, `stable/v2.3` |
+| **Code repo / branch** | `github.com/datakaveri/sandbox-connect-api`, reviewed on `feature/evaluation-argo-service` at `5ed2930` |
 | **Config source** | `infra/api/configmap.yaml` (`api-config`), `infra/api/secret.yaml` (`api-creds`), plus `database-creds` |
 | **Config schema** | `cmd/api/types.go` — `ApiEnv`, `NotebookConfig`, `RegistrySecretConfig`, `RabbitMQConfig` |
 | **Maintainer / point of contact** | Sandbox Connect backend team |
-| **Last updated** | 2026-07-29 |
+| **Last updated** | 2026-09-03 |
 
 Read [README.md](README.md) first — it documents the loading order and the baseline
 startup-failure mode that every `,required` field shares.
@@ -255,11 +255,16 @@ Client-level requirements are in §3. The fields:
 - **Expected value:** domain names without `@`, separated by commas when more than one is required.
 - **Example value:** `cbr.synthetic.org`
 - **Default if omitted:** empty; domain blocking is disabled.
+- **How to obtain:** product/security policy, confirmed with the identity or organization
+  administrator responsible for the affected domains.
 - **Failure mode:** a matching user receives HTTP 403. Invalid JWTs and unverified email addresses
   continue to receive their existing HTTP 401 responses.
-- **Change impact:** takes effect on the next request; no restart-time migration or data change.
+- **Change impact:** no migration or data change. Because Kubernetes injects ConfigMap values as
+  environment variables, a ConfigMap edit takes effect only after the API pod is restarted; the
+  new rule then applies on the next authenticated request.
 - **Notes / gotchas:** matching is exact and case-insensitive. Subdomains and suffix lookalikes are
-  not blocked unless listed explicitly.
+  not blocked unless listed explicitly. This key is absent from both `infra/api/configmap.yaml`
+  and the live dev ConfigMap as of 2026-09-03, so the deployed feature is currently disabled.
 
 ### Platform token exchange (notebook delegation)
 

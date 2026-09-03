@@ -7,9 +7,11 @@ repository, following `CONFIG-DOC-TEMPLATE.md`.
 
 The source template targets Vert.x services configured by
 `Charts/api-layer/v2/<service>/example-secrets/secrets/config.json`. **This repository has no
-`config.json`.** Every service here is a Go binary configured by environment variables, loaded by
-[`caarlos0/env/v11`](https://github.com/caarlos0/env) from struct tags in each service's
-`types.go`, with an optional `.env` file overlay via `godotenv`.
+`config.json`.** Every service here is a Go binary configured by environment variables. The API,
+worker, and two background services use
+[`caarlos0/env/v11`](https://github.com/caarlos0/env) struct tags plus an optional `.env` overlay
+via `godotenv`; the platform-token sidecar reads its environment directly and does not load
+`.env`.
 
 The template maps onto that model as follows:
 
@@ -19,7 +21,7 @@ The template maps onto that model as follows:
 | Top-level key (`commonOptions`, `postgresOptions`, …) | Env var prefix (`API_`, `WORKER_`, `PROFILE_CREDIT_SYNC_`, `SLOT_LIFECYCLE_`) |
 | Full JSON path (`postgresOptions.host`) | The env var name (`API_POSTGRES_URL`) |
 | `modules` / `verticles` `required` array | The Go config struct that declares the tag, and the `,required` marker on it |
-| Config schema version | Not versioned; the authoritative schema is the set of `env:"…"` struct tags in `cmd/*/types.go` |
+| Config schema version | Not versioned; the authoritative schema is the set of `env:"…"` struct tags plus direct environment reads in `cmd/platform-token-sidecar/main.go` |
 
 Because the template asks for one document per service, there is one file per deployable binary:
 
@@ -36,13 +38,52 @@ Because the template asks for one document per service, there is one file per de
 | | |
 |---|---|
 | **Service** | sandbox-connect-api (5 binaries, one repo) |
-| **Code repo / branch** | `github.com/datakaveri/sandbox-connect-api`, branch `stable/v2.3` |
+| **Code repo / branch** | `github.com/datakaveri/sandbox-connect-api`, reviewed on `feature/evaluation-argo-service` at `5ed2930` |
 | **Config path in chart** | n/a — see the mapping table above |
-| **Config schema version** | unversioned; authoritative source is `cmd/*/types.go` |
+| **Config schema version** | unversioned; authoritative sources are `cmd/*/types.go` and direct reads in `cmd/platform-token-sidecar/main.go` |
 | **Maintainer / point of contact** | Sandbox Connect backend team |
-| **Last updated** | 2026-07-29 |
+| **Last updated** | 2026-09-03 |
+
+## Review basis and live-deployment drift
+
+This reference was re-audited on 2026-09-03 against all `env:"..."` struct tags, direct
+`os.Getenv` calls, checked-in Kubernetes manifests, and the live `sandbox` namespace in the
+current dev EKS context. Secret **key names** were checked, but secret values were neither copied
+nor recorded here.
+
+The live workloads do not all run this source revision: the API image maps to commit `a0ffae4`
+(2026-07-28), the worker to `e4283629` (2026-07-22), and slot lifecycle to `b63058a`
+(2026-06-22). Therefore the source schema in this branch remains authoritative for the next
+rollout; live-only keys may still be required by those older images.
+
+Known drift at review time:
+
+- `API_BLOCKED_EMAIL_DOMAINS` exists in current source and `.env.all.example`, but is absent from
+  both the checked-in and live `api-config`. It consequently defaults to empty and domain blocking
+  is disabled until operators add the key and restart the API.
+- The live API configuration still contains legacy `API_AAA_URL`,
+  `API_KEYCLOAK_BILLING_CLIENT_ID`, `API_OPENCOST_URL`, and Keycloak admin credential keys. Current
+  source does not read them. Do not copy them into new deployments; remove them from the live
+  objects only after the old API image has been replaced and validated.
+- The checked-in and live notebook templates now set platform-token sidecar requests to
+  `cpu: 10m`, `memory: 32Mi` and limits to `cpu: 100m`, `memory: 128Mi`; these fields are covered
+  in the worker and sidecar references.
+- `WORKSPACE_ENABLED` is absent from both live API and worker environments (effective value
+  `false`), while both checked-in manifests set it to `true`. Before the next rollout, verify the
+  shared RWX storage class and treat that rollout as enabling the feature.
+- Both live and checked-in values currently disagree on the registry pull Secret name:
+  `api-config` selects `v2-registry-cred`, while both notebook templates reference
+  `registry-cred`. Reconcile them before creating notebooks from these templates. The live
+  `api-config` also contains ECR and RabbitMQ credentials as plain ConfigMap data; rotate and move
+  them to the API Secret as described in [api.md](api.md).
+- `SLOT_LIFECYCLE_BATCH_SIZE` is absent from the live ConfigMap, so the code default of `50`
+  applies.
 
 ## How configuration is loaded
+
+The following loading sequence applies to the API, worker, slot lifecycle, and profile credit
+sync. The sidecar's direct loading, explicit validation, and fallback rules are documented in
+[platform-token-sidecar.md](platform-token-sidecar.md).
 
 1. `godotenv.Load()` reads `.env` from the working directory if present. A missing file is logged
    at INFO and is not an error — this is why local runs work without any Kubernetes objects.

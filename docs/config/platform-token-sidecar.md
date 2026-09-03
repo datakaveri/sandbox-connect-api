@@ -5,11 +5,11 @@
 | | |
 |---|---|
 | **Service** | `platform-token-sidecar` (`cmd/platform-token-sidecar`) |
-| **Code repo / branch** | `github.com/datakaveri/sandbox-connect-api`, `stable/v2.3` |
-| **Config source** | **not** a ConfigMap — inlined as `containers[].env` in both `SandboxNotebookTemplate` documents in `infra/worker/configmap.yaml` |
+| **Code repo / branch** | `github.com/datakaveri/sandbox-connect-api`, reviewed on `feature/evaluation-argo-service` at `5ed2930` |
+| **Config source** | **not** a ConfigMap — inlined as `containers[].env` and `containers[].resources` in both `SandboxNotebookTemplate` documents in `infra/worker/configmap.yaml` |
 | **Config schema** | `cmd/platform-token-sidecar/main.go` — direct `os.Getenv`, no config struct |
 | **Maintainer / point of contact** | Sandbox Connect backend team |
-| **Last updated** | 2026-07-29 |
+| **Last updated** | 2026-09-03 |
 
 ## 1. Top-level structure
 
@@ -25,11 +25,11 @@ file APIs as its owner:
 
 Two properties make its configuration different from every other service here:
 
-- **It has no `,required` fields and no config struct.** `env.Parse` is not used. Every value is
-  read with `os.Getenv`, so a missing or misspelled variable yields an empty string and the sidecar
-  starts anyway. **There is no startup validation at all** — the baseline "fails fast" behaviour
-  described in [README.md](README.md) does not apply. Misconfiguration surfaces as a notebook that
-  never becomes ready.
+- **It has no `,required` tags and no config struct.** `env.Parse` is not used. Values are read
+  with `os.Getenv`, defaults are applied, and `run()` then explicitly rejects missing required
+  values. A missing required value logs
+  `platform token sidecar stopped error="<FIELD> is required"` and exits with status 1. Parser-level
+  validation still does not exist: invalid duration values silently fall back as described below.
 - **Its values are per-notebook**, templated by the worker. Editing them means editing both
   notebook templates and restarting the worker.
 
@@ -42,17 +42,17 @@ replaced by the default rather than rejected.
 ### `KEYCLOAK_TOKEN_URL`
 
 - **Type / format:** string, absolute URL to the realm token endpoint.
-- **Required:** effectively yes — delegation cannot work without it, but nothing enforces it.
+- **Required:** yes — explicitly validated by `run()`.
 - **Purpose:** the endpoint where the refresh token is exchanged for an access token.
 - **Expected value:** `<keycloak>/realms/<realm>/protocol/openid-connect/token`
 - **Example value:** `https://idp.example.org/auth/realms/tgdex/protocol/openid-connect/token`
-- **Default if omitted:** `""` — every refresh fails; the notebook never becomes ready.
+- **Default if omitted:** none — startup fails with `KEYCLOAK_TOKEN_URL is required`.
 - **How to obtain:** the realm's `.well-known/openid-configuration` → `token_endpoint`. Must be
   built from the same Keycloak and realm as `API_KEYCLOAK_URL` / `API_KEYCLOAK_REALM`.
-- **Failure mode:** empty or wrong → the sidecar logs a refresh error, readiness never flips, and
-  the API culls the notebook after `API_PLATFORM_TOKEN_READY_TIMEOUT_SECS`. The user sees a
-  notebook that starts and then dies for no stated reason — check the **sidecar** container's log,
-  not the notebook's.
+- **Failure mode:** empty → the sidecar exits immediately and the container restarts. A non-empty
+  but wrong URL logs refresh errors, readiness never flips, and the API culls the notebook after
+  `API_PLATFORM_TOKEN_READY_TIMEOUT_SECS`. Check the **sidecar** container's log, not the
+  notebook's.
 - **Change impact:** must move with `API_KEYCLOAK_URL`; edit both templates.
 - **Notes / gotchas:** resolved from **inside a notebook pod**. A hostname that resolves on the
   API pod but is blocked by NetworkPolicy or absent from notebook-namespace DNS fails here while
@@ -65,12 +65,13 @@ replaced by the default rather than rejected.
 - **Purpose:** the confidential client used for the refresh grant.
 - **Expected value:** the same client as `API_PLATFORM_TOKEN_EXCHANGE_CLIENT_ID`.
 - **Example value:** `sandbox-notebook`
-- **Default if omitted:** `""` → `invalid_client` on every refresh.
+- **Default if omitted:** none — startup fails with `KEYCLOAK_CLIENT_ID is required`.
 - **How to obtain:** Keycloak operator; follow the
   [canonical Keycloak setup](api.md#canonical-keycloak-setup).
-- **Failure mode:** a mismatch with the client that **minted** the refresh token fails with
-  `invalid_grant`, because refresh tokens are bound to the issuing client. The confusing part is
-  that the API-side exchange succeeds and only the in-notebook refresh fails.
+- **Failure mode:** empty → the sidecar exits immediately. A mismatch with the client that
+  **minted** the refresh token fails with `invalid_grant`, because refresh tokens are bound to the
+  issuing client. The confusing part is that the API-side exchange succeeds and only the
+  in-notebook refresh fails.
 - **Change impact:** change together with `API_PLATFORM_TOKEN_EXCHANGE_CLIENT_ID` and
   `EXPECTED_CLIENT_ID` below.
 - **Notes / gotchas:** three places must agree; see the cross-service table in
@@ -85,15 +86,15 @@ replaced by the default rather than rejected.
   notebook's own environment.
 - **Expected value:** a path inside the read-only `platform-refresh-token` Secret mount.
 - **Example value:** `/var/run/sandbox-connect/refresh/client_secret`
-- **Default if omitted:** `""` → the client authenticates with no secret and Keycloak returns
-  `unauthorized_client`.
+- **Default if omitted:** none — startup fails with `KEYCLOAK_CLIENT_SECRET_FILE is required`.
 - **How to obtain:** the mount path of the `platform-refresh-token` volume plus the Secret key
   name. The Secret's content originates from `API_PLATFORM_TOKEN_EXCHANGE_CLIENT_SECRET`.
 - **Privileges required:** see the
   [canonical Keycloak setup](api.md#canonical-keycloak-setup).
-- **Failure mode:** a path that does not exist → refresh fails on every attempt. Because the volume
-  is `optional: true`, a missing Secret does **not** fail the pod — the notebook starts, the file
-  is simply absent, and only readiness fails.
+- **Failure mode:** an empty path makes the sidecar exit immediately. A configured path that does
+  not exist → refresh fails on every attempt. Because the volume is `optional: true`, a missing
+  Secret does **not** fail the pod — the notebook starts, the file is simply absent, and only
+  readiness fails.
 - **Change impact:** must track the volume `mountPath` and the Secret's key names.
 - **Notes / gotchas:** keep the file-based approach. Moving this secret into a plain env var would
   expose it to the user's own notebook process, which runs arbitrary user code in the same pod.
@@ -101,17 +102,18 @@ replaced by the default rather than rejected.
 ### `REFRESH_TOKEN_FILE`
 
 - **Type / format:** string, absolute path.
-- **Required:** effectively yes
+- **Required:** yes — explicitly validated by `run()`.
 - **Purpose:** the user's refresh token, projected by the API into the per-notebook Secret. This is
   the credential that makes the token *user-scoped* rather than service-scoped.
 - **Expected value:** a path inside the `platform-refresh-token` mount.
 - **Example value:** `/var/run/sandbox-connect/refresh/refresh_token`
-- **Default if omitted:** `""`; `BOOTSTRAP_TOKEN_FILE` also loses its derived default (below).
+- **Default if omitted:** none — startup fails with `REFRESH_TOKEN_FILE is required`;
+  `BOOTSTRAP_TOKEN_FILE` also loses its derived default (below).
 - **How to obtain:** the volume `mountPath` plus the Secret key the API writes.
-- **Failure mode:** absent → nothing to refresh, so readiness never flips. The sidecar **waits**
-  rather than exiting, polling every `SECRET_WAIT_INTERVAL_SECONDS`, which is correct behaviour
-  (the Secret is created asynchronously) but means a permanently missing Secret looks identical to
-  a slow one.
+- **Failure mode:** an empty config value makes the sidecar exit immediately. A configured path
+  whose projected file is not present or is empty makes the running sidecar wait and poll every
+  `SECRET_WAIT_INTERVAL_SECONDS`; a permanently missing Secret therefore looks identical to a
+  slow projection.
 - **Change impact:** must track the API's projection logic; not an independently choosable value.
 - **Notes / gotchas:** mounted `readOnly` with `defaultMode: 256` (`0400`). Keep both — this file
   grants the bearer the user's platform identity.
@@ -236,6 +238,35 @@ replaced by the default rather than rejected.
   both API notebook-client ID fields.
 - **Notes / gotchas:** set in both templates and must remain identical to the delegated token's
   `azp`.
+
+### Container resource requests and limits
+
+### `containers[name=platform-token-sidecar].resources.requests.cpu` / `.memory` and `.limits.cpu` / `.memory`
+
+- **Type / format:** Kubernetes resource quantities. CPU uses cores or millicores (`10m`);
+  memory uses bytes with a binary suffix (`32Mi`).
+- **Required:** operationally yes in both notebook templates; Kubernetes permits omission unless
+  a namespace policy requires them.
+- **Purpose:** reserves capacity for token refresh and readiness while bounding the impact of a
+  malfunctioning sidecar. The scheduler uses requests; the runtime enforces limits.
+- **Expected value:** current baseline requests `cpu: 10m`, `memory: 32Mi`; limits `cpu: 100m`,
+  `memory: 128Mi`. Each request must be no greater than its corresponding limit.
+- **Example value:** `requests: {cpu: 10m, memory: 32Mi}` and
+  `limits: {cpu: 100m, memory: 128Mi}`.
+- **Default if omitted:** none in this repository. A namespace `LimitRange` may inject defaults;
+  otherwise the omitted resource has no container reservation or ceiling.
+- **How to obtain:** start from the checked-in/live baseline and validate it with container CPU,
+  throttling, memory working-set, restart, and OOM metrics during concurrent notebook starts and
+  Keycloak recovery.
+- **Failure mode:** too little CPU delays token publication and can trip
+  `API_PLATFORM_TOKEN_READY_TIMEOUT_SECS`; too little memory produces `OOMKilled` and a restart
+  loop. Excessive requests leave the whole notebook pod `Pending` with `Insufficient cpu` or
+  `Insufficient memory`.
+- **Change impact:** only newly created notebook pods receive an edited template; existing pods
+  keep their original resources.
+- **Notes / gotchas:** these fields were added to both CPU and GPU templates in August 2026 and
+  were confirmed live at the values above on 2026-09-03. Keep both template copies aligned unless
+  metrics justify different allocations.
 
 ### Timing knobs
 
