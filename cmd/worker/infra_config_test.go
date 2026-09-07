@@ -50,7 +50,7 @@ func TestCheckedInWorkerNotebookTemplates(t *testing.T) {
 		if err != nil {
 			t.Fatalf("load checked-in %s template: %v", workload, err)
 		}
-		if template.Spec.Lifecycle.WorkspaceVolumeName != "user-data" || len(template.Spec.Lifecycle.VolumePolicies) != 2 {
+		if template.Spec.Lifecycle.WorkspaceVolumeName != "user-data" || len(template.Spec.Lifecycle.VolumePolicies) != 3 {
 			t.Fatalf("unexpected %s lifecycle: %#v", workload, template.Spec.Lifecycle)
 		}
 		if pvcTemplate, exists := template.PVCTemplate("user-data"); !exists || pvcTemplate["kind"] != "PersistentVolumeClaim" {
@@ -61,8 +61,8 @@ func TestCheckedInWorkerNotebookTemplates(t *testing.T) {
 			t.Fatalf("unexpected %s pod settings", workload)
 		}
 		volumes, _ := templateNamedItems(podSpec, "volumes")
-		if len(volumes) != 6 {
-			t.Fatalf("%s template has %d volumes, want 6", workload, len(volumes))
+		if len(volumes) != 7 {
+			t.Fatalf("%s template has %d volumes, want 7", workload, len(volumes))
 		}
 		workspaceVol, ok := findNamedItem(volumes, sharedWorkspaceVolumeName)
 		if !ok {
@@ -72,6 +72,15 @@ func TestCheckedInWorkerNotebookTemplates(t *testing.T) {
 		volumeReadOnly, _, _ := unstructured.NestedBool(workspaceVol, "persistentVolumeClaim", "readOnly")
 		if claimName != "workspace" || !volumeReadOnly {
 			t.Fatalf("%s shared workspace PVC volume is wrong: %#v", workload, workspaceVol)
+		}
+		evaluationVolume, ok := findNamedItem(volumes, evaluationWorkspaceVolumeName)
+		if !ok {
+			t.Fatalf("%s template is missing the evaluation workspace volume", workload)
+		}
+		evaluationClaim, _, _ := unstructured.NestedString(evaluationVolume, "persistentVolumeClaim", "claimName")
+		evaluationReadOnly, _, _ := unstructured.NestedBool(evaluationVolume, "persistentVolumeClaim", "readOnly")
+		if evaluationClaim != "{evaluationWorkspacePVCName}" || !evaluationReadOnly {
+			t.Fatalf("%s evaluation workspace PVC volume is wrong: %#v", workload, evaluationVolume)
 		}
 		inits, _ := templateNamedItems(podSpec, "initContainers")
 		if _, ok := findNamedItem(inits, "ensure-artifacts-dir"); ok {
@@ -86,6 +95,10 @@ func TestCheckedInWorkerNotebookTemplates(t *testing.T) {
 		}
 		if _, hasSubPath := workspaceMount["subPath"]; hasSubPath {
 			t.Fatalf("%s shared workspace mount must use the PVC root: %#v", workload, workspaceMount)
+		}
+		evaluationMount, ok := findMountByName(mounts, evaluationWorkspaceVolumeName)
+		if !ok || evaluationMount["readOnly"] != true || evaluationMount["mountPath"] != "{evaluationWorkspaceMountPath}" {
+			t.Fatalf("%s notebook evaluation workspace mount is wrong: %#v", workload, evaluationMount)
 		}
 		sidecar, ok := findNamedItem(containers, platformTokenSidecarName)
 		if !ok {

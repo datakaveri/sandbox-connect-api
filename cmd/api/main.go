@@ -35,6 +35,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sandbox-backend-service/internal/evaluation"
 	"sandbox-backend-service/pkg/db"
 	"sandbox-backend-service/pkg/gpuconfig"
 	"sandbox-backend-service/pkg/k8s"
@@ -72,6 +73,9 @@ func main() {
 	if err := env.Parse(&config); err != nil {
 		utils.LogErrorAndExit(logger, "failed to parse environment variables", "error", err)
 	}
+	if err := config.EvaluationWorkspaceConfig.Validate(config.EvaluationConfig.WorkspaceMountPath); err != nil {
+		utils.LogErrorAndExit(logger, "invalid evaluation workspace configuration", "error", err)
+	}
 
 	// Backward compatibility: if SLOT_CONFIG_PROFILE isn't set, fall back to API_GPU_SLOT_CONFIG_PROFILE.
 	if config.NotebookConfig.SlotConfigProfile == "" {
@@ -87,6 +91,10 @@ func main() {
 	k8sClient, err := k8s.NewK8sClient(config.KubeConfigMode, config.KubeConfigPath)
 	if err != nil {
 		utils.LogErrorAndExit(logger, "failed to create kubernetes client", "error", err)
+	}
+	storageValidationApp := application{env: config, k8sClient: k8sClient}
+	if err := storageValidationApp.validateEvaluationWorkspaceStorageClass(context.Background()); err != nil {
+		utils.LogErrorAndExit(logger, "invalid evaluation workspace StorageClass", "error", err)
 	}
 	pool, err := db.NewPool(config.POSTGRES_URL)
 	if err != nil {
@@ -111,13 +119,14 @@ func main() {
 	}
 
 	app := application{
-		pgPool:         pool,
-		k8sClient:      k8sClient,
-		env:            config,
-		rateLimiter:    rateLimiter,
-		ecrClient:      ecrClient,
-		registrySecret: config.RegistrySecretConfig,
-		auditService:   auditService,
+		pgPool:          pool,
+		k8sClient:       k8sClient,
+		env:             config,
+		rateLimiter:     rateLimiter,
+		ecrClient:       ecrClient,
+		registrySecret:  config.RegistrySecretConfig,
+		auditService:    auditService,
+		evaluationStore: evaluation.NewStore(pool.Pool),
 	}
 
 	server := http.Server{

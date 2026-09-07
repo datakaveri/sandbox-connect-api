@@ -356,6 +356,11 @@ func (app *application) createGPUBooking(w http.ResponseWriter, r *http.Request)
 		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
 		return
 	}
+	if err := app.ensureEvaluationWorkspacePVC(ctx, logger, namespace); err != nil {
+		logger.Error("failed to ensure evaluation workspace PVC for booking flow", "error", err, "namespace", namespace)
+		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+		return
+	}
 
 	if req.GitAccessToken != nil || req.GitTokenSecretName != nil {
 		if err := app.waitForNamespace(ctx, logger, namespace); err != nil {
@@ -1337,6 +1342,19 @@ func (app *application) resetGPUBooking(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	if nbFound {
+		held, holdErr := app.hasEvaluationHoldInTx(ctx, tx, nbID)
+		if holdErr != nil {
+			logger.Error("resetGPUBooking: failed to check evaluation hold", "booking_id", bookingID, "error", holdErr)
+			sendError(w, logger, http.StatusInternalServerError, "Failed to check evaluation state")
+			return
+		}
+		if held {
+			sendError(w, logger, http.StatusConflict, "Booking cannot be reset while notebook evaluation is in progress")
+			return
+		}
+	}
+
 	// Update booking state first.
 	if sessionEndedNow {
 		if _, err := tx.Exec(ctx, `
@@ -1492,6 +1510,19 @@ func (app *application) terminateGPUBooking(w http.ResponseWriter, r *http.Reque
 			LIMIT 1
 		`, bookingID).Scan(&nbID, &nbName, &nbNS, &nbPVC); err == nil {
 			nbFound = true
+		}
+	}
+
+	if nbFound {
+		held, holdErr := app.hasEvaluationHoldInTx(ctx, tx, nbID)
+		if holdErr != nil {
+			logger.Error("terminateGPUBooking: failed to check evaluation hold", "booking_id", bookingID, "error", holdErr)
+			sendError(w, logger, http.StatusInternalServerError, "Failed to check evaluation state")
+			return
+		}
+		if held {
+			sendError(w, logger, http.StatusConflict, "Booking cannot be terminated while notebook evaluation is in progress")
+			return
 		}
 	}
 

@@ -51,6 +51,9 @@ func (w *worker) SelectWorkloadTemplate() error {
 	if !w.app.env.WorkspaceEnabled {
 		w.omittedVolumes[sharedWorkspaceVolumeName] = struct{}{}
 	}
+	if !w.app.env.EvaluationWorkspaceEnabled {
+		w.omittedVolumes[evaluationWorkspaceVolumeName] = struct{}{}
+	}
 	w.logger.Info("selected worker notebook template", "workload", workload, "volume_policy_count", len(template.Spec.Lifecycle.VolumePolicies))
 	return nil
 }
@@ -117,6 +120,8 @@ func (w *worker) resolvePVCMounts() ([]ResolvedPVCMount, error) {
 	values := templateValues{
 		Namespace: w.notebook.Namespace, NotebookName: w.notebook.Name,
 		PVCName: w.notebook.PVCname, StorageSize: w.notebook.StorageSize,
+		EvaluationWorkspacePVCName:   w.app.env.EvaluationWorkspacePVCName,
+		EvaluationWorkspaceMountPath: w.app.env.EvaluationWorkspaceMountPath,
 	}
 	podSpec, found, err := unstructured.NestedMap(w.template.Spec.Notebook, "spec", "template", "spec")
 	if err != nil || !found {

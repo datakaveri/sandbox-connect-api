@@ -644,7 +644,14 @@ func stepCleanupCompleted(ctx context.Context, pool *db.PgPool, k8sClient *k8s.K
 	parseErrors := 0
 	deleteErrors := 0
 
-	query := `
+	evaluationHoldFilter := ""
+	if cfg.EvaluationsEnabled {
+		evaluationHoldFilter = `AND NOT EXISTS (
+			SELECT 1 FROM evaluations e
+			WHERE e.notebook_id = n.id AND e.hold_active = true
+		)`
+	}
+	query := fmt.Sprintf(`
 		SELECT gb.id, gb.notebook_id, gb.category_name,
 		       n.name, n.namespace, n.pvc_name,
 		       to_char(gb.slot_end,'YYYY-MM-DD HH24:MI:SS') as slot_end_str
@@ -652,8 +659,9 @@ func stepCleanupCompleted(ctx context.Context, pool *db.PgPool, k8sClient *k8s.K
 		JOIN notebooks n ON n.id = gb.notebook_id
 		WHERE gb.status='completed'
 		  AND gb.cleanup_completed_at IS NULL
+		  %s
 		LIMIT $1
-	`
+	`, evaluationHoldFilter)
 
 	rows, err := pool.Pool.Query(ctx, query, cfg.BatchSize)
 	if err != nil {

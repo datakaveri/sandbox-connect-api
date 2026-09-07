@@ -64,6 +64,9 @@ func (app *application) router() http.Handler {
 		apiMux.HandleFunc("/v1/categories", app.bookingsDisabled)
 	}
 	apiMux.HandleFunc("POST /v1/jupyterlite/session", app.createJupyterLiteSession)
+	apiMux.HandleFunc("POST /v1/notebooks/{notebook_name}/evaluations", app.submitEvaluation)
+	apiMux.HandleFunc("GET /v1/evaluations/{evaluation_id}/outputs", app.listEvaluationOutputs)
+	apiMux.HandleFunc("POST /v1/evaluations/{evaluation_id}/approve", app.approveEvaluation)
 
 	// Profile routes
 	apiMux.HandleFunc("POST /v1/profile/create", app.createProfile)

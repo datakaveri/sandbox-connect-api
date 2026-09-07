@@ -21,6 +21,10 @@ type CronEnv struct {
 	// Optional: limits how many bookings to process per run.
 	BatchSize int `env:"SLOT_LIFECYCLE_BATCH_SIZE" envDefault:"50"`
 
+	// Enable only after migrations/001_evaluations.sql has been applied.
+	// When enabled, cleanup never removes a PVC held by an active evaluation.
+	EvaluationsEnabled bool `env:"SLOT_LIFECYCLE_EVALUATIONS_ENABLED" envDefault:"false"`
+
 	// How often the lifecycle loop runs (seconds).
 	TickIntervalSecs int `env:"SLOT_LIFECYCLE_TICK_INTERVAL_SECS" envDefault:"5"`
 

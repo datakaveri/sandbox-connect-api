@@ -38,6 +38,22 @@ data:
   API_IDLE_TIMEOUT_SECS: "120"
   API_BOOKINGS_ENABLED: "true"
   WORKSPACE_ENABLED: "true"
+  # Enable only after migrations/001_evaluations.sql and the internal worker
+  # are ready. Evaluation routes work in both direct and booking modes.
+  API_EVALUATIONS_ENABLED: "false"
+  API_EVALUATION_NOTEBOOK_PATH: "nha_ps4_evaluation_template.ipynb"
+  # No RWX class exists in the inspected production cluster. Keep this false
+  # until an EFS/RWX class is installed; never set the EBS class here.
+  API_EVALUATION_WORKSPACE_ENABLED: "false"
+  API_EVALUATION_WORKSPACE_PVC_NAME: "evaluation-workspace"
+  API_EVALUATION_WORKSPACE_STORAGE_CLASS: ""
+  API_EVALUATION_WORKSPACE_STORAGE_PROVISIONER: "efs.csi.aws.com"
+  API_EVALUATION_WORKSPACE_STORAGE_SIZE: "20Gi"
+  API_EVALUATION_WORKSPACE_ACCESS_MODE: "ReadWriteMany"
+  API_EVALUATION_WORKSPACE_VOLUME_MODE: "Filesystem"
+  API_EVALUATION_WORKSPACE_MOUNT_PATH: "/home/jovyan/evaluation-workspace"
+  API_EVALUATION_MAX_MANIFEST_BYTES: "262144"
+  API_EVALUATION_MAX_MANIFEST_FILES: "1000"
   API_MAX_BODY_SIZE_IN_MB: "5"
   API_WRITE_TIMEOUT_SECS: "60"
   API_READ_TIMEOUT_SECS: "30"

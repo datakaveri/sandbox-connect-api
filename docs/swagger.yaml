@@ -34,6 +34,15 @@ definitions:
     - StatusRuntimeInjectionFailed
     - StatusNotebookApplied
     - StatusNotebookApplyFailed
+  main.ApprovalResponse:
+    properties:
+      destination:
+        type: string
+      evaluationId:
+        type: string
+      status:
+        type: string
+    type: object
   main.AvailableSlot:
     properties:
       alreadyBooked:
@@ -392,6 +401,41 @@ definitions:
         type: string
       type:
         example: error
+        type: string
+    type: object
+  main.EvaluationOutput:
+    properties:
+      mediaType:
+        type: string
+      path:
+        type: string
+      sha256:
+        type: string
+      size:
+        type: integer
+    type: object
+  main.EvaluationOutputsResponse:
+    properties:
+      errorCode:
+        type: string
+      errorMessage:
+        type: string
+      evaluationId:
+        type: string
+      outputs:
+        items:
+          $ref: '#/definitions/main.EvaluationOutput'
+        type: array
+      status:
+        type: string
+    type: object
+  main.EvaluationResponse:
+    properties:
+      evaluationId:
+        type: string
+      notebookName:
+        type: string
+      status:
         type: string
     type: object
   main.ExtendBookingResponse:
@@ -1054,6 +1098,99 @@ paths:
       summary: List booking categories and slot templates
       tags:
       - bookings
+  /v1/evaluations/{evaluation_id}/approve:
+    post:
+      description: Queues an asynchronous verified copy into the owner's shared workspace.
+        Requires the configured approver role and an enabled workspace.
+      parameters:
+      - description: Evaluation ID
+        in: path
+        name: evaluation_id
+        required: true
+        type: string
+      - description: Unique request key
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/main.ApprovalResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/main.Error400'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/main.Error401'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/main.Error403'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/main.Error404'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/main.Error409'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/main.Error500'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/main.Error503'
+      security:
+      - BearerAuth: []
+      summary: Approve evaluation outputs
+      tags:
+      - evaluations
+  /v1/evaluations/{evaluation_id}/outputs:
+    get:
+      description: Returns the current evaluation status and, after success, its bounded
+        verified output manifest.
+      parameters:
+      - description: Evaluation ID
+        in: path
+        name: evaluation_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.EvaluationOutputsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/main.Error400'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/main.Error401'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/main.Error404'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/main.Error500'
+      security:
+      - BearerAuth: []
+      summary: List evaluation outputs
+      tags:
+      - evaluations
   /v1/jupyterlite/session:
     post:
       description: Validates the current bearer token and sets an HttpOnly cookie
@@ -1543,6 +1680,53 @@ paths:
       summary: Stop notebook
       tags:
       - notebook
+  /v1/notebooks/{notebook_name}/evaluations:
+    post:
+      description: Stops an owned, ready notebook and queues an asynchronous PS4 evaluation.
+        In booking mode the linked booking must be active.
+      parameters:
+      - description: Notebook Name
+        in: path
+        name: notebook_name
+        required: true
+        type: string
+      - description: Unique request key
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/main.EvaluationResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/main.Error400'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/main.Error401'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/main.Error404'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/main.Error409'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/main.Error500'
+      security:
+      - BearerAuth: []
+      summary: Submit a notebook for evaluation
+      tags:
+      - evaluations
   /v1/profile/create:
     post:
       consumes:

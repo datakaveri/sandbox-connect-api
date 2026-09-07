@@ -54,6 +54,24 @@ func addSharedWorkspaceMount(t *testing.T, template *SandboxNotebookTemplate) {
 	_ = unstructured.SetNestedMap(template.Spec.Notebook, podSpec, "spec", "template", "spec")
 }
 
+func addEvaluationWorkspaceMount(t *testing.T, template *SandboxNotebookTemplate) {
+	t.Helper()
+	template.Spec.Lifecycle.VolumePolicies = append(template.Spec.Lifecycle.VolumePolicies, VolumeLifecyclePolicy{
+		Name: evaluationWorkspaceVolumeName,
+		Existing: &ExistingVolumePolicy{Expected: &PVCExpectationConfig{
+			AccessModes: []string{"ReadWriteMany"}, VolumeMode: "Filesystem",
+		}},
+	})
+	podSpec, _, _ := unstructured.NestedMap(template.Spec.Notebook, "spec", "template", "spec")
+	volumes, _ := templateNamedItems(podSpec, "volumes")
+	volumes = append(volumes, map[string]any{"name": evaluationWorkspaceVolumeName, "persistentVolumeClaim": map[string]any{"claimName": "{evaluationWorkspacePVCName}", "readOnly": true}})
+	containers, _ := templateNamedItems(podSpec, "containers")
+	mounts, _ := nestedSliceOrEmpty(containers[0], "volumeMounts")
+	containers[0]["volumeMounts"] = append(mounts, map[string]any{"name": evaluationWorkspaceVolumeName, "mountPath": "{evaluationWorkspaceMountPath}", "readOnly": true})
+	podSpec["volumes"], podSpec["containers"] = mapsToAny(volumes), mapsToAny(containers)
+	_ = unstructured.SetNestedMap(template.Spec.Notebook, podSpec, "spec", "template", "spec")
+}
+
 func TestPreparePVCMountsCreatesManagedWorkspace(t *testing.T) {
 	template := testSandboxTemplate("cpu")
 	w := newVolumePolicyTestWorker(t, template)
@@ -159,6 +177,86 @@ func TestWorkspaceFlagEnabledMountsSharedWorkspaceReadOnly(t *testing.T) {
 	workspaceMount, ok := findMountByName(mounts, sharedWorkspaceVolumeName)
 	if !ok || workspaceMount["mountPath"] != "/home/jovyan/workspace" || workspaceMount["readOnly"] != true {
 		t.Fatalf("workspace mount is wrong: %#v", workspaceMount)
+	}
+}
+
+func TestEvaluationWorkspaceFlagDisabledOmitsDedicatedWorkspace(t *testing.T) {
+	template := testSandboxTemplate("cpu")
+	addEvaluationWorkspaceMount(t, template)
+	w := newVolumePolicyTestWorker(t, template)
+	if err := w.PreparePVCMounts(); err != nil {
+		t.Fatal(err)
+	}
+	built, err := w.BuildNotebook()
+	if err != nil {
+		t.Fatal(err)
+	}
+	podSpec, _, _ := unstructured.NestedMap(built.Object, "spec", "template", "spec")
+	volumes, _ := templateNamedItems(podSpec, "volumes")
+	if _, ok := findNamedItem(volumes, evaluationWorkspaceVolumeName); ok {
+		t.Fatal("disabled evaluation workspace volume was rendered")
+	}
+	containers, _ := templateNamedItems(podSpec, "containers")
+	primary, _ := findNamedItem(containers, "demo")
+	mounts, _ := containerVolumeMounts(primary)
+	if _, ok := findMountByName(mounts, evaluationWorkspaceVolumeName); ok {
+		t.Fatal("disabled evaluation workspace mount was rendered")
+	}
+}
+
+func TestEvaluationWorkspaceFlagEnabledUsesConfiguredClaimReadOnly(t *testing.T) {
+	template := testSandboxTemplate("cpu")
+	addEvaluationWorkspaceMount(t, template)
+	w := newVolumePolicyTestWorker(t, template,
+		boundPVC("user-ns", "custom-evaluation-workspace", "ReadWriteMany"))
+	w.app.env.EvaluationWorkspaceEnabled = true
+	w.app.env.EvaluationWorkspacePVCName = "custom-evaluation-workspace"
+	w.app.env.EvaluationWorkspaceMountPath = "/mnt/evaluation"
+	if err := w.PreparePVCMounts(); err != nil {
+		t.Fatal(err)
+	}
+	built, err := w.BuildNotebook()
+	if err != nil {
+		t.Fatal(err)
+	}
+	podSpec, _, _ := unstructured.NestedMap(built.Object, "spec", "template", "spec")
+	volumes, _ := templateNamedItems(podSpec, "volumes")
+	volume, ok := findNamedItem(volumes, evaluationWorkspaceVolumeName)
+	if !ok {
+		t.Fatal("enabled evaluation workspace volume was omitted")
+	}
+	claim, _, _ := unstructured.NestedString(volume, "persistentVolumeClaim", "claimName")
+	readOnly, _, _ := unstructured.NestedBool(volume, "persistentVolumeClaim", "readOnly")
+	if claim != "custom-evaluation-workspace" || !readOnly {
+		t.Fatalf("evaluation workspace PVC source is wrong: %#v", volume)
+	}
+	containers, _ := templateNamedItems(podSpec, "containers")
+	primary, _ := findNamedItem(containers, "demo")
+	mounts, _ := containerVolumeMounts(primary)
+	mount, ok := findMountByName(mounts, evaluationWorkspaceVolumeName)
+	if !ok || mount["mountPath"] != "/mnt/evaluation" || mount["readOnly"] != true {
+		t.Fatalf("evaluation workspace mount is wrong: %#v", mount)
+	}
+}
+
+func TestWorkerEvaluationWorkspaceConfigurationValidation(t *testing.T) {
+	valid := Env{
+		EvaluationWorkspaceEnabled:   true,
+		EvaluationWorkspacePVCName:   "evaluation-workspace",
+		EvaluationWorkspaceMountPath: "/home/jovyan/evaluation-workspace",
+	}
+	if err := valid.ValidateEvaluationWorkspace(); err != nil {
+		t.Fatalf("valid workspace configuration was rejected: %v", err)
+	}
+	invalidClaim := valid
+	invalidClaim.EvaluationWorkspacePVCName = "Invalid_Name"
+	if err := invalidClaim.ValidateEvaluationWorkspace(); err == nil {
+		t.Fatal("expected invalid PVC name to be rejected")
+	}
+	invalidPath := valid
+	invalidPath.EvaluationWorkspaceMountPath = "relative/path"
+	if err := invalidPath.ValidateEvaluationWorkspace(); err == nil {
+		t.Fatal("expected relative mount path to be rejected")
 	}
 }
 

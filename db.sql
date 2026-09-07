@@ -137,3 +137,7 @@ ALTER TABLE notebooks ADD COLUMN IF NOT EXISTS image_name VARCHAR(512);
 ALTER TABLE notebooks ADD COLUMN IF NOT EXISTS file_url TEXT;
 ALTER TABLE notebooks ADD COLUMN IF NOT EXISTS git_url TEXT;
 ALTER TABLE notebooks ADD COLUMN IF NOT EXISTS git_token_secret_name VARCHAR(253);
+
+-- Keep fresh installs aligned with incremental deployments. \ir resolves the
+-- migration relative to this file when db.sql is run through psql.
+\ir migrations/001_evaluations.sql
