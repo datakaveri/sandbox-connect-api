@@ -17,9 +17,16 @@ not contain an agentic or LLM loop. Together they:
 3. run an Argo Workflow that copies and converts the user's code;
 4. replace approved sandbox environment values/URLs with production values;
 5. execute the converted code;
-6. upload the generated outputs through the file-server API;
+6. upload the generated outputs into a private object-storage bucket through a platform-controlled
+   uploader;
 7. list those outputs through Sandbox Connect; and
-8. after approval, copy the outputs from the file service/S3 into the user's common workspace.
+8. after approval, promote the verified objects from an evaluation-specific pending prefix to an
+   approved prefix in the same bucket.
+
+The demo design does not require a common RWX filesystem. Outputs remain objects and are downloaded
+through an authenticated platform endpoint or short-lived signed URL. Making approved outputs
+appear as normal files inside every notebook is intentionally deferred until an RWX filesystem or a
+separate explicit import/download feature is available.
 
 No score or scorer is required in this service. If another system later scores the uploaded output,
 that integration is outside this task.
@@ -42,17 +49,17 @@ flowchart LR
     WORKER -->|wait for PVC and create/watch| ARGO[Argo Workflow]
     PVC[(Sandbox PVC)] -->|read-only| ARGO
     ARGO -->|nbconvert, replace config, execute| RUN[PS4 Runner]
-    RUN -->|file-server upload API| FS[File Service / S3]
+    RUN -->|separate uploader| OBJ[(Private output bucket)]
 
     API -->|queue approval| DB
-    WORKER -->|approved copy job| COPY[Workspace Copy Job]
-    FS --> COPY
-    COPY -->|read-write| WS[(User Common Workspace PVC)]
-    WS --> SANDBOXES[All user sandboxes]
+    WORKER -->|server-side promotion job| PROMOTE[Object Promotion]
+    OBJ --> PROMOTE
+    PROMOTE -->|copy and publish manifest last| OBJ
+    API -->|authorized list/download| OBJ
 ```
 
 Sandbox Connect owns the authenticated user-facing APIs and durable evaluation/approval records.
-The `evaluation-argo-service` owns only background Argo and copy-job orchestration; it does not
+The `evaluation-argo-service` owns only background Argo and object-promotion orchestration; it does not
 expose user-facing routes or duplicate Sandbox authentication and ownership logic.
 
 ## Components
@@ -74,14 +81,14 @@ Sandbox Connect provides the three requested operations:
 
 - submit and trigger evaluation;
 - list generated outputs; and
-- approve/copy generated outputs.
+- approve/promote generated outputs.
 
 Because stopping a notebook and running a Workflow can take several minutes, submission must be
 asynchronous. Sandbox Connect creates a durable evaluation record, applies the evaluation hold,
 stops the Notebook, and returns an evaluation ID immediately.
 
-It reuses the existing JWT, ownership, notebook/PVC, booking, token-exchange, and common-workspace
-logic. Start, Delete, Reset, Terminate, and timed booking cleanup must respect the evaluation hold.
+It reuses the existing JWT, ownership, notebook/PVC, booking, and token-exchange logic. Start,
+Delete, Reset, Terminate, and timed booking cleanup must respect the evaluation hold.
 
 ### 3. `evaluation-argo-service`
 
@@ -91,7 +98,7 @@ This is an internal background worker/controller. It:
 - waits until no running pod references the source PVC;
 - creates and watches the Argo Workflow;
 - records phases, failures, Workflow identity, and output-manifest location;
-- claims approved copy requests and creates the workspace copy job; and
+- claims approved requests and creates or performs the object-prefix promotion operation; and
 - resumes unfinished work after restart.
 
 For the simplest implementation, both processes use the same evaluation/approval tables in Sandbox
@@ -107,22 +114,31 @@ stages.
 prepare -> nbconvert -> configure -> execute -> upload
 ```
 
-### 5. File service/S3
+### 5. Private object storage
 
-All generated files are uploaded through the existing file-server upload endpoint. The runner does
-not upload directly to S3.
+For the demo, use one private output bucket and divide it by a stable platform-controlled user key,
+sandbox, and evaluation ID. The bucket is an object store, not a mounted POSIX filesystem.
 
-### 6. Common user workspace
+The preferred integration is the existing authenticated file-service API when it can enforce the
+required bucket and prefix. If that API is not available for the demo, use a separate uploader and
+promotion component with short-lived, prefix-limited credentials or workload identity. The
+participant code must never receive bucket or file-service credentials.
 
-Create or enable one profile/user-scoped RWX workspace PVC. Attach that same workspace to all of the
-user's sandboxes at a stable mount path such as:
+The bucket must already exist or be provisioned separately. The evaluation service receives only
+its configured name, region, and base prefix; it must not create, delete, or reconfigure production
+buckets.
 
-```text
-/home/jovyan/workspace
-```
+### 6. Demo access model
 
-The approval copy job mounts it read-write. Whether normal sandbox containers mount it read-only or
-read-write is a product decision; read-only is safer for preserving approved results.
+Approved results remain in object storage. Sandbox Connect lists only the manifest recorded for an
+evaluation and returns authenticated downloads or short-lived signed URLs after verifying user
+ownership. A bucket prefix is only an organizational boundary; authorization must be enforced by
+Sandbox Connect, the file service, and IAM.
+
+Do not mount the bucket into notebooks with S3 CSI for this demo. Object storage does not provide
+the filesystem semantics expected from a shared workspace. If notebook-side access is needed, add
+an explicit authenticated download/import operation that writes into a selected sandbox PVC after
+performing the same path, size, and checksum validation.
 
 ## Submission sequence
 
@@ -134,7 +150,7 @@ sequenceDiagram
     participant D as Sandbox DB
     participant P as evaluation-argo-service
     participant K as Kubernetes/Argo
-    participant F as File Service/S3
+    participant F as Private Output Bucket
 
     U->>UI: Click Submit for Evaluation
     UI->>S: POST submit
@@ -146,7 +162,7 @@ sequenceDiagram
     P->>K: Wait until Notebook pod releases PVC
     P->>K: Create Argo Workflow
     K->>K: Copy, nbconvert, configure, execute
-    K->>F: Upload generated outputs through file API
+    K->>F: Upload outputs under the user's pending prefix
     P->>D: Mark output available and release hold
     UI->>S: GET outputs
     S->>F: Read known manifest
@@ -230,22 +246,35 @@ There is no automatic source repair and no scoring step.
 
 ### Step 5: Upload
 
-Use a separate uploader step so the user's code never receives file-service credentials.
+Use a separate uploader step so the user's code never receives object-storage or file-service
+credentials.
 
-Suggested file-service prefix:
+Suggested bucket key layout:
 
 ```text
-/user/<sandbox-name>/evaluations/<evaluation-id>/
-  output/
-  execution-summary.json
-  manifest.json
+<base-prefix>/users/<opaque-user-key>/sandboxes/<sandbox-name>/evaluations/<evaluation-id>/
+  pending/
+    output/
+    execution-summary.json
+    manifest.json
+  approved/
+    output/
+    execution-summary.json
+    manifest.json
 ```
 
-The manifest records each relative path, size, media type, and SHA-256 checksum. Upload it last. Its
-presence means the output set is complete; partial uploads are not listed or approved.
+The user key must come from trusted authenticated identity data and should be an opaque stable ID or
+one-way derived identifier rather than an email address or other personal information. It must
+never be accepted from the request body.
 
-The final prefix must match the file server's exact `/user/...` path contract once that contract is
-shared.
+The manifest records each relative path, object key, size, media type, and SHA-256 checksum. Upload
+the pending manifest last. Its presence means the pending output set is complete; partial uploads
+are not listed or approved.
+
+On approval, copy objects server-side from `pending/` to `approved/`, verify the copied object
+metadata/checksums, and write the approved manifest last. S3-style object stores do not provide an
+atomic directory rename, so the approved manifest is the only publication marker. APIs must never
+expose objects merely because they exist below `approved/`.
 
 ## API proposal
 
@@ -285,7 +314,7 @@ idempotency key returns the existing evaluation instead of starting another Work
 GET /v1/evaluations/{evaluation_id}/outputs
 ```
 
-This endpoint verifies ownership and reads only the known `manifest.json` for the evaluation.
+This endpoint verifies ownership and reads only the exact manifest key recorded for the evaluation.
 
 - While processing: return the current phase with no outputs.
 - After success: return the generated file list and metadata.
@@ -300,9 +329,10 @@ POST /v1/evaluations/{evaluation_id}/approve
 Idempotency-Key: <unique value>
 ```
 
-This creates an asynchronous copy job. The API request itself does not download/copy large files.
+This creates an asynchronous server-side object promotion. The API request itself does not
+download/copy large files.
 
-## Approval and copy flow
+## Approval and object promotion flow
 
 ```mermaid
 sequenceDiagram
@@ -310,32 +340,32 @@ sequenceDiagram
     participant S as Authenticated Sandbox API
     participant D as Sandbox DB
     participant P as evaluation-argo-service
-    participant F as File Service/S3
-    participant J as Copy Job
-    participant W as Common Workspace
+    participant F as Private Output Bucket
+    participant J as Promotion Worker or Job
 
     U->>S: POST approve
     S->>D: Validate and queue approval
     S-->>U: 202 Accepted
     P->>D: Claim queued approval
-    P->>J: Start copy job
-    J->>F: Download manifest and output files
-    J->>J: Verify paths, sizes, and checksums
-    J->>W: Copy into temporary directory
-    J->>W: Atomically publish final directory
+    P->>J: Start prefix promotion
+    J->>F: Read the exact pending manifest
+    J->>J: Verify paths, sizes, checksums, and ownership prefix
+    J->>F: Server-side copy objects to approved prefix
+    J->>F: Publish approved manifest last
     J->>P: Mark approval complete
     P->>D: Persist approved state
 ```
 
-Suggested destination:
+Suggested approved prefix:
 
 ```text
-/home/jovyan/workspace/evaluations/<sandbox-name>/<evaluation-id>/
+<base-prefix>/users/<opaque-user-key>/sandboxes/<sandbox-name>/evaluations/<evaluation-id>/approved/
 ```
 
-The job first writes to `.incoming/<evaluation-id>` and only exposes the final directory after all
-checks pass. Repeated approval is safe: if the same verified manifest already exists, return the
-existing success; never overwrite different data.
+Repeated approval is safe: if the same verified approved manifest already exists, return the
+existing success. Never overwrite a different manifest or object version. If promotion fails before
+the approved manifest is written, the incomplete objects remain invisible to the API and can be
+removed later by a bounded cleanup process.
 
 ## Minimal state
 
@@ -359,8 +389,8 @@ approvals
   evaluation_id
   requested_by
   status
-  copy_job_name
-  destination
+  promotion_job_name
+  approved_prefix and approved_manifest_key
   idempotency_key
   safe_error
   timestamps
@@ -375,7 +405,7 @@ requested -> stopping -> waiting_for_pvc -> preparing -> converting
 any non-terminal phase -> failed
 ```
 
-Approval phases are `requested -> copying -> approved`, with a retryable `failed` state.
+Approval phases are `requested -> promoting -> approved`, with a retryable `failed` state.
 
 ## Security and reliability requirements
 
@@ -390,9 +420,19 @@ Approval phases are `requested -> copying -> approved`, with a retryable `failed
 - Run as non-root with no privilege escalation, dropped capabilities, resource limits, and an
   active deadline.
 - Give the execution step only required production egress.
-- Give the uploader a run-scoped file-service credential limited to the evaluation prefix where
-  possible.
+- Keep the bucket private, enable encryption at rest, block public access, and configure bounded
+  lifecycle retention for abandoned pending data.
+- Give the uploader a short-lived credential or workload identity limited to the exact pending
+  evaluation prefix. If shared credentials are unavoidable for the demo, isolate them to the
+  uploader container, restrict them to the configured bucket/base prefix, and rotate them after the
+  demo.
+- Give the promotion component read access only to the exact pending prefix and write access only to
+  the matching approved prefix. It must not accept arbitrary source or destination keys.
 - Do not expose the uploader credential to the executed code.
+- Never use the bucket prefix alone as authorization. Check the authenticated owner before listing,
+  signing, downloading, or approving any object.
+- Prefer bucket versioning or conditional writes so a retry cannot silently replace previously
+  approved data.
 - Add Workflow TTL, pod/scratch-volume cleanup, concurrency limits, and restart reconciliation.
 - Do not log tokens, secret environment values, notebook source, or generated output content.
 
@@ -411,20 +451,25 @@ be adapted:
 Do not reuse the agent loop, LLM code, scorers, PS1/PS2/PS3 data profiles, report generation, rerun
 system, reference API/UI/database, or direct S3 archive implementation.
 
-## Common workspace changes
+## Demo bucket configuration and limitations
 
-The development Sandbox Connect checkout already contains the beginnings of a shared workspace:
+Required configuration:
 
-- profile-scoped PVC named `workspace`;
-- RWX access with `ceph-filesystem` currently hard-coded; and
-- mount at `/home/jovyan/workspace` in notebook templates.
+1. existing private bucket name and region;
+2. fixed base prefix dedicated to evaluation output;
+3. uploader and promotion identity/credential mechanism;
+4. encryption, public-access block, retention, and cleanup policy;
+5. maximum object count, individual object size, and total evaluation size;
+6. signed-download lifetime or file-service download contract; and
+7. an opaque user-key derivation that is stable and collision resistant.
 
-For the target environment:
+This is feasible for the demo and is usually simpler than introducing RWX storage. It also fits the
+write-once evaluation-output model well. It is not a transparent replacement for a common
+workspace: applications cannot safely use object keys as normal files, approval is a manifest-based
+publication rather than an atomic directory rename, and notebook code needs a download/import flow
+to consume approved outputs locally.
 
-1. make workspace claim name, storage class, size, access mode, and mount path configurable;
-2. provision an RWX filesystem class, preferably EFS CSI on EKS;
-3. enable the workspace in both API and worker notebook templates;
-4. create/reconcile it for existing users; and
-5. ensure every sandbox belonging to the user mounts the same user-scoped claim.
-
-S3 CSI is not assumed to behave as a POSIX common workspace without explicit testing.
+The existing optional evaluation-workspace configuration should remain disabled in the target
+environment. It can be retained as a future delivery backend, but the bucket backend and workspace
+backend must be selected explicitly by configuration; the service must not silently fall back from
+one to the other.
