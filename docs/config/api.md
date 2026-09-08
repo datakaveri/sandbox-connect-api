@@ -556,6 +556,30 @@ the same thing for each — the distinction is the point of this subsection.
 - **Change impact:** disabling with live bookings in the table strands them; drain first.
 - **Notes / gotchas:** also read via `os.Getenv` in a test helper; the struct tag is authoritative.
 
+### `API_OUTPUTS_ENABLED` and Files Connect settings
+
+- **Type / format:** boolean feature flag plus strings/positive integer limits.
+- **Required:** no; defaults to `false`.
+- **Purpose:** enables notebook output submission, owner status, NHA-admin review/approval, and
+  the object-backed user workspace routes.
+- **Fields that become required when true:** `API_OUTPUT_ADMIN_ROLES`,
+  `API_FILES_CONNECT_BASE_URL`, `API_FILES_CONNECT_SERVICE_TOKEN`,
+  `API_FILES_CONNECT_REVIEW_DATABANK_ID`, and
+  `API_FILES_CONNECT_WORKSPACE_DATABANK_ID`. The API refuses to start if the admin-role list is
+  empty or the Files Connect client configuration is invalid.
+- **Limits:** `API_OUTPUT_MAX_MANIFEST_BYTES` (default 262144),
+  `API_OUTPUT_MAX_MANIFEST_FILES` (default 1000), `API_OUTPUT_MAX_FILE_BYTES`
+  (default 256 MiB), `API_OUTPUT_MAX_BYTES` (default 1 GiB),
+  `API_FILES_CONNECT_TIMEOUT_SECONDS` (default 30), and
+  `API_FILES_CONNECT_MAX_RESPONSE_BYTES` (default 4 MiB).
+- **Security:** the service token belongs in a Kubernetes Secret. Browser requests carry only stable
+  file IDs; the API derives the authenticated user's prefix and never accepts an object key.
+- **Booking behavior:** the same routes work in direct and booking modes. Booking mode additionally
+  requires `SLOT_LIFECYCLE_OUTPUTS_ENABLED=true` so cleanup respects active output holds.
+- **External dependency:** the supplied Files Connect API can list, preview, and download files,
+  but the proposed idempotent `POST /v1/outputs/{output_id}/publish` endpoint must be implemented
+  before approvals can complete.
+
 ### `API_DISABLE_INIT`
 
 - **Type / format:** bool.
@@ -1202,6 +1226,7 @@ There is no connection-pool size knob — the `pgx` pool uses its defaults. If P
 |---|---|---|
 | `API_KYC_ENABLED=true` | KYC gating on notebook creation | nothing in this service |
 | `API_BOOKINGS_ENABLED=true` | slot booking routes | `SLOT_CONFIG_PROFILE`; the slot-lifecycle Deployment must be running |
+| `API_OUTPUTS_ENABLED=true` | output submission, admin review, and object-backed workspace routes | output migration/controller, Files Connect settings, non-empty admin roles; lifecycle output flag in booking mode |
 | `API_DISABLE_INIT=true` | notebook URLs point at the JupyterLab auto workspace | `demoFiles.enabled: false` in both notebook templates |
 | `WORKSPACE_ENABLED=true` | per-profile CephFS `workspace` PVC creation | a `ceph-filesystem` RWX storage class in the cluster; the **same** value on the worker |
 | `API_REGISTRY_SECRET_TYPE=ecr` | ECR token minting | `API_REGISTRY_ECR_REGION`, `API_REGISTRY_AWS_ACCESS_KEY_ID`, `API_REGISTRY_AWS_SECRET_KEY`, `API_REGISTRY_URL` |

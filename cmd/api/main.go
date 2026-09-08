@@ -35,15 +35,17 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"sandbox-backend-service/internal/evaluation"
-	"sandbox-backend-service/pkg/db"
-	"sandbox-backend-service/pkg/gpuconfig"
-	"sandbox-backend-service/pkg/k8s"
-	"sandbox-backend-service/pkg/utils"
+	"strings"
 	"syscall"
 	"time"
 
 	_ "sandbox-backend-service/docs" // swaggo docs
+	"sandbox-backend-service/internal/filesconnect"
+	"sandbox-backend-service/internal/output"
+	"sandbox-backend-service/pkg/db"
+	"sandbox-backend-service/pkg/gpuconfig"
+	"sandbox-backend-service/pkg/k8s"
+	"sandbox-backend-service/pkg/utils"
 
 	"github.com/caarlos0/env/v11"
 	"github.com/joho/godotenv"
@@ -73,9 +75,6 @@ func main() {
 	if err := env.Parse(&config); err != nil {
 		utils.LogErrorAndExit(logger, "failed to parse environment variables", "error", err)
 	}
-	if err := config.EvaluationWorkspaceConfig.Validate(config.EvaluationConfig.WorkspaceMountPath); err != nil {
-		utils.LogErrorAndExit(logger, "invalid evaluation workspace configuration", "error", err)
-	}
 
 	// Backward compatibility: if SLOT_CONFIG_PROFILE isn't set, fall back to API_GPU_SLOT_CONFIG_PROFILE.
 	if config.NotebookConfig.SlotConfigProfile == "" {
@@ -91,10 +90,6 @@ func main() {
 	k8sClient, err := k8s.NewK8sClient(config.KubeConfigMode, config.KubeConfigPath)
 	if err != nil {
 		utils.LogErrorAndExit(logger, "failed to create kubernetes client", "error", err)
-	}
-	storageValidationApp := application{env: config, k8sClient: k8sClient}
-	if err := storageValidationApp.validateEvaluationWorkspaceStorageClass(context.Background()); err != nil {
-		utils.LogErrorAndExit(logger, "invalid evaluation workspace StorageClass", "error", err)
 	}
 	pool, err := db.NewPool(config.POSTGRES_URL)
 	if err != nil {
@@ -118,15 +113,40 @@ func main() {
 		slog.Info("Audit system initialized successfully")
 	}
 
+	var outputFilesClient *filesconnect.Client
+	if config.OutputConfig.Enabled {
+		if strings.TrimSpace(config.OutputConfig.ApproverRoles) == "" {
+			utils.LogErrorAndExit(logger, "API_OUTPUT_ADMIN_ROLES is required when outputs are enabled")
+		}
+		if config.OutputConfig.MaxManifestBytes <= 0 || config.OutputConfig.MaxManifestFiles <= 0 ||
+			config.OutputConfig.MaxFileBytes <= 0 || config.OutputConfig.MaxOutputBytes <= 0 ||
+			config.OutputConfig.MaxFileBytes > config.OutputConfig.MaxOutputBytes {
+			utils.LogErrorAndExit(logger, "output manifest and size limits must be positive")
+		}
+		outputFilesClient, err = filesconnect.NewClient(filesconnect.Config{
+			Limits:              output.Limits{MaxManifestBytes: config.OutputConfig.MaxManifestBytes, MaxManifestFiles: config.OutputConfig.MaxManifestFiles, MaxFileBytes: config.OutputConfig.MaxFileBytes, MaxOutputBytes: config.OutputConfig.MaxOutputBytes},
+			BaseURL:             config.FilesConnectConfig.BaseURL,
+			ServiceToken:        config.FilesConnectConfig.ServiceToken,
+			ReviewDatabankID:    config.FilesConnectConfig.ReviewDatabankID,
+			WorkspaceDatabankID: config.FilesConnectConfig.WorkspaceDatabankID,
+			Timeout:             time.Duration(config.FilesConnectConfig.TimeoutSeconds) * time.Second,
+			MaxResponseBytes:    config.FilesConnectConfig.MaxResponseBytes,
+		})
+		if err != nil {
+			utils.LogErrorAndExit(logger, "invalid Files Connect configuration", "error", err)
+		}
+	}
+
 	app := application{
-		pgPool:          pool,
-		k8sClient:       k8sClient,
-		env:             config,
-		rateLimiter:     rateLimiter,
-		ecrClient:       ecrClient,
-		registrySecret:  config.RegistrySecretConfig,
-		auditService:    auditService,
-		evaluationStore: evaluation.NewStore(pool.Pool),
+		pgPool:         pool,
+		k8sClient:      k8sClient,
+		env:            config,
+		rateLimiter:    rateLimiter,
+		ecrClient:      ecrClient,
+		registrySecret: config.RegistrySecretConfig,
+		auditService:   auditService,
+		outputStore:    output.NewStore(pool.Pool),
+		outputFiles:    outputFilesClient,
 	}
 
 	server := http.Server{

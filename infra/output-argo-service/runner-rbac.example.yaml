@@ -1,0 +1,43 @@
+# Apply this namespace-scoped bundle through the profile/user namespace
+# reconciler. Replace the namespace before applying; do not grant cluster-wide
+# permissions to Workflow pods.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: output-runner
+  namespace: REPLACE_WITH_USER_NAMESPACE
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: output-runner
+  namespace: REPLACE_WITH_USER_NAMESPACE
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflowtaskresults"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: output-runner
+  namespace: REPLACE_WITH_USER_NAMESPACE
+subjects:
+  - kind: ServiceAccount
+    name: output-runner
+    namespace: REPLACE_WITH_USER_NAMESPACE
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: output-runner
+---
+# Argo's executor-only token discovery; never mount this Secret in a stage container.
+# https://argo-workflows.readthedocs.io/en/latest/service-account-secrets/
+apiVersion: v1
+kind: Secret
+metadata:
+  name: output-runner.service-account-token
+  namespace: REPLACE_WITH_USER_NAMESPACE
+  annotations:
+    kubernetes.io/service-account.name: output-runner
+type: kubernetes.io/service-account-token

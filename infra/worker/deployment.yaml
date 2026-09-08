@@ -28,12 +28,6 @@ spec:
           value: "/etc/sandbox-worker/templates/gpu-notebook-template.yaml"
         - name: WORKSPACE_ENABLED
           value: "true"
-        - name: WORKER_EVALUATION_WORKSPACE_ENABLED
-          value: "false"
-        - name: WORKER_EVALUATION_WORKSPACE_PVC_NAME
-          value: "evaluation-workspace"
-        - name: WORKER_EVALUATION_WORKSPACE_MOUNT_PATH
-          value: "/home/jovyan/evaluation-workspace"
         - name: WORKER_POSTGRES_URL
           valueFrom:
             secretKeyRef:

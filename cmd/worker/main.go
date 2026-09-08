@@ -31,9 +31,6 @@ func main() {
 	if err := env.Parse(&config); err != nil {
 		utils.LogErrorAndExit(logger, "failed to parse environment variables", "error", err)
 	}
-	if err := config.ValidateEvaluationWorkspace(); err != nil {
-		utils.LogErrorAndExit(logger, "invalid evaluation workspace configuration", "error", err)
-	}
 	cpuTemplate, err := LoadSandboxNotebookTemplate(config.CPUNotebookTemplatePath, "cpu")
 	if err != nil {
 		utils.LogErrorAndExit(logger, "failed to load CPU notebook template", "error", err)

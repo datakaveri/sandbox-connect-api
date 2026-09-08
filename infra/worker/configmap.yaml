@@ -22,11 +22,6 @@ data:
               expected:
                 accessModes: [ReadWriteMany]
                 volumeMode: Filesystem
-          - name: evaluation-workspace
-            existing:
-              expected:
-                accessModes: [ReadWriteMany]
-                volumeMode: Filesystem
         runtimeInjection:
           image: alpine/git:2.45.2
         demoFiles:
@@ -78,10 +73,6 @@ data:
                   persistentVolumeClaim:
                     claimName: workspace
                     readOnly: true
-                - name: evaluation-workspace
-                  persistentVolumeClaim:
-                    claimName: "{evaluationWorkspacePVCName}"
-                    readOnly: true
                 - name: platform-refresh-token
                   secret:
                     secretName: ""
@@ -118,9 +109,6 @@ data:
                       readOnly: true
                     - name: shared-workspace
                       mountPath: /home/jovyan/workspace
-                      readOnly: true
-                    - name: evaluation-workspace
-                      mountPath: "{evaluationWorkspaceMountPath}"
                       readOnly: true
                     - name: platform-token-cache
                       mountPath: /var/run/sandbox-connect/platform
@@ -209,11 +197,6 @@ data:
               expected:
                 accessModes: [ReadWriteMany]
                 volumeMode: Filesystem
-          - name: evaluation-workspace
-            existing:
-              expected:
-                accessModes: [ReadWriteMany]
-                volumeMode: Filesystem
         instanceTypeOverride:
           selectorKey: node.kubernetes.io/instance-type
           required: false
@@ -268,10 +251,6 @@ data:
                   persistentVolumeClaim:
                     claimName: workspace
                     readOnly: true
-                - name: evaluation-workspace
-                  persistentVolumeClaim:
-                    claimName: "{evaluationWorkspacePVCName}"
-                    readOnly: true
                 - name: platform-refresh-token
                   secret:
                     secretName: ""
@@ -308,9 +287,6 @@ data:
                       readOnly: true
                     - name: shared-workspace
                       mountPath: /home/jovyan/workspace
-                      readOnly: true
-                    - name: evaluation-workspace
-                      mountPath: "{evaluationWorkspaceMountPath}"
                       readOnly: true
                     - name: platform-token-cache
                       mountPath: /var/run/sandbox-connect/platform

@@ -189,11 +189,6 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
 		return
 	}
-	if err := app.ensureEvaluationWorkspacePVC(ctx, logger, namespace); err != nil {
-		logger.Error("failed to ensure evaluation workspace PVC", "error", err, "namespace", namespace)
-		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
-		return
-	}
 
 	if app.registrySecret.SecretType != "none" {
 		if err := app.ensureRegistrySecret(ctx, logger, namespace); err != nil {
@@ -598,14 +593,14 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	held, err := app.hasEvaluationHoldInTx(ctx, tx, notebookRowID)
+	held, err := app.hasOutputHoldInTx(ctx, tx, notebookRowID)
 	if err != nil {
-		logger.Error("failed to check evaluation hold", "error", err)
-		sendError(w, logger, http.StatusInternalServerError, "Failed to check evaluation state")
+		logger.Error("failed to check output hold", "error", err)
+		sendError(w, logger, http.StatusInternalServerError, "Failed to check output state")
 		return
 	}
 	if held {
-		sendError(w, logger, http.StatusConflict, "Notebook cannot be started while evaluation is in progress")
+		sendError(w, logger, http.StatusConflict, "Notebook cannot be started while output is in progress")
 		return
 	}
 
@@ -733,14 +728,14 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	held, err := app.hasEvaluationHoldInTx(ctx, tx, notebookRowID)
+	held, err := app.hasOutputHoldInTx(ctx, tx, notebookRowID)
 	if err != nil {
-		logger.Error("failed to check evaluation hold", "error", err)
-		sendError(w, logger, http.StatusInternalServerError, "Failed to check evaluation state")
+		logger.Error("failed to check output hold", "error", err)
+		sendError(w, logger, http.StatusInternalServerError, "Failed to check output state")
 		return
 	}
 	if held {
-		sendError(w, logger, http.StatusConflict, "Notebook cannot be deleted while evaluation is in progress")
+		sendError(w, logger, http.StatusConflict, "Notebook cannot be deleted while output is in progress")
 		return
 	}
 
@@ -1469,11 +1464,6 @@ func (app *application) createProfile(w http.ResponseWriter, r *http.Request) {
 	if err := app.ensureProfileWorkspacePVC(r.Context(), logger, userId); err != nil {
 		logger.Error("failed to create profile workspace PVC", "error", err, "namespace", userId)
 		sendError(w, logger, http.StatusInternalServerError, "Failed to create profile workspace")
-		return
-	}
-	if err := app.ensureEvaluationWorkspacePVC(r.Context(), logger, userId); err != nil {
-		logger.Error("failed to create evaluation workspace PVC", "error", err, "namespace", userId)
-		sendError(w, logger, http.StatusInternalServerError, "Failed to create evaluation workspace")
 		return
 	}
 

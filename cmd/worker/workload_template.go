@@ -28,18 +28,15 @@ const (
 	builtInNotebookInitName       = "extract-built-in-notebooks"
 	platformTokenSidecarName      = "platform-token-sidecar"
 	sharedWorkspaceVolumeName     = "shared-workspace"
-	evaluationWorkspaceVolumeName = "evaluation-workspace"
 )
 
 var templateTokenPattern = regexp.MustCompile(`{[^{}]+}`)
 
 var supportedTemplateTokens = map[string]struct{}{
-	"{namespace}":                    {},
-	"{notebookName}":                 {},
-	"{pvcName}":                      {},
-	"{storageSize}":                  {},
-	"{evaluationWorkspacePVCName}":   {},
-	"{evaluationWorkspaceMountPath}": {},
+	"{namespace}":    {},
+	"{notebookName}": {},
+	"{pvcName}":      {},
+	"{storageSize}":  {},
 }
 
 type SandboxNotebookTemplate struct {
@@ -122,12 +119,10 @@ type ResolvedPVCMount struct {
 }
 
 type templateValues struct {
-	Namespace                    string
-	NotebookName                 string
-	PVCName                      string
-	StorageSize                  string
-	EvaluationWorkspacePVCName   string
-	EvaluationWorkspaceMountPath string
+	Namespace    string
+	NotebookName string
+	PVCName      string
+	StorageSize  string
 }
 
 func (p VolumeLifecyclePolicy) IsRequired() bool {
@@ -580,9 +575,7 @@ func validateTemplateContainer(container map[string]any, location string, volume
 		}
 		seenNames[name] = struct{}{}
 		mountPath, _ := mount["mountPath"].(string)
-		configuredEvaluationPath := name == evaluationWorkspaceVolumeName &&
-			mountPath == "{evaluationWorkspaceMountPath}"
-		if !configuredEvaluationPath && (!pathpkg.IsAbs(mountPath) || pathpkg.Clean(mountPath) != mountPath) {
+		if !pathpkg.IsAbs(mountPath) || pathpkg.Clean(mountPath) != mountPath {
 			return fmt.Errorf("embedded Notebook %s volumeMount %q must have a clean absolute mountPath", location, name)
 		}
 		if _, exists := seenPaths[mountPath]; exists {
@@ -723,10 +716,6 @@ func validateNotebookTokenLocations(value any, path []string) error {
 		if !allowed && len(path) >= 3 && path[len(path)-1] == "subPath" && path[len(path)-3] == "volumeMounts" {
 			allowed = true
 		}
-		if !allowed && len(path) >= 3 && path[len(path)-1] == "mountPath" && path[len(path)-3] == "volumeMounts" &&
-			typed == "{evaluationWorkspaceMountPath}" {
-			allowed = true
-		}
 		if !allowed {
 			return fmt.Errorf("template tokens are not allowed at spec.notebook.%s", strings.Join(path, "."))
 		}
@@ -778,8 +767,6 @@ func renderTemplate(value string, values templateValues) string {
 		"{notebookName}", values.NotebookName,
 		"{pvcName}", values.PVCName,
 		"{storageSize}", values.StorageSize,
-		"{evaluationWorkspacePVCName}", values.EvaluationWorkspacePVCName,
-		"{evaluationWorkspaceMountPath}", values.EvaluationWorkspaceMountPath,
 	)
 	return replacer.Replace(value)
 }

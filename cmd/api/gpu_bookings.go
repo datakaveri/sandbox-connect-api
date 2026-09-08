@@ -356,11 +356,6 @@ func (app *application) createGPUBooking(w http.ResponseWriter, r *http.Request)
 		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
 		return
 	}
-	if err := app.ensureEvaluationWorkspacePVC(ctx, logger, namespace); err != nil {
-		logger.Error("failed to ensure evaluation workspace PVC for booking flow", "error", err, "namespace", namespace)
-		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
-		return
-	}
 
 	if req.GitAccessToken != nil || req.GitTokenSecretName != nil {
 		if err := app.waitForNamespace(ctx, logger, namespace); err != nil {
@@ -1343,14 +1338,14 @@ func (app *application) resetGPUBooking(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if nbFound {
-		held, holdErr := app.hasEvaluationHoldInTx(ctx, tx, nbID)
+		held, holdErr := app.hasOutputHoldInTx(ctx, tx, nbID)
 		if holdErr != nil {
-			logger.Error("resetGPUBooking: failed to check evaluation hold", "booking_id", bookingID, "error", holdErr)
-			sendError(w, logger, http.StatusInternalServerError, "Failed to check evaluation state")
+			logger.Error("resetGPUBooking: failed to check output hold", "booking_id", bookingID, "error", holdErr)
+			sendError(w, logger, http.StatusInternalServerError, "Failed to check output state")
 			return
 		}
 		if held {
-			sendError(w, logger, http.StatusConflict, "Booking cannot be reset while notebook evaluation is in progress")
+			sendError(w, logger, http.StatusConflict, "Booking cannot be reset while notebook output is in progress")
 			return
 		}
 	}
@@ -1514,14 +1509,14 @@ func (app *application) terminateGPUBooking(w http.ResponseWriter, r *http.Reque
 	}
 
 	if nbFound {
-		held, holdErr := app.hasEvaluationHoldInTx(ctx, tx, nbID)
+		held, holdErr := app.hasOutputHoldInTx(ctx, tx, nbID)
 		if holdErr != nil {
-			logger.Error("terminateGPUBooking: failed to check evaluation hold", "booking_id", bookingID, "error", holdErr)
-			sendError(w, logger, http.StatusInternalServerError, "Failed to check evaluation state")
+			logger.Error("terminateGPUBooking: failed to check output hold", "booking_id", bookingID, "error", holdErr)
+			sendError(w, logger, http.StatusInternalServerError, "Failed to check output state")
 			return
 		}
 		if held {
-			sendError(w, logger, http.StatusConflict, "Booking cannot be terminated while notebook evaluation is in progress")
+			sendError(w, logger, http.StatusConflict, "Booking cannot be terminated while notebook output is in progress")
 			return
 		}
 	}

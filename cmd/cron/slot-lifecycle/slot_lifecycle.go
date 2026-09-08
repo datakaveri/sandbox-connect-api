@@ -644,11 +644,11 @@ func stepCleanupCompleted(ctx context.Context, pool *db.PgPool, k8sClient *k8s.K
 	parseErrors := 0
 	deleteErrors := 0
 
-	evaluationHoldFilter := ""
-	if cfg.EvaluationsEnabled {
-		evaluationHoldFilter = `AND NOT EXISTS (
-			SELECT 1 FROM evaluations e
-			WHERE e.notebook_id = n.id AND e.hold_active = true
+	outputHoldFilter := ""
+	if cfg.OutputsEnabled {
+		outputHoldFilter = `AND NOT EXISTS (
+			SELECT 1 FROM output_jobs o
+			WHERE o.notebook_id = n.id AND o.hold_active = true
 		)`
 	}
 	query := fmt.Sprintf(`
@@ -661,7 +661,7 @@ func stepCleanupCompleted(ctx context.Context, pool *db.PgPool, k8sClient *k8s.K
 		  AND gb.cleanup_completed_at IS NULL
 		  %s
 		LIMIT $1
-	`, evaluationHoldFilter)
+	`, outputHoldFilter)
 
 	rows, err := pool.Pool.Query(ctx, query, cfg.BatchSize)
 	if err != nil {

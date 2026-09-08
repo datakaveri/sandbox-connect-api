@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	pathpkg "path"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -137,8 +136,6 @@ func (w *worker) BuildNotebook() (*unstructured.Unstructured, error) {
 	values := templateValues{
 		Namespace: nb.Namespace, NotebookName: nb.Name,
 		PVCName: nb.PVCname, StorageSize: nb.StorageSize,
-		EvaluationWorkspacePVCName:   w.app.env.EvaluationWorkspacePVCName,
-		EvaluationWorkspaceMountPath: w.app.env.EvaluationWorkspaceMountPath,
 	}
 	volumes, err = renderNotebookStorage(volumes, containers, initContainers, w.omittedVolumes, values)
 	if err != nil {
@@ -215,13 +212,6 @@ func renderContainerMounts(container map[string]any, omitted map[string]struct{}
 		name, _ := mount["name"].(string)
 		if _, skip := omitted[name]; skip {
 			continue
-		}
-		if mountPath, ok := mount["mountPath"].(string); ok && mountPath == "{evaluationWorkspaceMountPath}" {
-			mountPath = renderTemplate(mountPath, values)
-			if !pathpkg.IsAbs(mountPath) || pathpkg.Clean(mountPath) != mountPath {
-				return fmt.Errorf("volumeMount %s rendered unsafe mountPath %q", name, mountPath)
-			}
-			mount["mountPath"] = mountPath
 		}
 		if subPath, ok := mount["subPath"].(string); ok && subPath != "" {
 			subPath = renderTemplate(subPath, values)

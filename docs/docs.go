@@ -18,6 +18,158 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/v1/admin/outputs": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "output-admin"
+                ],
+                "summary": "List outputs pending NHA approval",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Maximum outputs (1-200)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.PendingOutputsResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error403"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/admin/outputs/{output_id}/approve": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Queues idempotent Files Connect publication into the owner's object-backed workspace.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "output-admin"
+                ],
+                "summary": "Approve and publish output files",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Output ID",
+                        "name": "output_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Unique request key",
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.ApprovalResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/admin/outputs/{output_id}/files": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "output-admin"
+                ],
+                "summary": "List CSV files for an output awaiting approval",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Output ID",
+                        "name": "output_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.OutputFilesResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/admin/outputs/{output_id}/files/{file_id}/preview": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "output-admin"
+                ],
+                "summary": "Preview a pending CSV output file",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Output ID",
+                        "name": "output_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Stable file ID",
+                        "name": "file_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sandbox-backend-service_internal_filesconnect.Preview"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/bookings": {
             "get": {
                 "security": [
@@ -57,25 +209,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.BookingsListResponse"
+                            "$ref": "#/definitions/cmd_api.BookingsListResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/main.Error429"
+                            "$ref": "#/definitions/cmd_api.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     }
                 }
@@ -104,7 +256,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/main.CreateBookingRequest"
+                            "$ref": "#/definitions/cmd_api.CreateBookingRequest"
                         }
                     }
                 ],
@@ -112,49 +264,49 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/main.CreateBookingResponse"
+                            "$ref": "#/definitions/cmd_api.CreateBookingResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/main.Error400"
+                            "$ref": "#/definitions/cmd_api.Error400"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/main.Error403"
+                            "$ref": "#/definitions/cmd_api.Error403"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/main.Error404"
+                            "$ref": "#/definitions/cmd_api.Error404"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/main.Error409"
+                            "$ref": "#/definitions/cmd_api.Error409"
                         }
                     },
                     "422": {
                         "description": "Unprocessable Entity",
                         "schema": {
-                            "$ref": "#/definitions/main.Error422"
+                            "$ref": "#/definitions/cmd_api.Error422"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/main.Error429"
+                            "$ref": "#/definitions/cmd_api.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     }
                 }
@@ -188,37 +340,37 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.SwaggerMessageResponse"
+                            "$ref": "#/definitions/cmd_api.SwaggerMessageResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/main.Error400"
+                            "$ref": "#/definitions/cmd_api.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/main.Error404"
+                            "$ref": "#/definitions/cmd_api.Error404"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/main.Error429"
+                            "$ref": "#/definitions/cmd_api.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     }
                 }
@@ -252,37 +404,37 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.ExtendBookingResponse"
+                            "$ref": "#/definitions/cmd_api.ExtendBookingResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/main.Error400"
+                            "$ref": "#/definitions/cmd_api.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/main.Error404"
+                            "$ref": "#/definitions/cmd_api.Error404"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/main.Error409"
+                            "$ref": "#/definitions/cmd_api.Error409"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     }
                 }
@@ -320,7 +472,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/main.NotebookTokenRotationRequest"
+                            "$ref": "#/definitions/cmd_api.NotebookTokenRotationRequest"
                         }
                     }
                 ],
@@ -328,43 +480,43 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.NotebookTokenSessionResponse"
+                            "$ref": "#/definitions/cmd_api.NotebookTokenSessionResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/main.Error400"
+                            "$ref": "#/definitions/cmd_api.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/main.Error404"
+                            "$ref": "#/definitions/cmd_api.Error404"
                         }
                     },
                     "422": {
                         "description": "Unprocessable Entity",
                         "schema": {
-                            "$ref": "#/definitions/main.Error422"
+                            "$ref": "#/definitions/cmd_api.Error422"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/main.Error429"
+                            "$ref": "#/definitions/cmd_api.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     }
                 }
@@ -396,43 +548,43 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.NotebookTokenSessionResponse"
+                            "$ref": "#/definitions/cmd_api.NotebookTokenSessionResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/main.Error400"
+                            "$ref": "#/definitions/cmd_api.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/main.Error404"
+                            "$ref": "#/definitions/cmd_api.Error404"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/main.Error429"
+                            "$ref": "#/definitions/cmd_api.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     },
                     "503": {
                         "description": "Service Unavailable",
                         "schema": {
-                            "$ref": "#/definitions/main.Error503"
+                            "$ref": "#/definitions/cmd_api.Error503"
                         }
                     }
                 }
@@ -466,31 +618,31 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.SwaggerMessageResponse"
+                            "$ref": "#/definitions/cmd_api.SwaggerMessageResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/main.Error400"
+                            "$ref": "#/definitions/cmd_api.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/main.Error404"
+                            "$ref": "#/definitions/cmd_api.Error404"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     }
                 }
@@ -524,31 +676,31 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.SwaggerMessageResponse"
+                            "$ref": "#/definitions/cmd_api.SwaggerMessageResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/main.Error400"
+                            "$ref": "#/definitions/cmd_api.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/main.Error404"
+                            "$ref": "#/definitions/cmd_api.Error404"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     }
                 }
@@ -573,166 +725,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.CategoriesResponse"
+                            "$ref": "#/definitions/cmd_api.CategoriesResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/main.Error429"
+                            "$ref": "#/definitions/cmd_api.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/evaluations/{evaluation_id}/approve": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Queues an asynchronous verified copy into the owner's shared workspace. Requires the configured approver role and an enabled workspace.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "evaluations"
-                ],
-                "summary": "Approve evaluation outputs",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Evaluation ID",
-                        "name": "evaluation_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Unique request key",
-                        "name": "Idempotency-Key",
-                        "in": "header",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "202": {
-                        "description": "Accepted",
-                        "schema": {
-                            "$ref": "#/definitions/main.ApprovalResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/main.Error400"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/main.Error401"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/main.Error403"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/main.Error404"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict",
-                        "schema": {
-                            "$ref": "#/definitions/main.Error409"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/main.Error500"
-                        }
-                    },
-                    "503": {
-                        "description": "Service Unavailable",
-                        "schema": {
-                            "$ref": "#/definitions/main.Error503"
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/evaluations/{evaluation_id}/outputs": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns the current evaluation status and, after success, its bounded verified output manifest.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "evaluations"
-                ],
-                "summary": "List evaluation outputs",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Evaluation ID",
-                        "name": "evaluation_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/main.EvaluationOutputsResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/main.Error400"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/main.Error401"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/main.Error404"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     }
                 }
@@ -757,25 +768,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.JupyterLiteSessionResponse"
+                            "$ref": "#/definitions/cmd_api.JupyterLiteSessionResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/main.Error429"
+                            "$ref": "#/definitions/cmd_api.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     }
                 }
@@ -809,31 +820,31 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.SwaggerExistsResponse"
+                            "$ref": "#/definitions/cmd_api.SwaggerExistsResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/main.Error400"
+                            "$ref": "#/definitions/cmd_api.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/main.Error429"
+                            "$ref": "#/definitions/cmd_api.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     }
                 }
@@ -864,7 +875,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/main.NotebookRequest"
+                            "$ref": "#/definitions/cmd_api.NotebookRequest"
                         }
                     }
                 ],
@@ -872,49 +883,49 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/main.SwaggerMessageResponse"
+                            "$ref": "#/definitions/cmd_api.SwaggerMessageResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/main.Error400"
+                            "$ref": "#/definitions/cmd_api.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/main.Error403"
+                            "$ref": "#/definitions/cmd_api.Error403"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/main.Error409"
+                            "$ref": "#/definitions/cmd_api.Error409"
                         }
                     },
                     "422": {
                         "description": "Unprocessable Entity",
                         "schema": {
-                            "$ref": "#/definitions/main.Error422"
+                            "$ref": "#/definitions/cmd_api.Error422"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/main.Error429"
+                            "$ref": "#/definitions/cmd_api.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     }
                 }
@@ -945,7 +956,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/main.DeleteNotebookRequest"
+                            "$ref": "#/definitions/cmd_api.DeleteNotebookRequest"
                         }
                     }
                 ],
@@ -953,49 +964,49 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.SwaggerMessageResponse"
+                            "$ref": "#/definitions/cmd_api.SwaggerMessageResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/main.Error400"
+                            "$ref": "#/definitions/cmd_api.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/main.Error404"
+                            "$ref": "#/definitions/cmd_api.Error404"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/main.Error409"
+                            "$ref": "#/definitions/cmd_api.Error409"
                         }
                     },
                     "422": {
                         "description": "Unprocessable Entity",
                         "schema": {
-                            "$ref": "#/definitions/main.Error422"
+                            "$ref": "#/definitions/cmd_api.Error422"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/main.Error429"
+                            "$ref": "#/definitions/cmd_api.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     }
                 }
@@ -1020,25 +1031,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.NotebookInstanceTypesResponse"
+                            "$ref": "#/definitions/cmd_api.NotebookInstanceTypesResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/main.Error429"
+                            "$ref": "#/definitions/cmd_api.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     }
                 }
@@ -1089,31 +1100,31 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.NotebookListResponse"
+                            "$ref": "#/definitions/cmd_api.NotebookListResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/main.Error400"
+                            "$ref": "#/definitions/cmd_api.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/main.Error429"
+                            "$ref": "#/definitions/cmd_api.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     }
                 }
@@ -1144,7 +1155,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/main.StartNotebookRequest"
+                            "$ref": "#/definitions/cmd_api.StartNotebookRequest"
                         }
                     }
                 ],
@@ -1152,49 +1163,49 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.SwaggerMessageResponse"
+                            "$ref": "#/definitions/cmd_api.SwaggerMessageResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/main.Error400"
+                            "$ref": "#/definitions/cmd_api.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/main.Error403"
+                            "$ref": "#/definitions/cmd_api.Error403"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/main.Error404"
+                            "$ref": "#/definitions/cmd_api.Error404"
                         }
                     },
                     "422": {
                         "description": "Unprocessable Entity",
                         "schema": {
-                            "$ref": "#/definitions/main.Error422"
+                            "$ref": "#/definitions/cmd_api.Error422"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/main.Error429"
+                            "$ref": "#/definitions/cmd_api.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     }
                 }
@@ -1228,31 +1239,31 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.NotebookStatus"
+                            "$ref": "#/definitions/cmd_api.NotebookStatus"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/main.Error404"
+                            "$ref": "#/definitions/cmd_api.Error404"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/main.Error429"
+                            "$ref": "#/definitions/cmd_api.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     }
                 }
@@ -1283,7 +1294,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/main.StopNotebookRequest"
+                            "$ref": "#/definitions/cmd_api.StopNotebookRequest"
                         }
                     }
                 ],
@@ -1291,43 +1302,43 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.SwaggerMessageResponse"
+                            "$ref": "#/definitions/cmd_api.SwaggerMessageResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/main.Error400"
+                            "$ref": "#/definitions/cmd_api.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/main.Error404"
+                            "$ref": "#/definitions/cmd_api.Error404"
                         }
                     },
                     "422": {
                         "description": "Unprocessable Entity",
                         "schema": {
-                            "$ref": "#/definitions/main.Error422"
+                            "$ref": "#/definitions/cmd_api.Error422"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/main.Error429"
+                            "$ref": "#/definitions/cmd_api.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     }
                 }
@@ -1365,7 +1376,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/main.NotebookTokenRotationRequest"
+                            "$ref": "#/definitions/cmd_api.NotebookTokenRotationRequest"
                         }
                     }
                 ],
@@ -1373,43 +1384,43 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.NotebookTokenSessionResponse"
+                            "$ref": "#/definitions/cmd_api.NotebookTokenSessionResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/main.Error400"
+                            "$ref": "#/definitions/cmd_api.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/main.Error404"
+                            "$ref": "#/definitions/cmd_api.Error404"
                         }
                     },
                     "422": {
                         "description": "Unprocessable Entity",
                         "schema": {
-                            "$ref": "#/definitions/main.Error422"
+                            "$ref": "#/definitions/cmd_api.Error422"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/main.Error429"
+                            "$ref": "#/definitions/cmd_api.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     }
                 }
@@ -1441,63 +1452,63 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.NotebookTokenSessionResponse"
+                            "$ref": "#/definitions/cmd_api.NotebookTokenSessionResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/main.Error400"
+                            "$ref": "#/definitions/cmd_api.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/main.Error404"
+                            "$ref": "#/definitions/cmd_api.Error404"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/main.Error429"
+                            "$ref": "#/definitions/cmd_api.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     },
                     "503": {
                         "description": "Service Unavailable",
                         "schema": {
-                            "$ref": "#/definitions/main.Error503"
+                            "$ref": "#/definitions/cmd_api.Error503"
                         }
                     }
                 }
             }
         },
-        "/v1/notebooks/{notebook_name}/evaluations": {
+        "/v1/notebooks/{notebook_name}/outputs": {
             "post": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "Stops an owned, ready notebook and queues an asynchronous PS4 evaluation. In booking mode the linked booking must be active.",
+                "description": "Stops an owned, ready notebook and queues an asynchronous output run. In booking mode the linked booking must be active.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "evaluations"
+                    "outputs"
                 ],
-                "summary": "Submit a notebook for evaluation",
+                "summary": "Submit a notebook output run",
                 "parameters": [
                     {
                         "type": "string",
@@ -1518,37 +1529,89 @@ const docTemplate = `{
                     "202": {
                         "description": "Accepted",
                         "schema": {
-                            "$ref": "#/definitions/main.EvaluationResponse"
+                            "$ref": "#/definitions/cmd_api.OutputResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/main.Error400"
+                            "$ref": "#/definitions/cmd_api.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/main.Error404"
+                            "$ref": "#/definitions/cmd_api.Error404"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/main.Error409"
+                            "$ref": "#/definitions/cmd_api.Error409"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/outputs/{output_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns an owned output run's status without exposing review-bucket keys.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "outputs"
+                ],
+                "summary": "Get an output run",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Output ID",
+                        "name": "output_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.OutputResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error400"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error401"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error404"
                         }
                     }
                 }
@@ -1576,31 +1639,31 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/main.SwaggerMessageResponse"
+                            "$ref": "#/definitions/cmd_api.SwaggerMessageResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "422": {
                         "description": "Unprocessable Entity",
                         "schema": {
-                            "$ref": "#/definitions/main.Error422"
+                            "$ref": "#/definitions/cmd_api.Error422"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/main.Error429"
+                            "$ref": "#/definitions/cmd_api.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     }
                 }
@@ -1641,31 +1704,31 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.AvailableSlotsResponse"
+                            "$ref": "#/definitions/cmd_api.AvailableSlotsResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/main.Error400"
+                            "$ref": "#/definitions/cmd_api.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/main.Error429"
+                            "$ref": "#/definitions/cmd_api.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
                         }
                     }
                 }
@@ -1706,31 +1769,121 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.CalendarResponse"
+                            "$ref": "#/definitions/cmd_api.CalendarResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/main.Error400"
+                            "$ref": "#/definitions/cmd_api.Error400"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/main.Error401"
+                            "$ref": "#/definitions/cmd_api.Error401"
                         }
                     },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
-                            "$ref": "#/definitions/main.Error429"
+                            "$ref": "#/definitions/cmd_api.Error429"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/main.Error500"
+                            "$ref": "#/definitions/cmd_api.Error500"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/workspace/files": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workspace"
+                ],
+                "summary": "List approved output files in the user's workspace",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.WorkspaceFilesResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/workspace/files/{file_id}/download": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workspace"
+                ],
+                "summary": "Get a short-lived download URL for an approved workspace CSV",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Stable file ID",
+                        "name": "file_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sandbox-backend-service_internal_filesconnect.Download"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/workspace/files/{file_id}/preview": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workspace"
+                ],
+                "summary": "Preview an approved workspace CSV",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Stable file ID",
+                        "name": "file_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sandbox-backend-service_internal_filesconnect.Preview"
                         }
                     }
                 }
@@ -1738,50 +1891,10 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "constants.Events": {
-            "type": "string",
-            "enum": [
-                "picked",
-                "pvc-applied",
-                "pvc-apply-failed",
-                "pvc-created",
-                "pvc-creation-failed",
-                "pvc-upload-successful",
-                "pvc-upload-applied",
-                "pvc-upload-apply-failed",
-                "pvc-upload-failed",
-                "runtime-injection-applied",
-                "runtime-injection-successful",
-                "runtime-injection-apply-failed",
-                "runtime-injection-failed",
-                "notebook-applied",
-                "notebook-apply-failed"
-            ],
-            "x-enum-varnames": [
-                "StatusPicked",
-                "StatusPVCApplied",
-                "StatusPVCApplyFailed",
-                "StatusPVCCreated",
-                "StatusPVCCreationFailed",
-                "StatusPVCUploadSuccessful",
-                "StatusPVCUploadApplied",
-                "StatusPVCUploadApplyFailed",
-                "StatusPVCUploadFailed",
-                "StatusRuntimeInjectionApplied",
-                "StatusRuntimeInjectionSuccessful",
-                "StatusRuntimeInjectionApplyFailed",
-                "StatusRuntimeInjectionFailed",
-                "StatusNotebookApplied",
-                "StatusNotebookApplyFailed"
-            ]
-        },
-        "main.ApprovalResponse": {
+        "cmd_api.ApprovalResponse": {
             "type": "object",
             "properties": {
-                "destination": {
-                    "type": "string"
-                },
-                "evaluationId": {
+                "outputId": {
                     "type": "string"
                 },
                 "status": {
@@ -1789,7 +1902,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.AvailableSlot": {
+        "cmd_api.AvailableSlot": {
             "type": "object",
             "properties": {
                 "alreadyBooked": {
@@ -1821,7 +1934,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.AvailableSlotsResponse": {
+        "cmd_api.AvailableSlotsResponse": {
             "type": "object",
             "properties": {
                 "category": {
@@ -1836,12 +1949,12 @@ const docTemplate = `{
                 "slots": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/main.AvailableSlot"
+                        "$ref": "#/definitions/cmd_api.AvailableSlot"
                     }
                 }
             }
         },
-        "main.BookingListItem": {
+        "cmd_api.BookingListItem": {
             "type": "object",
             "properties": {
                 "category": {
@@ -1891,16 +2004,16 @@ const docTemplate = `{
                 }
             }
         },
-        "main.BookingsListResponse": {
+        "cmd_api.BookingsListResponse": {
             "type": "object",
             "properties": {
                 "paginationInfo": {
-                    "$ref": "#/definitions/main.PaginationInfo"
+                    "$ref": "#/definitions/cmd_api.PaginationInfo"
                 },
                 "result": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/main.BookingListItem"
+                        "$ref": "#/definitions/cmd_api.BookingListItem"
                     }
                 },
                 "title": {
@@ -1913,7 +2026,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.CalendarDay": {
+        "cmd_api.CalendarDay": {
             "type": "object",
             "properties": {
                 "date": {
@@ -1930,7 +2043,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.CalendarResponse": {
+        "cmd_api.CalendarResponse": {
             "type": "object",
             "properties": {
                 "category": {
@@ -1939,7 +2052,7 @@ const docTemplate = `{
                 "days": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/main.CalendarDay"
+                        "$ref": "#/definitions/cmd_api.CalendarDay"
                     }
                 },
                 "month": {
@@ -1950,18 +2063,18 @@ const docTemplate = `{
                 }
             }
         },
-        "main.CategoriesResponse": {
+        "cmd_api.CategoriesResponse": {
             "type": "object",
             "properties": {
                 "categories": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/main.CategoryResponse"
+                        "$ref": "#/definitions/cmd_api.CategoryResponse"
                     }
                 }
             }
         },
-        "main.CategoryResponse": {
+        "cmd_api.CategoryResponse": {
             "type": "object",
             "properties": {
                 "advanceBookingDays": {
@@ -2032,12 +2145,12 @@ const docTemplate = `{
                 "slots": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/main.SlotTemplateResponse"
+                        "$ref": "#/definitions/cmd_api.SlotTemplateResponse"
                     }
                 }
             }
         },
-        "main.CreateBookingRequest": {
+        "cmd_api.CreateBookingRequest": {
             "type": "object",
             "required": [
                 "category",
@@ -2076,7 +2189,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.CreateBookingResponse": {
+        "cmd_api.CreateBookingResponse": {
             "type": "object",
             "properties": {
                 "bookingId": {
@@ -2108,7 +2221,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.DeleteNotebookRequest": {
+        "cmd_api.DeleteNotebookRequest": {
             "type": "object",
             "required": [
                 "name"
@@ -2121,7 +2234,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.Error400": {
+        "cmd_api.Error400": {
             "description": "Response for bad request errors",
             "type": "object",
             "properties": {
@@ -2141,7 +2254,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.Error401": {
+        "cmd_api.Error401": {
             "description": "Response for authentication errors",
             "type": "object",
             "properties": {
@@ -2161,7 +2274,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.Error403": {
+        "cmd_api.Error403": {
             "description": "Response for permission errors",
             "type": "object",
             "properties": {
@@ -2181,7 +2294,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.Error404": {
+        "cmd_api.Error404": {
             "description": "Response for resource not found errors",
             "type": "object",
             "properties": {
@@ -2201,7 +2314,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.Error409": {
+        "cmd_api.Error409": {
             "description": "Response for resource conflict errors",
             "type": "object",
             "properties": {
@@ -2221,7 +2334,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.Error422": {
+        "cmd_api.Error422": {
             "description": "Response for invalid request body errors",
             "type": "object",
             "properties": {
@@ -2241,7 +2354,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.Error429": {
+        "cmd_api.Error429": {
             "description": "Response for rate limiting errors",
             "type": "object",
             "properties": {
@@ -2261,7 +2374,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.Error500": {
+        "cmd_api.Error500": {
             "description": "Response for internal server errors",
             "type": "object",
             "properties": {
@@ -2281,7 +2394,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.Error503": {
+        "cmd_api.Error503": {
             "description": "Response for dependencies that are still becoming ready",
             "type": "object",
             "properties": {
@@ -2301,61 +2414,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.EvaluationOutput": {
-            "type": "object",
-            "properties": {
-                "mediaType": {
-                    "type": "string"
-                },
-                "path": {
-                    "type": "string"
-                },
-                "sha256": {
-                    "type": "string"
-                },
-                "size": {
-                    "type": "integer"
-                }
-            }
-        },
-        "main.EvaluationOutputsResponse": {
-            "type": "object",
-            "properties": {
-                "errorCode": {
-                    "type": "string"
-                },
-                "errorMessage": {
-                    "type": "string"
-                },
-                "evaluationId": {
-                    "type": "string"
-                },
-                "outputs": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/main.EvaluationOutput"
-                    }
-                },
-                "status": {
-                    "type": "string"
-                }
-            }
-        },
-        "main.EvaluationResponse": {
-            "type": "object",
-            "properties": {
-                "evaluationId": {
-                    "type": "string"
-                },
-                "notebookName": {
-                    "type": "string"
-                },
-                "status": {
-                    "type": "string"
-                }
-            }
-        },
-        "main.ExtendBookingResponse": {
+        "cmd_api.ExtendBookingResponse": {
             "type": "object",
             "properties": {
                 "bookingId": {
@@ -2384,7 +2443,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.JupyterLiteSessionResponse": {
+        "cmd_api.JupyterLiteSessionResponse": {
             "type": "object",
             "properties": {
                 "launchUrl": {
@@ -2393,7 +2452,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.NotebookBooking": {
+        "cmd_api.NotebookBooking": {
             "type": "object",
             "properties": {
                 "category": {
@@ -2434,7 +2493,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.NotebookInstanceType": {
+        "cmd_api.NotebookInstanceType": {
             "type": "object",
             "properties": {
                 "description": {
@@ -2454,18 +2513,18 @@ const docTemplate = `{
                 }
             }
         },
-        "main.NotebookInstanceTypesResponse": {
+        "cmd_api.NotebookInstanceTypesResponse": {
             "type": "object",
             "properties": {
                 "instanceTypes": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/main.NotebookInstanceType"
+                        "$ref": "#/definitions/cmd_api.NotebookInstanceType"
                     }
                 }
             }
         },
-        "main.NotebookListResponse": {
+        "cmd_api.NotebookListResponse": {
             "type": "object",
             "properties": {
                 "next_offset": {
@@ -2474,12 +2533,12 @@ const docTemplate = `{
                 "notebooks": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/main.NotebookStatus"
+                        "$ref": "#/definitions/cmd_api.NotebookStatus"
                     }
                 }
             }
         },
-        "main.NotebookRequest": {
+        "cmd_api.NotebookRequest": {
             "type": "object",
             "required": [
                 "name",
@@ -2512,7 +2571,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.NotebookState": {
+        "cmd_api.NotebookState": {
             "type": "string",
             "enum": [
                 "opening",
@@ -2529,11 +2588,11 @@ const docTemplate = `{
                 "NotebookStateOrphaned"
             ]
         },
-        "main.NotebookStatus": {
+        "cmd_api.NotebookStatus": {
             "type": "object",
             "properties": {
                 "booking": {
-                    "$ref": "#/definitions/main.NotebookBooking"
+                    "$ref": "#/definitions/cmd_api.NotebookBooking"
                 },
                 "cpuLimit": {
                     "type": "number"
@@ -2547,7 +2606,7 @@ const docTemplate = `{
                 "events": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/constants.Events"
+                        "$ref": "#/definitions/sandbox-backend-service_pkg_constants.Events"
                     }
                 },
                 "gpuLimit": {
@@ -2587,7 +2646,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "status": {
-                    "$ref": "#/definitions/main.NotebookState"
+                    "$ref": "#/definitions/cmd_api.NotebookState"
                 },
                 "storageSize": {
                     "type": "string"
@@ -2597,7 +2656,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.NotebookTokenRotationRequest": {
+        "cmd_api.NotebookTokenRotationRequest": {
             "type": "object",
             "required": [
                 "refreshToken"
@@ -2608,7 +2667,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.NotebookTokenSessionResponse": {
+        "cmd_api.NotebookTokenSessionResponse": {
             "type": "object",
             "properties": {
                 "bookingId": {
@@ -2625,7 +2684,67 @@ const docTemplate = `{
                 }
             }
         },
-        "main.PaginationInfo": {
+        "cmd_api.OutputFile": {
+            "type": "object",
+            "properties": {
+                "fileId": {
+                    "type": "string"
+                },
+                "mediaType": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "sha256": {
+                    "type": "string"
+                },
+                "size": {
+                    "type": "integer"
+                }
+            }
+        },
+        "cmd_api.OutputFilesResponse": {
+            "type": "object",
+            "properties": {
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/cmd_api.OutputFile"
+                    }
+                },
+                "outputId": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "cmd_api.OutputResponse": {
+            "type": "object",
+            "properties": {
+                "approvalStatus": {
+                    "type": "string"
+                },
+                "errorCode": {
+                    "type": "string"
+                },
+                "errorMessage": {
+                    "type": "string"
+                },
+                "notebookName": {
+                    "type": "string"
+                },
+                "outputId": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "cmd_api.PaginationInfo": {
             "type": "object",
             "properties": {
                 "hasNext": {
@@ -2648,7 +2767,18 @@ const docTemplate = `{
                 }
             }
         },
-        "main.SlotTemplateResponse": {
+        "cmd_api.PendingOutputsResponse": {
+            "type": "object",
+            "properties": {
+                "outputs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/cmd_api.OutputResponse"
+                    }
+                }
+            }
+        },
+        "cmd_api.SlotTemplateResponse": {
             "type": "object",
             "properties": {
                 "durationHours": {
@@ -2671,7 +2801,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.StartNotebookRequest": {
+        "cmd_api.StartNotebookRequest": {
             "type": "object",
             "required": [
                 "name"
@@ -2684,7 +2814,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.StopNotebookRequest": {
+        "cmd_api.StopNotebookRequest": {
             "type": "object",
             "required": [
                 "name"
@@ -2697,7 +2827,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.SwaggerExistsResponse": {
+        "cmd_api.SwaggerExistsResponse": {
             "description": "Response structure for check-exists endpoint",
             "type": "object",
             "properties": {
@@ -2708,7 +2838,7 @@ const docTemplate = `{
                 }
             }
         },
-        "main.SwaggerMessageResponse": {
+        "cmd_api.SwaggerMessageResponse": {
             "description": "Standard success response structure with a message",
             "type": "object",
             "properties": {
@@ -2718,6 +2848,103 @@ const docTemplate = `{
                     "example": "string"
                 }
             }
+        },
+        "cmd_api.WorkspaceFilesResponse": {
+            "type": "object",
+            "properties": {
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sandbox-backend-service_internal_filesconnect.File"
+                    }
+                }
+            }
+        },
+        "sandbox-backend-service_internal_filesconnect.Download": {
+            "type": "object",
+            "properties": {
+                "expiresAt": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "sandbox-backend-service_internal_filesconnect.File": {
+            "type": "object",
+            "properties": {
+                "contentType": {
+                    "type": "string"
+                },
+                "fileId": {
+                    "type": "string"
+                },
+                "lastModified": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "size": {
+                    "type": "integer"
+                }
+            }
+        },
+        "sandbox-backend-service_internal_filesconnect.Preview": {
+            "type": "object",
+            "properties": {
+                "content": {},
+                "firstNLines": {
+                    "type": "integer"
+                },
+                "format": {
+                    "type": "string"
+                },
+                "totalLines": {
+                    "type": "integer"
+                },
+                "truncated": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "sandbox-backend-service_pkg_constants.Events": {
+            "type": "string",
+            "enum": [
+                "picked",
+                "pvc-applied",
+                "pvc-apply-failed",
+                "pvc-created",
+                "pvc-creation-failed",
+                "pvc-upload-successful",
+                "pvc-upload-applied",
+                "pvc-upload-apply-failed",
+                "pvc-upload-failed",
+                "runtime-injection-applied",
+                "runtime-injection-successful",
+                "runtime-injection-apply-failed",
+                "runtime-injection-failed",
+                "notebook-applied",
+                "notebook-apply-failed"
+            ],
+            "x-enum-varnames": [
+                "StatusPicked",
+                "StatusPVCApplied",
+                "StatusPVCApplyFailed",
+                "StatusPVCCreated",
+                "StatusPVCCreationFailed",
+                "StatusPVCUploadSuccessful",
+                "StatusPVCUploadApplied",
+                "StatusPVCUploadApplyFailed",
+                "StatusPVCUploadFailed",
+                "StatusRuntimeInjectionApplied",
+                "StatusRuntimeInjectionSuccessful",
+                "StatusRuntimeInjectionApplyFailed",
+                "StatusRuntimeInjectionFailed",
+                "StatusNotebookApplied",
+                "StatusNotebookApplyFailed"
+            ]
         }
     },
     "securityDefinitions": {

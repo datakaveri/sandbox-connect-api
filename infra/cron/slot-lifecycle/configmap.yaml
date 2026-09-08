@@ -10,7 +10,7 @@ data:
   SLOT_LIFECYCLE_K8S_CONFIG_PATH: ""
   SLOT_LIFECYCLE_TICK_INTERVAL_SECS: "5"
   SLOT_LIFECYCLE_RUN_TIMEOUT_SECS: "45"
-  # Enable only after the evaluation migration. Keeps timed cleanup from
-  # deleting a notebook PVC while its evaluation is active.
-  SLOT_LIFECYCLE_EVALUATIONS_ENABLED: "false"
+  # Enable only after the output migration. Keeps timed cleanup from
+  # deleting a notebook PVC while its output is active.
+  SLOT_LIFECYCLE_OUTPUTS_ENABLED: "false"
 

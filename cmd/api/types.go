@@ -44,8 +44,8 @@ type ApiEnv struct {
 	ReadTimeoutSecs                   int    `env:"API_READ_TIMEOUT_SECS"`
 	Version                           string `env:"API_VERSION,required"`
 	NotebookConfig                    NotebookConfig
-	EvaluationConfig                  EvaluationConfig
-	EvaluationWorkspaceConfig         EvaluationWorkspaceConfig
+	OutputConfig                      OutputConfig
+	FilesConnectConfig                FilesConnectConfig
 	RegistrySecretConfig              RegistrySecretConfig
 	RabbitMQConfig                    RabbitMQConfig
 }
@@ -90,14 +90,15 @@ type ECRClient struct {
 }
 
 type application struct {
-	env             ApiEnv
-	k8sClient       *k8s.K8sClient
-	pgPool          *db.PgPool
-	rateLimiter     *IPRateLimiter
-	ecrClient       *ECRClient // non-nil only when SecretType == "ecr"
-	registrySecret  RegistrySecretConfig
-	auditService    *AuditService // nil if auditing is disabled
-	evaluationStore evaluationStore
+	env            ApiEnv
+	k8sClient      *k8s.K8sClient
+	pgPool         *db.PgPool
+	rateLimiter    *IPRateLimiter
+	ecrClient      *ECRClient // non-nil only when SecretType == "ecr"
+	registrySecret RegistrySecretConfig
+	auditService   *AuditService // nil if auditing is disabled
+	outputStore    outputStore
+	outputFiles    outputFiles
 }
 type Resource struct {
 	Request float64 `json:"request" validate:"required,gt=0.1"`

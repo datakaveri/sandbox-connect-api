@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: output-argo-service
+  namespace: sandbox
+  labels:
+    app.kubernetes.io/name: output-argo-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: output-argo-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: output-argo-service
+    spec:
+      serviceAccountName: output-argo-service
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: controller
+          image: "REPLACE_WITH_CONTROLLER_IMAGE@sha256:REPLACE_WITH_64_HEX_DIGEST"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: OUTPUT_POSTGRES_URL
+              valueFrom:
+                secretKeyRef:
+                  name: output-controller-creds
+                  key: POSTGRES_URL
+            - name: OUTPUT_FILES_CONNECT_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: output-controller-creds
+                  key: FILES_CONNECT_SERVICE_TOKEN
+          envFrom:
+            - configMapRef:
+                name: output-argo-service-config
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

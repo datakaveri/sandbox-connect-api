@@ -140,4 +140,4 @@ ALTER TABLE notebooks ADD COLUMN IF NOT EXISTS git_token_secret_name VARCHAR(253
 
 -- Keep fresh installs aligned with incremental deployments. \ir resolves the
 -- migration relative to this file when db.sql is run through psql.
-\ir migrations/001_evaluations.sql
+\ir migrations/001_outputs.sql
