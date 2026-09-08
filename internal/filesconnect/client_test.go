@@ -3,6 +3,7 @@ package filesconnect
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,20 +14,19 @@ import (
 )
 
 func TestListWorkspaceDerivesOwnerPrefixAndHidesObjectKey(t *testing.T) {
-	var receivedPrefix string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer service-token" {
 			t.Fatal("missing service authorization")
 		}
-		var body struct {
-			Prefix string `json:"prefix"`
+		if r.Method != http.MethodGet || r.URL.Path != "/outputs/internal/workspaces/user-1/files" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatal(err)
+		body, _ := io.ReadAll(r.Body)
+		if len(body) != 0 {
+			t.Fatalf("GET request unexpectedly had a body: %q", body)
 		}
-		receivedPrefix = body.Prefix
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"success":true,"data":{"files":[{"key":"user-workspaces/users/user-1/outputs/run-1/result.csv","size":12,"lastModified":"2026-09-07T00:00:00Z","contentType":"text/csv"}]}}`))
+		_, _ = w.Write([]byte(`{"success":true,"data":{"files":[{"fileId":"` + strings.Repeat("a", 64) + `","name":"run-1/result.csv","size":12,"lastModified":"2026-09-07T00:00:00Z","contentType":"text/csv"}]}}`))
 	}))
 	defer server.Close()
 
@@ -35,10 +35,7 @@ func TestListWorkspaceDerivesOwnerPrefixAndHidesObjectKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if receivedPrefix != "user-workspaces/users/user-1/outputs/" {
-		t.Fatalf("unexpected prefix %q", receivedPrefix)
-	}
-	if len(files) != 1 || files[0].ID == "" || files[0].Name != "run-1/result.csv" {
+	if len(files) != 1 || files[0].ID != strings.Repeat("a", 64) || files[0].Name != "run-1/result.csv" {
 		t.Fatalf("unexpected files: %#v", files)
 	}
 	encoded, _ := json.Marshal(files)
@@ -47,21 +44,18 @@ func TestListWorkspaceDerivesOwnerPrefixAndHidesObjectKey(t *testing.T) {
 	}
 }
 
-func TestPreviewWorkspaceFileResolvesOpaqueIDServerSide(t *testing.T) {
-	key := "user-workspaces/users/user-1/outputs/run-1/result.csv"
-	fileID := stableFileID(key)
-	var previewKey string
+func TestInternalPreviewAndDownloadRoutesUseOpaqueIdentities(t *testing.T) {
+	fileID := strings.Repeat("a", 64)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasSuffix(r.URL.Path, "/files"):
-			_, _ = w.Write([]byte(`{"success":true,"data":{"files":[{"key":"` + key + `","size":12,"lastModified":"2026-09-07T00:00:00Z","contentType":"text/csv"}]}}`))
-		case strings.HasSuffix(r.URL.Path, "/files/preview"):
-			var body struct {
-				Key string `json:"key"`
-			}
-			_ = json.NewDecoder(r.Body).Decode(&body)
-			previewKey = body.Key
+		if r.Method != http.MethodGet || r.Header.Get("Authorization") != "Bearer service-token" {
+			t.Fatalf("unexpected authentication or method")
+		}
+		switch r.URL.Path {
+		case "/outputs/internal/workspaces/user-1/files/" + fileID + "/preview",
+			"/outputs/internal/review/output-1/files/" + fileID + "/preview":
 			_, _ = w.Write([]byte(`{"success":true,"data":{"content":[["a"],["1"]],"format":"csv","truncated":false}}`))
+		case "/outputs/internal/workspaces/user-1/files/" + fileID + "/download":
+			_, _ = w.Write([]byte(`{"success":true,"data":{"url":"https://download.example/file","expiresAt":"2026-09-07T00:05:00Z"}}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -73,8 +67,16 @@ func TestPreviewWorkspaceFileResolvesOpaqueIDServerSide(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if preview.Format != "csv" || previewKey != key {
-		t.Fatalf("unexpected preview=%#v key=%q", preview, previewKey)
+	if preview.Format != "csv" {
+		t.Fatalf("unexpected workspace preview=%#v", preview)
+	}
+	preview, err = client.PreviewReviewFile(context.Background(), "output-1", fileID)
+	if err != nil || preview.Format != "csv" {
+		t.Fatalf("unexpected review preview=%#v err=%v", preview, err)
+	}
+	download, err := client.DownloadWorkspaceFile(context.Background(), "user-1", fileID)
+	if err != nil || download.URL != "https://download.example/file" {
+		t.Fatalf("unexpected download=%#v err=%v", download, err)
 	}
 }
 

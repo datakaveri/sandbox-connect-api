@@ -3,15 +3,12 @@ package filesconnect
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -52,7 +49,6 @@ func (e *Error) Error() string {
 
 type File struct {
 	ID           string    `json:"fileId"`
-	Key          string    `json:"-"`
 	Name         string    `json:"name"`
 	Size         int64     `json:"size"`
 	LastModified time.Time `json:"lastModified"`
@@ -160,100 +156,65 @@ func (c *Client) ListWorkspace(ctx context.Context, userID string) ([]File, erro
 	if !safeSegment(userID) {
 		return nil, fmt.Errorf("user identity is unsafe")
 	}
-	prefix := "user-workspaces/users/" + userID + "/outputs/"
-	return c.listFiles(ctx, c.workspaceDatabankID, prefix)
+	var response struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Files []File `json:"files"`
+		} `json:"data"`
+	}
+	endpoint := c.baseURL + "/outputs/internal/workspaces/" + url.PathEscape(userID) + "/files"
+	if err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response); err != nil {
+		return nil, err
+	}
+	if !response.Success || response.Data.Files == nil {
+		return nil, fmt.Errorf("files connect returned an invalid workspace response")
+	}
+	return response.Data.Files, nil
 }
 
-func (c *Client) PreviewReviewFile(ctx context.Context, objectKey string) (Preview, error) {
-	return c.preview(ctx, c.reviewDatabankID, objectKey)
+func (c *Client) PreviewReviewFile(ctx context.Context, outputID, fileID string) (Preview, error) {
+	if !safeSegment(outputID) || !safeSegment(fileID) {
+		return Preview{}, fmt.Errorf("output or file identity is unsafe")
+	}
+	endpoint := c.baseURL + "/outputs/internal/review/" + url.PathEscape(outputID) +
+		"/files/" + url.PathEscape(fileID) + "/preview"
+	return c.preview(ctx, endpoint)
 }
 
 func (c *Client) PreviewWorkspaceFile(ctx context.Context, userID, fileID string) (Preview, error) {
-	file, err := c.resolveWorkspaceFile(ctx, userID, fileID)
-	if err != nil {
-		return Preview{}, err
+	if !safeSegment(userID) || !safeSegment(fileID) {
+		return Preview{}, fmt.Errorf("user or file identity is unsafe")
 	}
-	return c.preview(ctx, c.workspaceDatabankID, file.Key)
+	endpoint := c.baseURL + "/outputs/internal/workspaces/" + url.PathEscape(userID) +
+		"/files/" + url.PathEscape(fileID) + "/preview"
+	return c.preview(ctx, endpoint)
 }
 
 func (c *Client) DownloadWorkspaceFile(ctx context.Context, userID, fileID string) (Download, error) {
-	file, err := c.resolveWorkspaceFile(ctx, userID, fileID)
-	if err != nil {
-		return Download{}, err
+	if !safeSegment(userID) || !safeSegment(fileID) {
+		return Download{}, fmt.Errorf("user or file identity is unsafe")
 	}
 	var response struct {
-		Success bool `json:"success"`
-		Data    struct {
-			PresignedURL string    `json:"presignedUrl"`
-			ExpiresAt    time.Time `json:"expiresAt"`
-		} `json:"data"`
+		Success bool     `json:"success"`
+		Data    Download `json:"data"`
 	}
-	endpoint := c.databankEndpoint(c.workspaceDatabankID, "/files/download")
-	if err := c.doJSON(ctx, http.MethodPost, endpoint,
-		map[string]any{"key": file.Key, "presigned": true}, &response); err != nil {
+	endpoint := c.baseURL + "/outputs/internal/workspaces/" + url.PathEscape(userID) +
+		"/files/" + url.PathEscape(fileID) + "/download"
+	if err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response); err != nil {
 		return Download{}, err
 	}
-	if !response.Success || response.Data.PresignedURL == "" {
+	if !response.Success || response.Data.URL == "" {
 		return Download{}, fmt.Errorf("files connect returned an invalid download response")
 	}
-	return Download{URL: response.Data.PresignedURL, ExpiresAt: response.Data.ExpiresAt}, nil
+	return response.Data, nil
 }
 
-func (c *Client) listFiles(ctx context.Context, databankID, prefix string) ([]File, error) {
-	var response struct {
-		Success bool `json:"success"`
-		Data    struct {
-			Files []struct {
-				Key          string    `json:"key"`
-				Size         int64     `json:"size"`
-				LastModified time.Time `json:"lastModified"`
-				ContentType  string    `json:"contentType"`
-			} `json:"files"`
-		} `json:"data"`
-	}
-	endpoint := c.databankEndpoint(databankID, "/files")
-	body := map[string]any{"prefix": prefix, "recursive": true, "maxKeys": 1000}
-	if err := c.doJSON(ctx, http.MethodPost, endpoint, body, &response); err != nil {
-		return nil, err
-	}
-	files := make([]File, 0, len(response.Data.Files))
-	for _, item := range response.Data.Files {
-		if !strings.HasPrefix(item.Key, prefix) || strings.HasSuffix(item.Key, "/manifest.json") {
-			continue
-		}
-		name := strings.TrimPrefix(item.Key, prefix)
-		if !output.IsSafeRelativePath(name) || !strings.EqualFold(filepath.Ext(name), ".csv") {
-			continue
-		}
-		files = append(files, File{
-			ID: stableFileID(item.Key), Key: item.Key, Name: name, Size: item.Size,
-			LastModified: item.LastModified, ContentType: item.ContentType,
-		})
-	}
-	return files, nil
-}
-
-func (c *Client) resolveWorkspaceFile(ctx context.Context, userID, fileID string) (File, error) {
-	files, err := c.ListWorkspace(ctx, userID)
-	if err != nil {
-		return File{}, err
-	}
-	for _, file := range files {
-		if file.ID == fileID {
-			return file, nil
-		}
-	}
-	return File{}, &Error{StatusCode: http.StatusNotFound, Code: "file_not_found"}
-}
-
-func (c *Client) preview(ctx context.Context, databankID, key string) (Preview, error) {
+func (c *Client) preview(ctx context.Context, endpoint string) (Preview, error) {
 	var response struct {
 		Success bool    `json:"success"`
 		Data    Preview `json:"data"`
 	}
-	endpoint := c.databankEndpoint(databankID, "/files/preview")
-	if err := c.doJSON(ctx, http.MethodPost, endpoint,
-		map[string]any{"key": key, "fileType": "csv"}, &response); err != nil {
+	if err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response); err != nil {
 		return Preview{}, err
 	}
 	if !response.Success || response.Data.Format == "" {
@@ -262,31 +223,33 @@ func (c *Client) preview(ctx context.Context, databankID, key string) (Preview, 
 	return response.Data, nil
 }
 
-func (c *Client) databankEndpoint(databankID, suffix string) string {
-	return c.baseURL + "/databanks/" + url.PathEscape(databankID) + suffix
-}
-
 func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBody, responseBody any) error {
-	encoded, err := json.Marshal(requestBody)
-	if err != nil {
-		return err
+	var requestReader io.Reader
+	if requestBody != nil {
+		encoded, err := json.Marshal(requestBody)
+		if err != nil {
+			return err
+		}
+		requestReader = bytes.NewReader(encoded)
 	}
-	request, err := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(encoded))
+	request, err := http.NewRequestWithContext(ctx, method, endpoint, requestReader)
 	if err != nil {
 		return err
 	}
 	request.Header.Set("Authorization", "Bearer "+c.serviceToken)
-	request.Header.Set("Content-Type", "application/json")
+	if requestBody != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
 	response, err := c.httpClient.Do(request)
 	if err != nil {
 		return fmt.Errorf("call files connect: %w", err)
 	}
 	defer response.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(response.Body, c.maxResponseBytes+1))
+	responseBytes, err := io.ReadAll(io.LimitReader(response.Body, c.maxResponseBytes+1))
 	if err != nil {
 		return fmt.Errorf("read files connect response: %w", err)
 	}
-	if int64(len(body)) > c.maxResponseBytes {
+	if int64(len(responseBytes)) > c.maxResponseBytes {
 		return fmt.Errorf("files connect response exceeds %d bytes", c.maxResponseBytes)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
@@ -296,10 +259,10 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBod
 				Message string `json:"message"`
 			} `json:"error"`
 		}
-		_ = json.Unmarshal(body, &payload)
+		_ = json.Unmarshal(responseBytes, &payload)
 		return &Error{StatusCode: response.StatusCode, Code: payload.Error.Code, Message: payload.Error.Message}
 	}
-	if err := json.Unmarshal(body, responseBody); err != nil {
+	if err := json.Unmarshal(responseBytes, responseBody); err != nil {
 		return fmt.Errorf("decode files connect response: %w", err)
 	}
 	return nil
@@ -333,11 +296,6 @@ func safeSegment(value string) bool {
 		}
 	}
 	return true
-}
-
-func stableFileID(key string) string {
-	sum := sha256.Sum256([]byte(key))
-	return hex.EncodeToString(sum[:])
 }
 
 func IsNotFound(err error) bool {

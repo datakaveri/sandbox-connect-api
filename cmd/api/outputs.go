@@ -47,7 +47,7 @@ type outputStore interface {
 
 type outputFiles interface {
 	ListWorkspace(context.Context, string) ([]filesconnect.File, error)
-	PreviewReviewFile(context.Context, string) (filesconnect.Preview, error)
+	PreviewReviewFile(context.Context, string, string) (filesconnect.Preview, error)
 	PreviewWorkspaceFile(context.Context, string, string) (filesconnect.Preview, error)
 	DownloadWorkspaceFile(context.Context, string, string) (filesconnect.Download, error)
 }
@@ -327,7 +327,7 @@ func (app *application) previewAdminOutputFile(w http.ResponseWriter, r *http.Re
 	if !app.outputFilesReady(w, r) || !app.requireOutputAdminRole(w, r) {
 		return
 	}
-	_, manifest, ok := app.loadAdminManifest(w, r)
+	record, manifest, ok := app.loadAdminManifest(w, r)
 	if !ok {
 		return
 	}
@@ -336,7 +336,7 @@ func (app *application) previewAdminOutputFile(w http.ResponseWriter, r *http.Re
 		if file.FileID != fileID {
 			continue
 		}
-		preview, err := app.outputFiles.PreviewReviewFile(r.Context(), file.ObjectKey)
+		preview, err := app.outputFiles.PreviewReviewFile(r.Context(), record.ID, file.FileID)
 		if err != nil {
 			handleFilesConnectError(w, r, err)
 			return

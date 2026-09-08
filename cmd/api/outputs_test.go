@@ -67,15 +67,17 @@ func (s *fakeOutputStore) RequestApproval(_ context.Context, params output.Appro
 }
 
 type fakeOutputFiles struct {
-	previewKey string
-	files      []filesconnect.File
+	previewOutputID string
+	previewFileID   string
+	files           []filesconnect.File
 }
 
 func (f *fakeOutputFiles) ListWorkspace(context.Context, string) ([]filesconnect.File, error) {
 	return f.files, nil
 }
-func (f *fakeOutputFiles) PreviewReviewFile(_ context.Context, key string) (filesconnect.Preview, error) {
-	f.previewKey = key
+func (f *fakeOutputFiles) PreviewReviewFile(_ context.Context, outputID, fileID string) (filesconnect.Preview, error) {
+	f.previewOutputID = outputID
+	f.previewFileID = fileID
 	return filesconnect.Preview{Format: "csv", Content: []any{"value"}}, nil
 }
 func (f *fakeOutputFiles) PreviewWorkspaceFile(context.Context, string, string) (filesconnect.Preview, error) {
@@ -182,8 +184,8 @@ func TestAdminPreviewResolvesFileIDFromValidatedManifest(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if files.previewKey != "nha-review/users/u/sandboxes/n/outputs/o/result.csv" {
-		t.Fatalf("unexpected review key: %q", files.previewKey)
+	if files.previewOutputID != "o" || files.previewFileID != "file-1" {
+		t.Fatalf("unexpected review identity: output=%q file=%q", files.previewOutputID, files.previewFileID)
 	}
 }
 

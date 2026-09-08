@@ -572,6 +572,10 @@ the same thing for each — the distinction is the point of this subsection.
   (default 256 MiB), `API_OUTPUT_MAX_BYTES` (default 1 GiB),
   `API_FILES_CONNECT_TIMEOUT_SECONDS` (default 30), and
   `API_FILES_CONNECT_MAX_RESPONSE_BYTES` (default 4 MiB).
+  `API_FILES_CONNECT_SERVICE_TOKEN` is the opaque token configured as Files Connect
+  `OUTPUT_SANDBOX_SERVICE_TOKEN`; it must not reuse the publisher or uploader token. Review and
+  workspace reads use Files Connect's `/outputs/internal/...` routes, which resolve storage keys
+  server-side and expose only files committed by the corresponding manifest.
 - **Security:** the service token belongs in a Kubernetes Secret. Browser requests carry only stable
   file IDs; the API derives the authenticated user's prefix and never accepts an object key.
 - **Booking behavior:** the same routes work in direct and booking modes. Booking mode additionally
