@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"sandbox-backend-service/internal/output"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 type publicationQueue struct {
@@ -107,5 +109,28 @@ func TestReconcileApprovalRejectsWrongWorkspacePrefix(t *testing.T) {
 	}
 	if !queue.failed || queue.completed {
 		t.Fatalf("mismatched publication was not rejected: %#v", queue)
+	}
+}
+
+func TestWorkflowManifestFallsBackToArgoRootNodeOutputs(t *testing.T) {
+	reviewPrefix := "nha-review/users/user-1/sandboxes/notebook-1/outputs/output-1/"
+	raw := `{"files":[{"fileId":"file-1","path":"result.csv","objectKey":"` + reviewPrefix + `output/result.csv","size":20,"mediaType":"text/csv","sha256":"0000000000000000000000000000000000000000000000000000000000000000"}]}`
+	workflow := &unstructured.Unstructured{Object: map[string]any{
+		"metadata": map[string]any{"name": "output-workflow"},
+		"status": map[string]any{"nodes": map[string]any{
+			"output-workflow": map[string]any{
+				"name": "output-workflow",
+				"outputs": map[string]any{"parameters": []any{
+					map[string]any{"name": "manifest-json", "value": raw},
+				}},
+			},
+		}},
+	}}
+	manifest, err := workflowManifest(workflow, 262144, 1000, 268435456, 1073741824, reviewPrefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(manifest) != raw {
+		t.Fatalf("unexpected manifest: %s", manifest)
 	}
 }

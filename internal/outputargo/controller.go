@@ -276,6 +276,17 @@ func workflowStatus(workflow *unstructured.Unstructured) output.Status {
 
 func workflowManifest(workflow *unstructured.Unstructured, maxBytes, maxFiles int, maxFileBytes, maxOutputBytes int64, reviewPrefix string) (json.RawMessage, error) {
 	parameters, _, _ := unstructured.NestedSlice(workflow.Object, "status", "outputs", "parameters")
+	if len(parameters) == 0 {
+		nodes, _, _ := unstructured.NestedMap(workflow.Object, "status", "nodes")
+		for _, rawNode := range nodes {
+			node, ok := rawNode.(map[string]any)
+			if !ok || node["name"] != workflow.GetName() {
+				continue
+			}
+			parameters, _, _ = unstructured.NestedSlice(node, "outputs", "parameters")
+			break
+		}
+	}
 	for _, rawParameter := range parameters {
 		parameter, ok := rawParameter.(map[string]any)
 		if !ok {
