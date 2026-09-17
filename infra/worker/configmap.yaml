@@ -1,3 +1,4 @@
+# Deployment example: replace environment-specific values before applying.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -26,9 +27,9 @@ data:
           image: alpine/git:2.45.2
         demoFiles:
           enabled: true
-          initImage: registry.analytics.cbr-iisc.ac.in/cbr/test-notebook-file:v1.2-b42d188
+          initImage: registry.example.com/sandbox/demo-files:replace-with-immutable-tag
         platformToken:
-          sessionAPIBaseURL: https://api-sandbox.cbr-iisc.ac.in/api
+          sessionAPIBaseURL: https://api.example.com
       notebook:
         apiVersion: kubeflow.org/v1beta1
         kind: Notebook
@@ -59,15 +60,15 @@ data:
                 - name: user-data
                   persistentVolumeClaim:
                     claimName: "{pvcName}"
-                - name: cbr-sanscog
+                - name: shared-dataset-a
                   nfs:
-                    server: 10.0.0.91
-                    path: /gpfs/data/tata/Neuroimaging_Lab/SANSCOG_MRI_Scan/New_scans_sanscog_IISc
+                    server: nfs.example.com
+                    path: /exports/dataset-a
                     readOnly: true
-                - name: cbr-tlsa
+                - name: shared-dataset-b
                   nfs:
-                    server: 10.0.0.91
-                    path: /gpfs/data/tata/Neuroimaging_Lab/TATA_MRI_Backup/TLSA_MRI_IISc
+                    server: nfs.example.com
+                    path: /exports/dataset-b
                     readOnly: true
                 - name: shared-workspace
                   persistentVolumeClaim:
@@ -83,7 +84,7 @@ data:
                     medium: Memory
               containers:
                 - name: notebook
-                  image: registry.analytics.cbr-iisc.ac.in/cbr/data-access-sandbox-cpu-notebook:v3.7-fat
+                  image: registry.example.com/sandbox/cpu-notebook:replace-with-immutable-tag
                   resources:
                     requests:
                       ephemeral-storage: 1Gi
@@ -97,15 +98,15 @@ data:
                     - name: MAHAAGX_TOKEN_FILE
                       value: /var/run/sandbox-connect/platform/token
                     - name: MAHAAGX_FILE_API_BASE_URL
-                      value: https://files.cbr-iisc.ac.in
+                      value: https://files.example.com
                   volumeMounts:
                     - name: user-data
                       mountPath: /home/jovyan
-                    - name: cbr-sanscog
-                      mountPath: /mnt/cbr/SANSCOG
+                    - name: shared-dataset-a
+                      mountPath: /mnt/datasets/a
                       readOnly: true
-                    - name: cbr-tlsa
-                      mountPath: /mnt/cbr/TLSA
+                    - name: shared-dataset-b
+                      mountPath: /mnt/datasets/b
                       readOnly: true
                     - name: shared-workspace
                       mountPath: /home/jovyan/workspace
@@ -124,7 +125,7 @@ data:
                       memory: 128Mi
                   env:
                     - name: KEYCLOAK_TOKEN_URL
-                      value: https://keycloak.cbr-iisc.ac.in/auth/realms/cbr/protocol/openid-connect/token
+                      value: https://idp.example.com/auth/realms/replace-with-realm/protocol/openid-connect/token
                     - name: KEYCLOAK_CLIENT_ID
                       value: sandbox-notebook
                     - name: KEYCLOAK_CLIENT_SECRET_FILE
@@ -204,9 +205,9 @@ data:
           image: alpine/git:2.45.2
         demoFiles:
           enabled: true
-          initImage: registry.analytics.cbr-iisc.ac.in/cbr/test-notebook-file:v1.2-b42d188
+          initImage: registry.example.com/sandbox/demo-files:replace-with-immutable-tag
         platformToken:
-          sessionAPIBaseURL: https://api-sandbox.cbr-iisc.ac.in/api
+          sessionAPIBaseURL: https://api.example.com
       notebook:
         apiVersion: kubeflow.org/v1beta1
         kind: Notebook
@@ -237,15 +238,15 @@ data:
                 - name: user-data
                   persistentVolumeClaim:
                     claimName: "{pvcName}"
-                - name: cbr-sanscog
+                - name: shared-dataset-a
                   nfs:
-                    server: 10.0.0.91
-                    path: /gpfs/data/tata/Neuroimaging_Lab/SANSCOG_MRI_Scan/New_scans_sanscog_IISc
+                    server: nfs.example.com
+                    path: /exports/dataset-a
                     readOnly: true
-                - name: cbr-tlsa
+                - name: shared-dataset-b
                   nfs:
-                    server: 10.0.0.91
-                    path: /gpfs/data/tata/Neuroimaging_Lab/TATA_MRI_Backup/TLSA_MRI_IISc
+                    server: nfs.example.com
+                    path: /exports/dataset-b
                     readOnly: true
                 - name: shared-workspace
                   persistentVolumeClaim:
@@ -261,7 +262,7 @@ data:
                     medium: Memory
               containers:
                 - name: notebook
-                  image: registry.analytics.cbr-iisc.ac.in/cbr/data-access-sandbox-gpu-notebook:v3.7-fat
+                  image: registry.example.com/sandbox/gpu-notebook:replace-with-immutable-tag
                   resources:
                     requests:
                       ephemeral-storage: 1Gi
@@ -275,15 +276,15 @@ data:
                     - name: MAHAAGX_TOKEN_FILE
                       value: /var/run/sandbox-connect/platform/token
                     - name: MAHAAGX_FILE_API_BASE_URL
-                      value: https://files.cbr-iisc.ac.in
+                      value: https://files.example.com
                   volumeMounts:
                     - name: user-data
                       mountPath: /home/jovyan
-                    - name: cbr-sanscog
-                      mountPath: /mnt/cbr/SANSCOG
+                    - name: shared-dataset-a
+                      mountPath: /mnt/datasets/a
                       readOnly: true
-                    - name: cbr-tlsa
-                      mountPath: /mnt/cbr/TLSA
+                    - name: shared-dataset-b
+                      mountPath: /mnt/datasets/b
                       readOnly: true
                     - name: shared-workspace
                       mountPath: /home/jovyan/workspace
@@ -302,7 +303,7 @@ data:
                       memory: 128Mi
                   env:
                     - name: KEYCLOAK_TOKEN_URL
-                      value: https://keycloak.cbr-iisc.ac.in/auth/realms/cbr/protocol/openid-connect/token
+                      value: https://idp.example.com/auth/realms/replace-with-realm/protocol/openid-connect/token
                     - name: KEYCLOAK_CLIENT_ID
                       value: sandbox-notebook
                     - name: KEYCLOAK_CLIENT_SECRET_FILE

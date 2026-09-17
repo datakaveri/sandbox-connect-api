@@ -15,9 +15,28 @@
 # Compiled Go binaries
 /api
 /worker
+/slot-lifecycle
+/profile-credit-sync
+/platform-token-sidecar
 
+# Local environments; retain documented example files.
 .env
-.env.test
+.env.*
+!.env*.example
+.venv-jupyterlite/
+
+# Local credentials and deployment overrides.
+*.pem
+*.key
+*.p12
+*.pfx
+kubeconfig
+kubeconfig.*
+*.kubeconfig
+/infra/local/
+/infra/private/
+*.local.yaml
+*.local.yml
 
 # Postman local environments may contain access tokens or deployment-specific values.
-postman/*.local.postman_environment.json
+postman/**/*.local.postman_environment.json

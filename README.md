@@ -1,201 +1,175 @@
 # Sandbox Connect API
 
-A backend service for managing Jupyter notebooks in Kubernetes with a RESTful API interface.
+Sandbox Connect manages CPU and GPU Jupyter notebooks on Kubernetes through a REST API,
+scheduled bookings, and background controllers. This README describes the latest stable
+branch, **`stable/v2.3`**.
 
-## Table of Contents
+## Components
 
-- [Overview](#overview)
-- [Documentation](#documentation)
-- [System Architecture](#system-architecture)
-- [Installation](#installation)
-- [API Documentation](#api-documentation)
-  - [Notebook Endpoints](#notebook-endpoints)
-  - [Request and Response Examples](#request-and-response-examples)
-- [Notebook Download Token Sessions](#notebook-download-token-sessions)
-- [Notebook Status Categories](#notebook-status-categories)
+| Component | Source | Responsibility |
+|---|---|---|
+| API | `cmd/api` | Authentication, profiles, bookings, notebook lifecycle, and JupyterLite sessions |
+| Worker | `cmd/worker` | Claims pending notebook work and creates Kubeflow Notebooks and managed PVCs |
+| Slot lifecycle | `cmd/cron/slot-lifecycle` | Long-running controller for booking transitions and timed cleanup |
+| Profile credit sync | `cmd/cron/profile-credit-sync` | Scheduled usage and credit synchronization |
+| Platform token sidecar | `cmd/platform-token-sidecar` | Refreshes delegated notebook credentials and reports readiness |
 
-## Overview
+PostgreSQL coordinates state. Kubernetes and Kubeflow host notebook workloads. CPU and GPU
+workload configuration lives in the worker's versioned Notebook templates.
 
-Sandbox Connect provides APIs and background controllers for managing Jupyter notebooks in a
-Kubernetes cluster. It supports scheduled bookings and a direct-notebook mode.
+## Operating modes
 
-The deployable components are the API, worker, slot-lifecycle controller, profile-credit-sync
-CronJob, and platform-token sidecar. PostgreSQL coordinates state, while Kubernetes and Kubeflow
-host the notebook workloads.
+`API_BOOKINGS_ENABLED=true` is the default. Users select a category and available slots, then
+create a booking through `POST /v1/bookings`. The slot-lifecycle controller must run, and its
+`SLOT_CONFIG_PROFILE` must match the API's setting.
 
-## Documentation
+With `API_BOOKINGS_ENABLED=false`, users create, start, stop, and delete notebooks through the
+direct `/v1/notebook` lifecycle routes. Booking and slot discovery are disabled. Notebook
+listing/status, profile creation, and JupyterLite sessions are shared across modes.
 
-- [Documentation index](docs/README.md)
-- [Architecture](docs/architecture.md)
-- [Operations guide](docs/operations.md)
-- [Configuration reference](docs/config/README.md)
-- [Generated OpenAPI specification](docs/swagger.yaml)
-- [Mode-specific Postman collections](postman/README.md)
+Import the matching [Postman collection and example environment](postman/README.md).
 
-## System Architecture
+## Requirements
 
-The API records user intent in PostgreSQL. In booking mode, slot lifecycle creates and advances
-notebook work at the configured times. The worker claims pending notebook rows, resolves the
-selected CPU/GPU template and storage policies, then creates the Kubeflow resources. The API
-combines database events with live Kubernetes state when reporting notebook status.
+- Go 1.24.2 or a compatible newer toolchain, as declared in `go.mod`.
+- PostgreSQL; local Compose uses PostgreSQL 16.
+- Access to Kubernetes with the Kubeflow Notebook and Profile CRDs, suitable storage, and
+  permissions for the configured service accounts.
+- Keycloak configured for API authentication and any enabled notebook token exchange.
+- CPU/GPU notebook images and the registry credentials required to pull them.
+- S3-compatible storage and worker credentials; other integrations depend on enabled features.
+- Docker Compose for the local database example, and `kubectl` for cluster access.
 
-See [docs/architecture.md](docs/architecture.md) for component boundaries, lifecycle diagrams,
-storage ownership, token sessions, and concurrency behavior.
+Docker Compose starts **only PostgreSQL**. It does not install Kubernetes, Kubeflow, Keycloak,
+or the external integrations. See the [infrastructure guide](infra/README.md) for dependencies.
 
-## Installation
+## Local development
 
-### Prerequisites
-
-- Go 1.24.2 or a compatible newer version
-- PostgreSQL database
-- Kubernetes cluster (or access to one)
-- Docker (for containerized deployment)
-
-### Setup
-
-1. Clone the repository
+### 1. Check out the stable branch
 
 ```bash
-git clone https://github.com/datakaveri/sandbox-connect-api.git
+git clone --branch stable/v2.3 https://github.com/datakaveri/sandbox-connect-api.git
 cd sandbox-connect-api
-```
-
-2. Copy `.env.all.example` to `.env` and configure all required variables
-
-```bash
 cp .env.all.example .env
 ```
 
-3. Initialize the database
+### 2. Configure your environment
+
+Edit `.env` using the [configuration reference](docs/config/README.md). Replace every required
+placeholder for the components you will run. The Go services load `.env` from the repository
+root; it is a dotenv file, so do not execute it with `source`.
+
+For a local cluster connection, set `API_KUBE_CONFIG_MODE=local`,
+`WORKER_KUBE_CONFIG_MODE=local`, and `SLOT_LIFECYCLE_K8S_CONFIG_MODE=local`, with their matching
+`*_PATH` variables pointing to your kubeconfig. Set profile credit sync's Kubernetes mode/path
+similarly if you run it locally.
+
+Set `POSTGRES_PASSWORD` to a local development password. Set all four component PostgreSQL
+URLs to the same database, using user `postgres`, that password, host `localhost`, port `5432`,
+and database `postgres` for this Compose example. URL-encode special characters in the password.
+The local database has no TLS, so use `sslmode=disable` only for this local connection; retain
+TLS for remote deployments.
+
+Configure worker templates for your cluster's images, storage, scheduling, file service, and
+Keycloak endpoints. For local runs, export the already-configured template ConfigMap:
 
 ```bash
-psql -U <username> -d <database_name> -f db.sql
+mkdir -p .cache/notebook-templates
+kubectl get configmap sandbox-worker-notebook-templates -n sandbox \
+  -o jsonpath='{.data.cpu-notebook-template\.yaml}' \
+  > .cache/notebook-templates/cpu-notebook-template.yaml
+kubectl get configmap sandbox-worker-notebook-templates -n sandbox \
+  -o jsonpath='{.data.gpu-notebook-template\.yaml}' \
+  > .cache/notebook-templates/gpu-notebook-template.yaml
 ```
 
-4. Run the API server
+Set `WORKER_CPU_NOTEBOOK_TEMPLATE_PATH=.cache/notebook-templates/cpu-notebook-template.yaml`
+and `WORKER_GPU_NOTEBOOK_TEMPLATE_PATH=.cache/notebook-templates/gpu-notebook-template.yaml`
+in `.env`. Both templates are required and validated at worker startup. See the
+[template contract](infra/worker/README.md).
+
+### 3. Start PostgreSQL and initialize the schema
 
 ```bash
-go run ./cmd/api/
+docker compose up -d --wait
+docker compose exec -T postgres psql -U postgres -d postgres < db.sql
 ```
 
-5. In a separate terminal, run the worker
+The schema command is for initial setup. Review database changes before applying them to an
+existing deployment. PostgreSQL is exposed only on the local loopback interface.
+
+### 4. Run the services
+
+Run each long-running component in a separate terminal from the repository root:
 
 ```bash
-go run ./cmd/worker/
+go run ./cmd/api
+go run ./cmd/worker
+# Required for booking mode:
+go run ./cmd/cron/slot-lifecycle
 ```
 
-## API Documentation
-
-The service exposes generated ReDoc API reference at:
-
-```text
-/v1/apis/
-```
-
-Regenerate OpenAPI artifacts after changing Swag annotations or API response types:
+Profile credit sync runs once and exits; run it separately when its integrations are configured:
 
 ```bash
+go run ./cmd/cron/profile-credit-sync
+```
+
+With the example API address, check health and open the API reference:
+
+```bash
+curl --fail http://localhost:3000/v1/health
+# API reference: http://localhost:3000/v1/apis/
+```
+
+To serve JupyterLite locally, build its static assets with `./scripts/build-jupyterlite.sh` and
+set `API_JUPYTERLITE_STATIC_DIR=jupyterlite` in `.env`. The script uses Python 3.9–3.12 or Docker.
+The API Dockerfile builds and bundles those assets automatically.
+
+## Deployment
+
+Use the [operations guide](docs/operations.md) for the database, Secrets, ConfigMaps, RBAC,
+workloads, ingress, build commands, and verification sequence. Files under `infra/` are
+deployment templates: configure them for your environment before applying them. Keep filled
+manifests and private overlays outside tracked files, and deploy matching worker images and
+Notebook templates together.
+
+`Jenkinsfile` defines multi-service CI/CD; automatic deployment currently targets `dev`.
+The GitHub workflows publish API and worker images on manual dispatch. Review pipeline
+configuration before enabling it for your environment.
+
+## Documentation and validation
+
+| Topic | Reference |
+|---|---|
+| Maintained documentation index | [docs/README.md](docs/README.md) |
+| Architecture, lifecycle, storage, and token sessions | [docs/architecture.md](docs/architecture.md) |
+| Component configuration and shared constraints | [docs/config/README.md](docs/config/README.md) |
+| Deployment and troubleshooting | [docs/operations.md](docs/operations.md) |
+| User tutorials and documentation site | [user-docs/README.md](user-docs/README.md) |
+| Mode-specific API examples | [postman/README.md](postman/README.md) |
+| OpenAPI specifications | [YAML](docs/swagger.yaml), [JSON](docs/swagger.json) |
+| Public-release audit and outstanding findings | [PUBLIC_RELEASE_AUDIT.md](PUBLIC_RELEASE_AUDIT.md) |
+
+The API serves ReDoc at `/v1/apis/`. After changing API annotations or response types, install
+the Swag version declared in `go.mod`, then regenerate the OpenAPI artifacts:
+
+```bash
+go install github.com/swaggo/swag/cmd/swag@v1.16.4
 ./scripts/generate-openapi.sh
+go test ./...
 ```
 
-User-facing docs and tutorials live in `user-docs/`. They are authored separately from the generated API reference and sync `docs/swagger.yaml` plus `docs/swagger.json` into the docs site before start/build.
+The user documentation site synchronizes the generated OpenAPI files before start/build.
+Design drafts and dated cluster inventories under `docs/` provide historical context; verify
+them against stable source and your environment before using them as deployment instructions.
 
-Postman collections and isolated example environments are available under [`postman/`](postman/README.md). Import the collection/environment pair for the configured `API_BOOKINGS_ENABLED` mode. These files are maintained manually when routes or request models change.
+## Credentials
 
-### Notebook Endpoints
+Never commit real passwords, access/refresh tokens, private keys, kubeconfigs, or filled Secret
+manifests. `.env.all.example` and committed Postman environments contain examples only.
+Store credentials in local ignored files or your organization's secret-management system.
 
-When `API_BOOKINGS_ENABLED=true`, CPU/GPU sandboxes are created via `POST /v1/bookings` and
-booking lifecycle endpoints. When it is false, the direct notebook create/start/stop/delete routes
-are enabled instead.
-
-| Endpoint | Method | Description | Success Response |
-|----------|--------|-------------|------------------|
-| `/v1/bookings` | POST | Create a CPU/GPU slot booking (notebook name + category + slot) | 201 Created |
-| `/v1/notebook/list` | GET | List all notebooks (optionally filter by date range) | 200 OK |
-| `/v1/notebook/check-exists/{notebook_name}` | GET | Check if notebook exists | 200 OK |
-| `/v1/notebook/status/{notebook_name}` | GET | Get notebook status | 200 OK |
-| `/v1/profile/create` | POST | Create a new Kubeflow user profile/namespace | 201 Created |
-
-## Notebook Download Token Sessions
-
-CPU notebook downloads use a delegated Keycloak session; browser refresh tokens are never sent to
-or stored by Sandbox Connect.
-
-Configuration is documented in one place per responsibility:
-
-- [Canonical Keycloak and API setup](docs/config/api.md#canonical-keycloak-setup) covers the client
-  import, secret rotation, Standard Token Exchange, browser audience mapper, scopes, and session
-  lifetimes.
-- [Platform token sidecar configuration](docs/config/platform-token-sidecar.md) covers refresh,
-  identity validation, token publication, and readiness.
-- [Worker configuration](docs/config/worker.md) covers the CPU/GPU Notebook template wiring and
-  per-notebook session values.
-
-At runtime, the frontend creates a token session with an authenticated bodyless `POST` to the
-booking or direct-notebook token-session endpoint. The API returns `200` only after the delegated
-access token is usable in the notebook; a `503` with `Retry-After` means the frontend must retry
-before opening the notebook URL. The sidecar later persists refresh-token rotation with `PUT` to
-the same endpoint.
-
-## Notebook Status Categories
-
-When listing notebooks, the API categorizes them into different groups based on their status:
-
-### Running
-
-Notebooks in the `running` category are fully deployed and ready to use. These notebooks:
-- Have `notebook-applied` as their latest event
-- Exist in Kubernetes
-- Have `readyReplicas` set to 1 or more in their status
-
-Users can connect to and use these notebooks.
-
-### Stopped
-
-Notebooks in the `stopped` category are valid notebooks that have been temporarily stopped by the user. These notebooks:
-- Have `notebook-applied` as their latest event
-- Exist in Kubernetes
-- Have the `kubeflow-resource-stopped` annotation
-
-These notebooks can be restarted using the start endpoint.
-
-### Creating
-
-Notebooks in the `creating` category are still in the process of being created or are waiting for resources. A notebook is categorized as creating if:
-- Its latest event is not `notebook-applied` and not one of the failure events
-- Its latest event is `notebook-applied` but it doesn't have `readyReplicas` set to 1 or more
-- Its latest event is `notebook-applied` but there was an error parsing its Kubernetes spec
-
-### Failed
-
-Notebooks in the `failed` category encountered errors during creation. A notebook is categorized as failed if its latest event is one of:
-- `pvc-apply-failed`: PVC apply failed
-- `pvc-creation-failed`: PVC creation failed
-- `pvc-upload-failed`: PVC upload failed
-- `pvc-upload-apply-failed`: PVC upload apply failed
-- `notebook-apply-failed`: Notebook apply failed
-
-Failed notebooks indicate that something went wrong during the creation process and manual intervention may be required.
-
-### Orphaned
-
-Notebooks in the `orphaned` category represent an inconsistency between the database and Kubernetes. A notebook is categorized as orphaned if:
-- Its latest event is `notebook-applied` (indicating it should exist in Kubernetes)
-- BUT it cannot be found in the Kubernetes cluster
-
-This should not happen under normal circumstances and may indicate:
-- The notebook was deleted directly from Kubernetes without updating the database
-- There was a communication issue with Kubernetes
-- There was a database inconsistency
-
-Orphaned notebooks should be investigated and cleaned up.
-
-### Event Flow
-
-The typical event flow for a notebook is:
-1. `scheduled`: The notebook creation request has been scheduled
-2. `picked`: The worker has picked up the notebook creation request
-3. `pvc-applied`: PVC manifest has been applied to Kubernetes
-4. `notebook-applied`: Notebook manifest has been applied to Kubernetes
-
-After `notebook-applied`, the notebook will be in the `creating` category until Kubernetes reports that it's ready (`readyReplicas` = 1), at which point it moves to the `running` category.
+The current-tree scan does not clear the repository's history for publication. Historical
+credential findings and the scope of the audit are recorded in
+[PUBLIC_RELEASE_AUDIT.md](PUBLIC_RELEASE_AUDIT.md).

@@ -1,3 +1,4 @@
+# Deployment example: replace environment-specific values before applying.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -13,7 +14,7 @@ data:
   API_DEFAULT_GPU_TYPE: "nvidia.com/gpu"
   API_DEFAULT_GPU_REQUEST: "1"
   API_DEFAULT_GPU_LIMIT: "1"
-  API_KUBEFLOW_URL: "https://sandbox.tgdex.telangana.gov.in"
+  API_KUBEFLOW_URL: "https://notebooks.example.com"
   API_JUPYTERLITE_BASE_URL: "/jupyterlite"
   API_JUPYTERLITE_STATIC_DIR: "/app/jupyterlite"
   API_NOTEBOOK_LIST_LIMIT: "10"
@@ -24,9 +25,9 @@ data:
   API_KYC_ENABLED: "true"
   API_RATE_LIMIT: "80"
   API_RATE_WINDOW_SECS: "30"
-  API_KEYCLOAK_URL: "https://idp.tgdex.telangana.gov.in/auth"
-  API_KEYCLOAK_REALM: "tgdex"
-  API_KEYCLOAK_CLIENT_ID: "angular-tgdex-client"
+  API_KEYCLOAK_URL: "https://idp.example.com/auth"
+  API_KEYCLOAK_REALM: "<realm>"
+  API_KEYCLOAK_CLIENT_ID: "<frontend-client-id>"
   # Notebook delegation and sidecar refresh use the same confidential client.
   API_PLATFORM_TOKEN_EXCHANGE_CLIENT_ID: "sandbox-notebook"
   API_PLATFORM_TOKEN_NOTEBOOK_CLIENT_ID: "sandbox-notebook"
@@ -41,7 +42,7 @@ data:
   API_MAX_BODY_SIZE_IN_MB: "5"
   API_WRITE_TIMEOUT_SECS: "60"
   API_READ_TIMEOUT_SECS: "30"
-  API_KEYCLOAK_PUBLIC_KEY: "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvkKGd9ztloOSZscVXESeBIk5marME7uPEgMQXTvxEUrb0DBLG+rSfU0xPfG0XmQnU6IELXEJaMG3L2el3lkT40RK/TZO/0XzRxFUqGivavGec7Yzu8PrbOPrD/r0b6P6syijtqndV2U00FuJZqpg2YUATq+MRL23uyeW9EiZlOEBrAH82tgRZPukwN91bAqVgwng/pxPoBS1T6NzF8kW8ul0p81IA3Y+qalfuJ+mRtGsbH6T7hewQUT6P7csRmXN+tSDtAPtwwwHHzDF8X46kkJ88IHA2WjXMZKJAU5klI/ZxFmyWnqGM53zgFFbH5MQCmOUhed7l+w/Y80f6NqyYQIDAQAB"
+  API_KEYCLOAK_PUBLIC_KEY: "<realm-rs256-public-key>"
   API_VERSION: "v1"
   API_MAX_RUNNING_CPU: "2"
   API_MAX_RUNNING_GPU: "1"
@@ -59,8 +60,8 @@ data:
   #
   # --- AWS ECR ---
   API_REGISTRY_SECRET_TYPE: "ecr"
-  API_REGISTRY_URL: "108779579607.dkr.ecr.ap-south-1.amazonaws.com"
-  API_REGISTRY_SECRET_NAME: "v2-registry-cred"
+  API_REGISTRY_URL: "<aws-account-id>.dkr.ecr.ap-south-1.amazonaws.com"
+  API_REGISTRY_SECRET_NAME: "registry-cred"
   API_REGISTRY_ECR_REGION: "ap-south-1"
   # RabbitMQ Configuration (Audit).
   # NOTE: a non-empty placeholder host ENABLES auditing and then fails DNS on
