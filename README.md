@@ -173,3 +173,9 @@ Store credentials in local ignored files or your organization's secret-managemen
 The current-tree scan does not clear the repository's history for publication. Historical
 credential findings and the scope of the audit are recorded in
 [PUBLIC_RELEASE_AUDIT.md](PUBLIC_RELEASE_AUDIT.md).
+
+## License
+
+[View License](./LICENSE)
+
+Third-party dependency license information is listed in [dep-licenses](dep-licenses).
