@@ -177,5 +177,3 @@ credential findings and the scope of the audit are recorded in
 ## License
 
 [View License](./LICENSE)
-
-Third-party dependency license information is listed in [dep-licenses](dep-licenses).
