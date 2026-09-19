@@ -28,7 +28,10 @@ type Summary struct {
 	Succeeded      bool   `json:"succeeded"`
 }
 
-type Runner struct{ Workspace string }
+type Runner struct {
+	Workspace    string
+	StreamOutput io.Writer
+}
 
 func (r Runner) Prepare(source, outputID string) error {
 	if outputID == "" {
@@ -164,7 +167,7 @@ func (r Runner) Execute(ctx context.Context, outputDir string) error {
 	if _, err := ReadBounded(filepath.Join(r.Workspace, "notebook.py"), MaxSourceBytes); err != nil {
 		return err
 	}
-	return r.run(ctx, "execute", "python3", []string{"-I", filepath.Join(r.Workspace, "notebook.py")}, true)
+	return r.run(ctx, "execute", "python3", []string{"-I", "-u", filepath.Join(r.Workspace, "notebook.py")}, true)
 }
 
 func (r Runner) run(ctx context.Context, stage, executable string, args []string, production bool) error {
@@ -195,7 +198,7 @@ func (r Runner) run(ctx context.Context, stage, executable string, args []string
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = 2 * time.Second
-	bounded := &boundedLog{writer: log, remaining: MaxLogBytes}
+	bounded := &boundedLog{writer: log, stream: r.StreamOutput, remaining: MaxLogBytes}
 	cmd.Stdout = bounded
 	cmd.Stderr = bounded
 	runErr := cmd.Run()
@@ -235,17 +238,32 @@ func (r Runner) summary(s Summary) error {
 type boundedLog struct {
 	mu        sync.Mutex
 	writer    io.Writer
+	stream    io.Writer
 	remaining int64
 }
 
 func (b *boundedLog) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	n := len(p)
+	requested := len(p)
 	if int64(len(p)) > b.remaining {
 		p = p[:b.remaining]
 	}
-	w, err := b.writer.Write(p)
-	b.remaining -= int64(w)
-	return n, err
+	if len(p) == 0 {
+		return requested, nil
+	}
+	written, err := b.writer.Write(p)
+	b.remaining -= int64(written)
+	if written > 0 && b.stream != nil {
+		// Container-log delivery is best effort and must not fail notebook execution.
+		_, _ = b.stream.Write(p[:written])
+	}
+	if err != nil {
+		return written, err
+	}
+	if written != len(p) {
+		return written, io.ErrShortWrite
+	}
+	// Report the full input as consumed when the configured log cap truncates it.
+	return requested, nil
 }

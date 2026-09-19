@@ -23,6 +23,7 @@ func main() {
 	mapPath := flags.String("map", "", "platform replacement map")
 	outputDir := flags.String("output", "/workspace/output", "output directory")
 	timeout := flags.Duration("timeout", 20*time.Minute, "stage timeout")
+	streamLogs := flags.Bool("stream-logs", false, "copy bounded command output to container stdout")
 	flags.Parse(os.Args[2:])
 	if *timeout <= 0 || flags.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "invalid stage arguments")
@@ -33,6 +34,9 @@ func main() {
 		os.Exit(1)
 	}
 	runner := outputruntime.Runner{Workspace: absolute}
+	if *streamLogs {
+		runner.StreamOutput = os.Stdout
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 	switch stage {

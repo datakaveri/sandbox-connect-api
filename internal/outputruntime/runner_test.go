@@ -1,6 +1,7 @@
 package outputruntime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -66,6 +67,8 @@ func TestConfigureExactReplacements(t *testing.T) {
 }
 func TestExecuteProducesCSVAndBoundsLogs(t *testing.T) {
 	r := preparedRunner(t)
+	var streamed bytes.Buffer
+	r.StreamOutput = &streamed
 	t.Setenv("PRODUCTION_EXAMPLE", "approved")
 	t.Setenv("FILE_SERVICE_TOKEN", "must-not-reach-script")
 	code := "import os\nassert os.environ['PRODUCTION_EXAMPLE'] == 'approved'\nassert 'FILE_SERVICE_TOKEN' not in os.environ\nopen('result.csv','w').write('name,value\\na,1\\n')\nprint('x' * 2000000)\n"
@@ -81,6 +84,13 @@ func TestExecuteProducesCSVAndBoundsLogs(t *testing.T) {
 	if err != nil || info.Size() != MaxLogBytes {
 		t.Fatalf("log size: %v %v", info, err)
 	}
+	logData, err := os.ReadFile(filepath.Join(r.Workspace, "execute.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int64(streamed.Len()) != MaxLogBytes || !bytes.Equal(streamed.Bytes(), logData) {
+		t.Fatalf("streamed log differs from bounded scratch log: streamed=%d scratch=%d", streamed.Len(), len(logData))
+	}
 	b, err := os.ReadFile(filepath.Join(r.Workspace, "output", "result.csv"))
 	if err != nil || !strings.Contains(string(b), "a,1") {
 		t.Fatalf("CSV: %s %v", b, err)
@@ -88,6 +98,25 @@ func TestExecuteProducesCSVAndBoundsLogs(t *testing.T) {
 	s, err := r.loadSummary()
 	if err != nil || !s.Succeeded || s.Stage != "execute" || len(s.SourceSHA256) != 64 {
 		t.Fatalf("summary: %+v %v", s, err)
+	}
+}
+
+func TestBoundedLogStreamsOnlyRetainedBytes(t *testing.T) {
+	var retained bytes.Buffer
+	var streamed bytes.Buffer
+	log := &boundedLog{writer: &retained, stream: &streamed, remaining: 4}
+
+	if n, err := log.Write([]byte("abcdef")); err != nil || n != 6 {
+		t.Fatalf("first write: n=%d err=%v", n, err)
+	}
+	if retained.String() != "abcd" || streamed.String() != retained.String() {
+		t.Fatalf("unexpected retained or streamed data: retained=%q streamed=%q", retained.String(), streamed.String())
+	}
+	if n, err := log.Write([]byte("ignored")); err != nil || n != 7 {
+		t.Fatalf("capped write: n=%d err=%v", n, err)
+	}
+	if retained.String() != "abcd" || streamed.String() != "abcd" {
+		t.Fatal("log cap did not stop subsequent retained and streamed output")
 	}
 }
 func TestExecuteTimeoutAndSummaryTampering(t *testing.T) {

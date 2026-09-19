@@ -88,6 +88,12 @@ at 1 MiB. The uploader rejects directories, symlinks, hard links, empty files, m
 non-text data and non-CSV files, checks size/checksum again before PUT, and verifies completion
 before exposing the manifest to Argo.
 
+The workflow passes `--stream-logs` to the convert and execute stages. Their bounded stdout and
+stderr are retained in scratch and copied to the container log for live Kubernetes/Argo streaming.
+Execution uses unbuffered Python output. This stream is raw participant-program output and can
+contain values printed from the production environment; remove the flag from the workflow templates
+to disable it.
+
 `FILE_SERVICE_BASE_URL` includes `/v1`; `FILE_SERVICE_TOKEN` must be output-scoped.
 The exact proposed request/response contract is in
 [output-files-connect-contract.md](../../docs/output-files-connect-contract.md).

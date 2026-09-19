@@ -77,6 +77,12 @@ func TestWorkflowStageOrderAndCredentialIsolation(t *testing.T) {
 			t.Fatalf("%s must not receive the participant PVC", stage)
 		}
 	}
+	for _, stage := range []string{"convert", "execute"} {
+		args := templateByName[stage]["container"].(map[string]any)["args"].([]any)
+		if !containsString(args, "--stream-logs") {
+			t.Fatalf("%s must stream its bounded command log", stage)
+		}
+	}
 	if _, found := templateByName["execute"]["container"].(map[string]any)["envFrom"]; !found {
 		t.Fatal("execute must receive the approved production environment")
 	}
@@ -87,6 +93,15 @@ func TestWorkflowStageOrderAndCredentialIsolation(t *testing.T) {
 	if _, found := upload["envFrom"]; !found {
 		t.Fatal("upload must receive file-service credentials")
 	}
+}
+
+func containsString(values []any, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
 }
 
 func hasMount(mounts []any, name string) bool {
