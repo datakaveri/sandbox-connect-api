@@ -1822,8 +1822,8 @@ paths:
         name: output_id
         required: true
         type: string
-      - default: 200
-        description: Initial lines per workflow pod (1-1000)
+      - default: 1000
+        description: Initial lines per workflow pod (1-5000)
         in: query
         name: tailLines
         type: integer

@@ -348,7 +348,8 @@ the approval transaction.
 - resolves the namespace, Workflow name, and Workflow UID only from the owned database record;
 - lists pods using Argo's Workflow label and accepts only the five stage labels;
 - verifies each pod's Workflow owner reference name and UID before reading its `main` container;
-- follows Kubernetes pod logs with timestamps and an optional bounded `tailLines` value;
+- follows Kubernetes pod logs with timestamps and a bounded `tailLines` value (default 1,000; maximum 5,000);
+- emits one-time pod-created and main-container-started log events before process output;
 - emits `status`, `log`, `warning`, `unavailable`, and `complete` events plus heartbeat comments;
 - bounds each connection to five minutes and never beyond the JWT expiry; and
 - expects the browser to reconnect while the modal remains open.
@@ -357,7 +358,7 @@ This is live-only delivery. Argo pod garbage collection can remove logs when the
 so a client that connects after cleanup receives `unavailable` followed by `complete`. Durable stage
 status continues to come from `GET /v1/outputs/{output_id}`.
 
-Because `convert` and `execute` include raw process stdout/stderr, notebook code can deliberately or
+All four runner stages emit safe lifecycle and validation details, and upload emits safe per-file progress without credentials or signed URLs. Raw command output is capped by `OUTPUT_RUNNER_MAX_LOG_BYTES` (5 MiB by default, 32 MiB hard maximum). Because `convert` and `execute` include raw process stdout/stderr, notebook code can deliberately or
 accidentally print production environment values. Keep this owner-only demo feature under review and
 disable it before production unless filtering/redaction and an acceptable retention policy are in place.
 

@@ -31,7 +31,7 @@ func main() {
 	if err == nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 		defer cancel()
-		err = (outputupload.Uploader{Service: client, Limits: limits}).Run(ctx, *workspace, *id, *prefix, *manifest)
+		err = (outputupload.Uploader{Service: client, Limits: limits, LogOutput: os.Stdout}).Run(ctx, *workspace, *id, *prefix, *manifest)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

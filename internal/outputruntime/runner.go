@@ -18,7 +18,8 @@ import (
 )
 
 const MaxSourceBytes = int64(32 * 1024 * 1024)
-const MaxLogBytes = int64(1024 * 1024)
+const MaxLogBytes = int64(5 * 1024 * 1024)
+const MaxAllowedLogBytes = int64(32 * 1024 * 1024)
 
 type Summary struct {
 	OutputID       string `json:"outputId"`
@@ -31,9 +32,12 @@ type Summary struct {
 type Runner struct {
 	Workspace    string
 	StreamOutput io.Writer
+	MaxLogBytes  int64
 }
 
 func (r Runner) Prepare(source, outputID string) error {
+	started := time.Now()
+	r.logf("[prepare] Validating source notebook %s", filepath.Base(source))
 	if outputID == "" {
 		return fmt.Errorf("output ID is required")
 	}
@@ -56,6 +60,8 @@ func (r Runner) Prepare(source, outputID string) error {
 	if json.Unmarshal(data, &nb) != nil || nb.NBFormat != 4 || nb.Cells == nil || nb.Metadata.LanguageInfo.Name != "python" {
 		return fmt.Errorf("expected a v4 Python notebook")
 	}
+	r.logf("[prepare] Validated Python notebook: %d bytes, %d cells", len(data), len(nb.Cells))
+	r.logf("[prepare] Creating isolated workspace directories")
 	for _, name := range []string{"", "home", "tmp", "output"} {
 		if err := os.MkdirAll(filepath.Join(r.Workspace, name), 0700); err != nil {
 			return err
@@ -65,7 +71,12 @@ func (r Runner) Prepare(source, outputID string) error {
 		return err
 	}
 	sum := sha256.Sum256(data)
-	return r.summary(Summary{OutputID: outputID, SourceSHA256: hex.EncodeToString(sum[:]), Stage: "prepare", Succeeded: true})
+	if err := r.summary(Summary{OutputID: outputID, SourceSHA256: hex.EncodeToString(sum[:]), Stage: "prepare", Succeeded: true}); err != nil {
+		return err
+	}
+	r.logf("[prepare] Source notebook copied and checksum recorded")
+	r.logf("[prepare] Completed in %s", elapsed(started))
+	return nil
 }
 
 func (r Runner) Convert(ctx context.Context) error {
@@ -74,6 +85,8 @@ func (r Runner) Convert(ctx context.Context) error {
 }
 
 func (r Runner) Configure(mapPath string) error {
+	started := time.Now()
+	r.logf("[configure] Loading approved replacement map")
 	// ConfigMap projected files are symlinks owned by Kubernetes, so read this trusted input normally.
 	f, err := os.Open(mapPath)
 	if err != nil {
@@ -92,6 +105,7 @@ func (r Runner) Configure(mapPath string) error {
 	if err := json.Unmarshal(data, &mapping); err != nil || mapping.Version == "" {
 		return fmt.Errorf("invalid replacement map")
 	}
+	r.logf("[configure] Loaded map version %s with %d required and %d optional replacements", mapping.Version, len(mapping.Required), len(mapping.Optional))
 	script, err := ReadBounded(filepath.Join(r.Workspace, "notebook.py"), MaxSourceBytes)
 	if err != nil {
 		return err
@@ -150,6 +164,8 @@ func (r Runner) Configure(mapPath string) error {
 	if err := WriteFile(filepath.Join(r.Workspace, "notebook.py"), []byte(result)); err != nil {
 		return err
 	}
+	r.logf("[configure] Applied %d approved replacement rules", len(keys))
+	r.logf("[configure] Configured script size: %d bytes", len(result))
 	summary, err := r.loadSummary()
 	if err != nil {
 		return err
@@ -157,7 +173,11 @@ func (r Runner) Configure(mapPath string) error {
 	summary.MappingVersion = mapping.Version
 	summary.Stage = "configure"
 	summary.Succeeded = true
-	return r.summary(summary)
+	if err := r.summary(summary); err != nil {
+		return err
+	}
+	r.logf("[configure] Completed in %s", elapsed(started))
+	return nil
 }
 
 func (r Runner) Execute(ctx context.Context, outputDir string) error {
@@ -167,10 +187,29 @@ func (r Runner) Execute(ctx context.Context, outputDir string) error {
 	if _, err := ReadBounded(filepath.Join(r.Workspace, "notebook.py"), MaxSourceBytes); err != nil {
 		return err
 	}
-	return r.run(ctx, "execute", "python3", []string{"-I", "-u", filepath.Join(r.Workspace, "notebook.py")}, true)
+	if err := r.run(ctx, "execute", "python3", []string{"-I", "-u", filepath.Join(r.Workspace, "notebook.py")}, true); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(outputDir)
+	if err != nil {
+		return err
+	}
+	r.logf("[execute] Produced %d output entries", len(entries))
+	for _, entry := range entries {
+		if entry.Type().IsRegular() {
+			info, infoErr := entry.Info()
+			if infoErr != nil {
+				return infoErr
+			}
+			r.logf("[execute] Output file %s: %d bytes", entry.Name(), info.Size())
+		}
+	}
+	return nil
 }
 
 func (r Runner) run(ctx context.Context, stage, executable string, args []string, production bool) error {
+	started := time.Now()
+	r.logf("[%s] Starting stage process", stage)
 	summary, err := r.loadSummary()
 	if err != nil {
 		return err
@@ -198,10 +237,14 @@ func (r Runner) run(ctx context.Context, stage, executable string, args []string
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = 2 * time.Second
-	bounded := &boundedLog{writer: log, stream: r.StreamOutput, remaining: MaxLogBytes}
+	bounded := &boundedLog{writer: log, stream: r.StreamOutput, remaining: r.maxLogBytes()}
 	cmd.Stdout = bounded
 	cmd.Stderr = bounded
-	runErr := cmd.Run()
+	runErr := cmd.Start()
+	if runErr == nil {
+		r.logf("[%s] Process started; streaming stdout and stderr", stage)
+		runErr = cmd.Wait()
+	}
 	if cmd.Process != nil {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
@@ -210,13 +253,39 @@ func (r Runner) run(ctx context.Context, stage, executable string, args []string
 	if err := r.summary(summary); err != nil {
 		return err
 	}
+	if bounded.truncated {
+		r.logf("[%s] Raw process output reached the %d-byte limit and was truncated", stage, r.maxLogBytes())
+	}
 	if runErr != nil {
+		r.logf("[%s] Failed after %s", stage, elapsed(started))
 		return fmt.Errorf("%s failed (see bounded stage log)", stage)
 	}
 	if stage == "convert" {
 		_, err = ReadBounded(filepath.Join(r.Workspace, "notebook.py"), MaxSourceBytes)
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	r.logf("[%s] Completed in %s", stage, elapsed(started))
+	return nil
+}
+
+func (r Runner) maxLogBytes() int64 {
+	if r.MaxLogBytes > 0 {
+		return r.MaxLogBytes
+	}
+	return MaxLogBytes
+}
+
+func (r Runner) logf(format string, args ...any) {
+	if r.StreamOutput == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(r.StreamOutput, format+"\n", args...)
+}
+
+func elapsed(started time.Time) time.Duration {
+	return time.Since(started).Round(time.Millisecond)
 }
 func (r Runner) loadSummary() (Summary, error) {
 	var s Summary
@@ -240,6 +309,7 @@ type boundedLog struct {
 	writer    io.Writer
 	stream    io.Writer
 	remaining int64
+	truncated bool
 }
 
 func (b *boundedLog) Write(p []byte) (int, error) {
@@ -247,6 +317,7 @@ func (b *boundedLog) Write(p []byte) (int, error) {
 	defer b.mu.Unlock()
 	requested := len(p)
 	if int64(len(p)) > b.remaining {
+		b.truncated = true
 		p = p[:b.remaining]
 	}
 	if len(p) == 0 {

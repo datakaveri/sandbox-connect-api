@@ -138,7 +138,11 @@ func TestFilesConnectUploadCompleteAndPublish(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = (Uploader{Service: client, HTTP: storage.Client()}).Run(context.Background(), w, "run", prefix, manifestPath)
+			var uploadLogs strings.Builder
+			err = (Uploader{Service: client, HTTP: storage.Client(), LogOutput: &uploadLogs}).Run(context.Background(), w, "run", prefix, manifestPath)
+			if strings.Contains(uploadLogs.String(), "service-secret") || strings.Contains(uploadLogs.String(), "signature=private") {
+				t.Fatal("upload logs exposed credentials or a signed URL")
+			}
 			if scenario != "success" {
 				if err == nil {
 					t.Fatal("expected rejection")
@@ -153,6 +157,9 @@ func TestFilesConnectUploadCompleteAndPublish(t *testing.T) {
 			}
 			if err != nil {
 				t.Fatal(err)
+			}
+			if !strings.Contains(uploadLogs.String(), "[upload] Uploading result.csv") || !strings.Contains(uploadLogs.String(), "[upload] Manifest verified") {
+				t.Fatalf("missing detailed upload logs: %s", uploadLogs.String())
 			}
 			if !complete || string(uploaded) != "name,value\na,1\n" {
 				t.Fatal("upload did not complete")

@@ -93,6 +93,8 @@ func TestStreamOutputLogsStreamsOnlyOwnedWorkflowPods(t *testing.T) {
 		"event: log",
 		`"stage":"execute"`,
 		`"timestamp":"2026-09-19T07:00:01.123456789Z"`,
+		`"message":"[system] Pod created; waiting for main container"`,
+		`"message":"[system] Main container started"`,
 		`"message":"created result.csv"`,
 		"event: complete",
 	} {
@@ -150,7 +152,7 @@ func TestStreamOutputLogsValidatesBeforeStartingStream(t *testing.T) {
 		wantCode int
 	}{
 		{
-			name: "invalid tail lines", target: "/v1/outputs/" + outputID + "/logs?tailLines=1001",
+			name: "invalid tail lines", target: "/v1/outputs/" + outputID + "/logs?tailLines=5001",
 			store: &fakeOutputStore{}, wantCode: http.StatusBadRequest,
 		},
 		{
@@ -212,17 +214,21 @@ func TestContextTimeoutExemptsOnlyOutputLogGET(t *testing.T) {
 }
 
 func outputLogTestPod(name, stage, workflowName, workflowUID string) corev1.Pod {
+	startedAt := metav1.NewTime(time.Date(2026, 9, 19, 7, 0, 0, 0, time.UTC))
 	return corev1.Pod{ObjectMeta: metav1.ObjectMeta{
 		Name: name,
 		Labels: map[string]string{
 			"workflows.argoproj.io/workflow": workflowName,
 			"output-stage":                   stage,
 		},
+		CreationTimestamp: startedAt,
 		OwnerReferences: []metav1.OwnerReference{{
 			APIVersion: "argoproj.io/v1alpha1",
 			Kind:       "Workflow",
 			Name:       workflowName,
 			UID:        types.UID(workflowUID),
 		}},
-	}}
+	}, Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{{
+		Name: "main", State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{StartedAt: startedAt}},
+	}}}}
 }

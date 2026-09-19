@@ -32,6 +32,7 @@ type serviceConfig struct {
 	MaxOutputBytes        int64 `env:"OUTPUT_MAX_BYTES" envDefault:"1073741824"`
 
 	RunnerImage              string `env:"OUTPUT_RUNNER_IMAGE,required"`
+	RunnerMaxLogBytes        int64  `env:"OUTPUT_RUNNER_MAX_LOG_BYTES" envDefault:"5242880"`
 	UploaderImage            string `env:"OUTPUT_UPLOADER_IMAGE,required"`
 	WorkflowServiceAccount   string `env:"OUTPUT_WORKFLOW_SERVICE_ACCOUNT" envDefault:"output-runner"`
 	ScratchStorageClass      string `env:"OUTPUT_SCRATCH_STORAGE_CLASS,required"`
@@ -98,7 +99,7 @@ func main() {
 			MaxFileBytes:     config.MaxFileBytes,
 			MaxOutputBytes:   config.MaxOutputBytes,
 			Workflow: outputargo.WorkflowConfig{
-				RunnerImage: config.RunnerImage, UploaderImage: config.UploaderImage,
+				RunnerImage: config.RunnerImage, RunnerMaxLogBytes: config.RunnerMaxLogBytes, UploaderImage: config.UploaderImage,
 				ServiceAccountName:       config.WorkflowServiceAccount,
 				ScratchStorageClass:      config.ScratchStorageClass,
 				ScratchStorageSize:       config.ScratchStorageSize,

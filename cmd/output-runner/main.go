@@ -24,8 +24,9 @@ func main() {
 	outputDir := flags.String("output", "/workspace/output", "output directory")
 	timeout := flags.Duration("timeout", 20*time.Minute, "stage timeout")
 	streamLogs := flags.Bool("stream-logs", false, "copy bounded command output to container stdout")
+	maxLogBytes := flags.Int64("max-log-bytes", outputruntime.MaxLogBytes, "maximum retained and streamed command output bytes")
 	flags.Parse(os.Args[2:])
-	if *timeout <= 0 || flags.NArg() != 0 {
+	if *timeout <= 0 || *maxLogBytes <= 0 || *maxLogBytes > outputruntime.MaxAllowedLogBytes || flags.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "invalid stage arguments")
 		os.Exit(1)
 	}
@@ -33,7 +34,7 @@ func main() {
 	if err != nil {
 		os.Exit(1)
 	}
-	runner := outputruntime.Runner{Workspace: absolute}
+	runner := outputruntime.Runner{Workspace: absolute, MaxLogBytes: *maxLogBytes}
 	if *streamLogs {
 		runner.StreamOutput = os.Stdout
 	}

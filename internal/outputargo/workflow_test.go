@@ -77,10 +77,13 @@ func TestWorkflowStageOrderAndCredentialIsolation(t *testing.T) {
 			t.Fatalf("%s must not receive the participant PVC", stage)
 		}
 	}
-	for _, stage := range []string{"convert", "execute"} {
+	for _, stage := range []string{"prepare", "convert", "configure", "execute"} {
 		args := templateByName[stage]["container"].(map[string]any)["args"].([]any)
 		if !containsString(args, "--stream-logs") {
-			t.Fatalf("%s must stream its bounded command log", stage)
+			t.Fatalf("%s must stream its detailed stage log", stage)
+		}
+		if !containsString(args, "--max-log-bytes") || !containsString(args, "5242880") {
+			t.Fatalf("%s must receive the default 5 MiB log cap", stage)
 		}
 	}
 	if _, found := templateByName["execute"]["container"].(map[string]any)["envFrom"]; !found {

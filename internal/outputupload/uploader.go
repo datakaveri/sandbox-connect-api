@@ -30,9 +30,10 @@ type Service interface {
 	CompleteOutput(context.Context, string, string, output.Manifest) (output.Manifest, error)
 }
 type Uploader struct {
-	Service Service
-	HTTP    *http.Client
-	Limits  output.Limits
+	Service   Service
+	HTTP      *http.Client
+	Limits    output.Limits
+	LogOutput io.Writer
 }
 
 // Inventory accepts only flat, regular CSV files; no directory or symlink is a deliverable.
@@ -129,15 +130,25 @@ func inspectCSV(f *os.File, max int64) (output.ManifestFile, error) {
 	return output.ManifestFile{Size: size, MediaType: "text/csv", SHA256: hex.EncodeToString(hash.Sum(nil))}, nil
 }
 func (u Uploader) Run(ctx context.Context, workspace, id, prefix, manifestPath string) error {
+	started := time.Now()
+	u.logf("[upload] Inspecting output directory")
 	limits := u.Limits.WithDefaults()
 	manifest, err := Inventory(filepath.Join(workspace, "output"), prefix, limits)
 	if err != nil {
 		return err
 	}
+	var totalBytes int64
+	for _, file := range manifest.Files {
+		totalBytes += file.Size
+		u.logf("[upload] Validated %s: %d bytes", file.Path, file.Size)
+	}
+	u.logf("[upload] Inventory complete: %d CSV files, %d total bytes", len(manifest.Files), totalBytes)
+	u.logf("[upload] Requesting signed upload targets")
 	targets, err := u.Service.RequestUploads(ctx, id, prefix, manifest)
 	if err != nil {
 		return err
 	}
+	u.logf("[upload] Received %d upload targets", len(targets))
 	if len(targets) != len(manifest.Files) {
 		return fmt.Errorf("upload target count mismatch")
 	}
@@ -163,10 +174,13 @@ func (u Uploader) Run(ctx context.Context, workspace, id, prefix, manifestPath s
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	client.Jar = nil
 	for _, file := range manifest.Files {
+		u.logf("[upload] Uploading %s (%d bytes)", file.Path, file.Size)
 		if err := upload(ctx, client, byID[file.FileID], filepath.Join(workspace, "output", file.Path), file); err != nil {
 			return err
 		}
+		u.logf("[upload] Uploaded %s", file.Path)
 	}
+	u.logf("[upload] Finalizing verified output manifest")
 	verified, err := u.Service.CompleteOutput(ctx, id, prefix, manifest)
 	if err != nil {
 		return err
@@ -191,8 +205,21 @@ func (u Uploader) Run(ctx context.Context, workspace, id, prefix, manifestPath s
 			return fmt.Errorf("completion manifest mismatch")
 		}
 	}
-	return outputruntime.WriteFile(manifestPath, raw)
+	if err := outputruntime.WriteFile(manifestPath, raw); err != nil {
+		return err
+	}
+	u.logf("[upload] Manifest verified and written with %d files", len(verified.Files))
+	u.logf("[upload] Completed in %s", time.Since(started).Round(time.Millisecond))
+	return nil
 }
+
+func (u Uploader) logf(format string, args ...any) {
+	if u.LogOutput == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(u.LogOutput, format+"\n", args...)
+}
+
 func validateTarget(target filesconnect.UploadTarget) error {
 	parsed, err := url.Parse(target.URL)
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" {

@@ -23,8 +23,8 @@ import (
 )
 
 const (
-	outputLogDefaultTailLines = int64(200)
-	outputLogMaxTailLines     = int64(1000)
+	outputLogDefaultTailLines = int64(1000)
+	outputLogMaxTailLines     = int64(5000)
 	outputLogMaxStreamTime    = 5 * time.Minute
 	outputLogPollInterval     = time.Second
 	outputLogHeartbeat        = 15 * time.Second
@@ -90,7 +90,7 @@ type OutputLogStatusEvent struct {
 // @Tags         outputs
 // @Produce      text/event-stream
 // @Param        output_id path string true "Output ID"
-// @Param        tailLines query int false "Initial lines per workflow pod (1-1000)" default(200)
+// @Param        tailLines query int false "Initial lines per workflow pod (1-5000)" default(1000)
 // @Success      200 {string} string "Server-Sent Events: status, log, warning, unavailable, complete"
 // @Failure      400 {object} Error400
 // @Failure      401 {object} Error401
@@ -165,6 +165,8 @@ func (app *application) streamOutputLogs(w http.ResponseWriter, r *http.Request)
 	defer heartbeatTicker.Stop()
 
 	streamedPods := make(map[string]struct{})
+	announcedPods := make(map[string]struct{})
+	announcedContainers := make(map[string]struct{})
 	sawWorkflowPod := false
 	firstLookup := true
 
@@ -219,6 +221,30 @@ func (app *application) streamOutputLogs(w http.ResponseWriter, r *http.Request)
 						continue
 					}
 					stage := pod.Labels["output-stage"]
+					if _, announced := announcedPods[pod.Name]; !announced {
+						createdAt := pod.CreationTimestamp.Time
+						if createdAt.IsZero() {
+							createdAt = time.Now()
+						}
+						if err := writeOutputSSEJSON(w, controller, "log", OutputLogEvent{
+							Stage: stage, Timestamp: createdAt.UTC().Format(time.RFC3339Nano),
+							Message: "[system] Pod created; waiting for main container",
+						}); err != nil {
+							return
+						}
+						announcedPods[pod.Name] = struct{}{}
+					}
+					if startedAt, started := outputPodMainContainerStarted(pod); started {
+						if _, announced := announcedContainers[pod.Name]; !announced {
+							if err := writeOutputSSEJSON(w, controller, "log", OutputLogEvent{
+								Stage: stage, Timestamp: startedAt.UTC().Format(time.RFC3339Nano),
+								Message: "[system] Main container started",
+							}); err != nil {
+								return
+							}
+							announcedContainers[pod.Name] = struct{}{}
+						}
+					}
 					streamed := app.streamOutputPod(ctx, w, controller, heartbeatTicker.C,
 						record.Namespace, pod.Name, stage, tailLines)
 					if streamed || outputLogTerminal(record.Status) {
@@ -396,6 +422,21 @@ func trustedOutputWorkflowPods(pods []corev1.Pod, workflowName, workflowUID stri
 	return trusted
 }
 
+func outputPodMainContainerStarted(pod corev1.Pod) (time.Time, bool) {
+	for _, status := range pod.Status.ContainerStatuses {
+		if status.Name != "main" {
+			continue
+		}
+		if status.State.Running != nil {
+			return status.State.Running.StartedAt.Time, true
+		}
+		if status.State.Terminated != nil {
+			return status.State.Terminated.StartedAt.Time, true
+		}
+	}
+	return time.Time{}, false
+}
+
 func hasUnstreamedOutputPods(pods []corev1.Pod, streamed map[string]struct{}) bool {
 	for i := range pods {
 		if _, ok := streamed[pods[i].Name]; !ok {
@@ -416,7 +457,7 @@ func parseOutputLogTailLines(w http.ResponseWriter, r *http.Request) (int64, boo
 	}
 	value, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil || value < 1 || value > outputLogMaxTailLines {
-		sendError(w, getLogger(r), http.StatusBadRequest, "tailLines must be between 1 and 1000")
+		sendError(w, getLogger(r), http.StatusBadRequest, "tailLines must be between 1 and 5000")
 		return 0, false
 	}
 	return value, true

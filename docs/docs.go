@@ -1642,8 +1642,8 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "default": 200,
-                        "description": "Initial lines per workflow pod (1-1000)",
+                        "default": 1000,
+                        "description": "Initial lines per workflow pod (1-5000)",
                         "name": "tailLines",
                         "in": "query"
                     }

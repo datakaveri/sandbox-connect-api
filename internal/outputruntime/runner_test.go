@@ -69,6 +69,7 @@ func TestExecuteProducesCSVAndBoundsLogs(t *testing.T) {
 	r := preparedRunner(t)
 	var streamed bytes.Buffer
 	r.StreamOutput = &streamed
+	r.MaxLogBytes = 1024
 	t.Setenv("PRODUCTION_EXAMPLE", "approved")
 	t.Setenv("FILE_SERVICE_TOKEN", "must-not-reach-script")
 	code := "import os\nassert os.environ['PRODUCTION_EXAMPLE'] == 'approved'\nassert 'FILE_SERVICE_TOKEN' not in os.environ\nopen('result.csv','w').write('name,value\\na,1\\n')\nprint('x' * 2000000)\n"
@@ -81,15 +82,15 @@ func TestExecuteProducesCSVAndBoundsLogs(t *testing.T) {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(filepath.Join(r.Workspace, "execute.log"))
-	if err != nil || info.Size() != MaxLogBytes {
+	if err != nil || info.Size() != r.MaxLogBytes {
 		t.Fatalf("log size: %v %v", info, err)
 	}
 	logData, err := os.ReadFile(filepath.Join(r.Workspace, "execute.log"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if int64(streamed.Len()) != MaxLogBytes || !bytes.Equal(streamed.Bytes(), logData) {
-		t.Fatalf("streamed log differs from bounded scratch log: streamed=%d scratch=%d", streamed.Len(), len(logData))
+	if !bytes.Contains(streamed.Bytes(), logData) || !strings.Contains(streamed.String(), "Raw process output reached the 1024-byte limit") {
+		t.Fatalf("stream did not include bounded output and truncation notice: streamed=%d scratch=%d", streamed.Len(), len(logData))
 	}
 	b, err := os.ReadFile(filepath.Join(r.Workspace, "output", "result.csv"))
 	if err != nil || !strings.Contains(string(b), "a,1") {

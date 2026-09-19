@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"sandbox-backend-service/internal/output"
+	"sandbox-backend-service/internal/outputruntime"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
@@ -14,6 +15,7 @@ import (
 type WorkflowConfig struct {
 	Limits                   output.Limits
 	RunnerImage              string
+	RunnerMaxLogBytes        int64
 	UploaderImage            string
 	ServiceAccountName       string
 	ScratchStorageClass      string
@@ -39,6 +41,9 @@ func (c WorkflowConfig) Validate() error {
 	}
 	if c.ReplacementConfigMapName == "" || c.ProductionEnvSecretName == "" || c.FileServiceSecretName == "" {
 		return fmt.Errorf("replacement map, production environment, and file-service configuration are required")
+	}
+	if c.RunnerMaxLogBytes < 0 || c.RunnerMaxLogBytes > outputruntime.MaxAllowedLogBytes {
+		return fmt.Errorf("runner max log bytes must be between 1 and %d", outputruntime.MaxAllowedLogBytes)
 	}
 	if c.ActiveDeadlineSeconds <= 0 || c.TTLSecondsAfterFinished <= 0 {
 		return fmt.Errorf("workflow deadline and TTL must be positive")
@@ -137,20 +142,30 @@ func buildWorkflowTemplates(cfg WorkflowConfig, sourcePVC string) []any {
 					"parameter": "{{steps.upload.outputs.parameters.manifest-json}}"},
 			}}},
 		},
-		runnerTemplate("prepare", cfg.RunnerImage, []string{
+		runnerTemplate("prepare", cfg.RunnerImage, runnerStageArgs(cfg,
 			"prepare", "--source", "/mnt/participant/{{workflow.parameters.notebook-path}}",
-			"--workspace", "/workspace", "--output-id", "{{workflow.parameters.output-id}}",
-		}, sourcePVC, "", false),
+			"--workspace", "/workspace", "--output-id", "{{workflow.parameters.output-id}}"), sourcePVC, "", false),
 		runnerTemplate("convert", cfg.RunnerImage,
-			[]string{"convert", "--workspace", "/workspace", "--stream-logs"}, "", "", false),
+			runnerStageArgs(cfg, "convert", "--workspace", "/workspace"), "", "", false),
 		runnerTemplate("configure", cfg.RunnerImage,
-			[]string{"configure", "--workspace", "/workspace", "--map", "/etc/output/replacements.json"},
+			runnerStageArgs(cfg, "configure", "--workspace", "/workspace", "--map", "/etc/output/replacements.json"),
 			"", cfg.ReplacementConfigMapName, false),
 		runnerTemplate("execute", cfg.RunnerImage,
-			[]string{"execute", "--workspace", "/workspace", "--output", "/workspace/output", "--stream-logs"},
+			runnerStageArgs(cfg, "execute", "--workspace", "/workspace", "--output", "/workspace/output"),
 			"", "", true),
 		uploadTemplate(cfg),
 	}
+}
+
+func (c WorkflowConfig) runnerMaxLogBytes() int64 {
+	if c.RunnerMaxLogBytes > 0 {
+		return c.RunnerMaxLogBytes
+	}
+	return outputruntime.MaxLogBytes
+}
+
+func runnerStageArgs(cfg WorkflowConfig, values ...string) []string {
+	return append(values, "--stream-logs", "--max-log-bytes", strconv.FormatInt(cfg.runnerMaxLogBytes(), 10))
 }
 
 func runnerTemplate(name, image string, args []string, participantPVC, replacementConfigMap string, productionEnv bool) map[string]any {
