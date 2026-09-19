@@ -5,6 +5,7 @@ The Postman assets are split by the API's `API_BOOKINGS_ENABLED` operating mode.
 - [Bookings-enabled notebook APIs](bookings-enabled-notebook-apis/README.md) target `API_BOOKINGS_ENABLED=true`, which is the API default.
 - [Direct notebook APIs](direct-notebook-apis/README.md) target `API_BOOKINGS_ENABLED=false`.
 - [Auditing subset](forAuditing/README.md) contains only authentication setup, category/slot discovery, booking creation/listing, and extend/cancel/terminate requests.
+- [Output submission and approval flow](output-approval-flow/README.md) covers owner submission, `cos_admin` review and approval, approved workspace access, downloads, and authorization-boundary checks.
 
 Import the collection and environment from the same directory. Do not combine a collection with the environment from the other operating mode.
 
