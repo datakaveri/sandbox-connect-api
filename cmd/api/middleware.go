@@ -92,6 +92,10 @@ func (app *application) rateLimitMiddleware(next http.Handler) http.Handler {
 
 func (app *application) contextTimeout(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isOutputLogStreamRequest(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		ctx, cancel := context.WithTimeout(r.Context(), time.Duration(app.env.TimeoutInSecs)*time.Second)
 		defer cancel()
 		r = r.WithContext(ctx)
@@ -261,6 +265,9 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 			Email:    jwtPayload.Email,
 			Roles:    jwtPayload.RealmAccess.Roles,
 			ClientID: jwtPayload.Azp,
+		}
+		if exp != nil {
+			userInfo.ExpiresAt = exp.Time
 		}
 
 		// Debug: Log successful authentication with user context

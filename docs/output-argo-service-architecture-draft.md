@@ -52,6 +52,7 @@ flowchart LR
     WORKER[output-argo-service] <-->|claim and update work| DB
     WORKER -->|wait for PVC and create/watch| ARGO[Argo Workflow]
     PVC[(Sandbox PVC)] -->|read-only| ARGO
+    API -->|owner-scoped live pod logs| ARGO
     ARGO -->|nbconvert, configure, execute| RUN[PS4 Runner]
     RUN -->|CSV output| UPLOAD[Separate Uploader]
     UPLOAD --> FILES[Files Connect]
@@ -77,7 +78,9 @@ Add a **Submit for Output Generation** button beside the existing Start, Stop, a
 The user-facing UI:
 
 - calls the submit endpoint;
-- shows that the notebook is being stopped and output generation is running; and
+- shows that the notebook is being stopped and output generation is running;
+- polls the owned output status for the timeline and uses the authenticated SSE endpoint while the
+  modal is open to display live logs from the five Workflow stages; and
 - provides an object-backed workspace where the user can list, preview, and download approved CSV
   files.
 
@@ -337,6 +340,27 @@ S3-style object stores do not provide an atomic directory move, so the workspace
 publication marker. Keep the NHA review copy for audit or retention cleanup; deletion is not part of
 the approval transaction.
 
+### Live workflow logs
+
+`GET /v1/outputs/{output_id}/logs` is an owner-authenticated Server-Sent Events endpoint for the
+`prepare`, `convert`, `configure`, `execute`, and `upload` pods. The API:
+
+- resolves the namespace, Workflow name, and Workflow UID only from the owned database record;
+- lists pods using Argo's Workflow label and accepts only the five stage labels;
+- verifies each pod's Workflow owner reference name and UID before reading its `main` container;
+- follows Kubernetes pod logs with timestamps and an optional bounded `tailLines` value;
+- emits `status`, `log`, `warning`, `unavailable`, and `complete` events plus heartbeat comments;
+- bounds each connection to five minutes and never beyond the JWT expiry; and
+- expects the browser to reconnect while the modal remains open.
+
+This is live-only delivery. Argo pod garbage collection can remove logs when the Workflow finishes,
+so a client that connects after cleanup receives `unavailable` followed by `complete`. Durable stage
+status continues to come from `GET /v1/outputs/{output_id}`.
+
+Because `convert` and `execute` include raw process stdout/stderr, notebook code can deliberately or
+accidentally print production environment values. Keep this owner-only demo feature under review and
+disable it before production unless filtering/redaction and an acceptable retention policy are in place.
+
 ## API proposal
 
 All browser-facing routes remain authenticated Sandbox Connect routes. The
@@ -539,7 +563,10 @@ Approval phases are `requested -> publishing -> approved`, with a retryable `fai
 - Prefer bucket versioning or conditional writes so a retry cannot silently replace previously
   approved data.
 - Add Workflow TTL, pod/scratch-volume cleanup, concurrency limits, and restart reconciliation.
-- Do not log tokens, secret environment values, notebook source, or generated output content.
+- Platform components must not deliberately log tokens, secret environment values, notebook source,
+  or generated output content. The demo's explicitly approved raw `convert`/`execute` stream is an
+  exception with known disclosure risk; it is owner-scoped, live-only, time-bounded, and must be
+  removed or hardened before production if validation finds sensitive values.
 
 ## What may be reused from the reference project
 

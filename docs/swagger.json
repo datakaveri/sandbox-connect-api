@@ -1614,6 +1614,71 @@
                 }
             }
         },
+        "/v1/outputs/{output_id}/logs": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Streams Server-Sent Events for the prepare, convert, configure, execute, and upload workflow stages. The stream is live-only and may be unavailable after workflow pod cleanup.",
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "outputs"
+                ],
+                "summary": "Stream an owned output run's live execution logs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Output ID",
+                        "name": "output_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "default": 200,
+                        "description": "Initial lines per workflow pod (1-1000)",
+                        "name": "tailLines",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Server-Sent Events: status, log, warning, unavailable, complete",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error400"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error401"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error404"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/cmd_api.Error503"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/profile/create": {
             "post": {
                 "security": [

@@ -147,6 +147,7 @@ func main() {
 		auditService:   auditService,
 		outputStore:    output.NewStore(pool.Pool),
 		outputFiles:    outputFilesClient,
+		outputLogs:     newKubernetesOutputLogSource(k8sClient.Core),
 	}
 
 	server := http.Server{
