@@ -102,6 +102,45 @@ func TestExecuteProducesCSVAndBoundsLogs(t *testing.T) {
 	}
 }
 
+func TestExecuteWaitsForPlatformTokenWithoutLoggingIt(t *testing.T) {
+	r := preparedRunner(t)
+	var streamed bytes.Buffer
+	r.StreamOutput = &streamed
+	tokenFile := filepath.Join(t.TempDir(), "token")
+	t.Setenv("NHA_TOKEN_FILE", tokenFile)
+	if err := WriteFile(filepath.Join(r.Workspace, "notebook.py"), []byte("import os\nassert open(os.environ['NHA_TOKEN_FILE']).read().strip() == 'test-token'\nopen('result.csv','w').write('ok\\n')\n")); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		_ = os.WriteFile(tokenFile, []byte("test-token\n"), 0600)
+	}()
+	if err := r.Execute(ctx, filepath.Join(r.Workspace, "output")); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(streamed.String(), "Delegated platform token is ready") || strings.Contains(streamed.String(), "test-token") {
+		t.Fatal("readiness must be logged without leaking the token")
+	}
+}
+
+func TestExecuteFailsWhenPlatformTokenUnavailable(t *testing.T) {
+	r := preparedRunner(t)
+	t.Setenv("NHA_TOKEN_FILE", filepath.Join(t.TempDir(), "missing-token"))
+	if err := WriteFile(filepath.Join(r.Workspace, "notebook.py"), []byte("open('result.csv','w').write('unexpected\\n')\n")); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
+	defer cancel()
+	if err := r.Execute(ctx, filepath.Join(r.Workspace, "output")); err == nil || !strings.Contains(err.Error(), "delegated platform token unavailable") {
+		t.Fatalf("expected token wait failure, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(r.Workspace, "output", "result.csv")); !os.IsNotExist(err) {
+		t.Fatal("notebook must not execute before token is ready")
+	}
+}
+
 func TestBoundedLogStreamsOnlyRetainedBytes(t *testing.T) {
 	var retained bytes.Buffer
 	var streamed bytes.Buffer

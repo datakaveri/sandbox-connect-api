@@ -3,6 +3,7 @@ package outputargo
 import (
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -13,18 +14,25 @@ import (
 )
 
 type WorkflowConfig struct {
-	Limits                   output.Limits
-	RunnerImage              string
-	RunnerMaxLogBytes        int64
-	UploaderImage            string
-	ServiceAccountName       string
-	ScratchStorageClass      string
-	ScratchStorageSize       string
-	ReplacementConfigMapName string
-	ProductionEnvSecretName  string
-	FileServiceSecretName    string
-	ActiveDeadlineSeconds    int64
-	TTLSecondsAfterFinished  int64
+	Limits                         output.Limits
+	RunnerImage                    string
+	RunnerMaxLogBytes              int64
+	UploaderImage                  string
+	ServiceAccountName             string
+	ScratchStorageClass            string
+	ScratchStorageSize             string
+	ReplacementConfigMapName       string
+	ProductionEnvSecretName        string
+	FileServiceSecretName          string
+	DataAccessEnabled              bool
+	DataAccessBaseURL              string
+	DataAccessMTLSSecretName       string
+	PlatformTokenSidecarImage      string
+	PlatformTokenURL               string
+	PlatformTokenClientID          string
+	PlatformTokenSessionAPIBaseURL string
+	ActiveDeadlineSeconds          int64
+	TTLSecondsAfterFinished        int64
 }
 
 func (c WorkflowConfig) Validate() error {
@@ -47,6 +55,20 @@ func (c WorkflowConfig) Validate() error {
 	}
 	if c.ActiveDeadlineSeconds <= 0 || c.TTLSecondsAfterFinished <= 0 {
 		return fmt.Errorf("workflow deadline and TTL must be positive")
+	}
+	if c.DataAccessEnabled {
+		if !isDigestPinnedImage(c.PlatformTokenSidecarImage) {
+			return fmt.Errorf("platform token sidecar image must be pinned by sha256 digest")
+		}
+		if c.DataAccessBaseURL == "" || c.DataAccessMTLSSecretName == "" || c.PlatformTokenClientID == "" || c.PlatformTokenSessionAPIBaseURL == "" || c.PlatformTokenURL == "" {
+			return fmt.Errorf("data access URL, mTLS secret, platform token URL, client ID, and session API URL are required")
+		}
+		for _, endpoint := range []string{c.DataAccessBaseURL, c.PlatformTokenURL, c.PlatformTokenSessionAPIBaseURL} {
+			parsed, err := url.Parse(endpoint)
+			if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+				return fmt.Errorf("data access and platform token endpoints must be HTTPS URLs")
+			}
+		}
 	}
 	return nil
 }
@@ -78,6 +100,9 @@ func BuildWorkflow(record output.Record, cfg WorkflowConfig) (*unstructured.Unst
 	}
 	if !output.IsSafeRelativePrefix(record.ReviewPrefix) {
 		return nil, fmt.Errorf("review prefix must be a safe relative prefix")
+	}
+	if cfg.DataAccessEnabled && (record.NotebookName == "" || record.UserID == "" || len(record.NotebookName) > 240) {
+		return nil, fmt.Errorf("data access requires a valid notebook name and owner")
 	}
 	name := WorkflowName(record.ID)
 	labels := map[string]any{
@@ -117,19 +142,25 @@ func BuildWorkflow(record output.Record, cfg WorkflowConfig) (*unstructured.Unst
 					"resources":        map[string]any{"requests": map[string]any{"storage": cfg.ScratchStorageSize}},
 				},
 			}},
-			"templates": buildWorkflowTemplates(cfg, record.SourcePVC),
+			"templates": buildWorkflowTemplates(cfg, record),
 		},
 	}}
 	return workflow, nil
 }
 
-func buildWorkflowTemplates(cfg WorkflowConfig, sourcePVC string) []any {
+func buildWorkflowTemplates(cfg WorkflowConfig, record output.Record) []any {
 	steps := []any{
 		map[string]any{"name": "prepare", "template": "prepare"},
 		map[string]any{"name": "convert", "template": "convert"},
 		map[string]any{"name": "configure", "template": "configure"},
 		map[string]any{"name": "execute", "template": "execute"},
 		map[string]any{"name": "upload", "template": "upload"},
+	}
+	execute := runnerTemplate("execute", cfg.RunnerImage,
+		runnerStageArgs(cfg, "execute", "--workspace", "/workspace", "--output", "/workspace/output"),
+		"", "", true)
+	if cfg.DataAccessEnabled {
+		configureDataAccessExecute(execute, cfg, record)
 	}
 	return []any{
 		map[string]any{
@@ -144,17 +175,60 @@ func buildWorkflowTemplates(cfg WorkflowConfig, sourcePVC string) []any {
 		},
 		runnerTemplate("prepare", cfg.RunnerImage, runnerStageArgs(cfg,
 			"prepare", "--source", "/mnt/participant/{{workflow.parameters.notebook-path}}",
-			"--workspace", "/workspace", "--output-id", "{{workflow.parameters.output-id}}"), sourcePVC, "", false),
+			"--workspace", "/workspace", "--output-id", "{{workflow.parameters.output-id}}"), record.SourcePVC, "", false),
 		runnerTemplate("convert", cfg.RunnerImage,
 			runnerStageArgs(cfg, "convert", "--workspace", "/workspace"), "", "", false),
 		runnerTemplate("configure", cfg.RunnerImage,
 			runnerStageArgs(cfg, "configure", "--workspace", "/workspace", "--map", "/etc/output/replacements.json"),
 			"", cfg.ReplacementConfigMapName, false),
-		runnerTemplate("execute", cfg.RunnerImage,
-			runnerStageArgs(cfg, "execute", "--workspace", "/workspace", "--output", "/workspace/output"),
-			"", "", true),
+		execute,
 		uploadTemplate(cfg),
 	}
+}
+
+func configureDataAccessExecute(template map[string]any, cfg WorkflowConfig, record output.Record) {
+	container := template["container"].(map[string]any)
+	container["volumeMounts"] = append(container["volumeMounts"].([]any),
+		map[string]any{"name": "platform-token-cache", "mountPath": "/var/run/sandbox-connect/platform", "readOnly": true},
+		map[string]any{"name": "data-access-mtls", "mountPath": "/var/run/sandbox-connect/mtls", "readOnly": true},
+	)
+	container["env"] = append(container["env"].([]any),
+		map[string]any{"name": "NHA_TOKEN_FILE", "value": "/var/run/sandbox-connect/platform/token"},
+		map[string]any{"name": "ABAC_BASE_URL", "value": cfg.DataAccessBaseURL},
+		map[string]any{"name": "NHA_MTLS_CA_FILE", "value": "/var/run/sandbox-connect/mtls/ca.crt"},
+		map[string]any{"name": "NHA_MTLS_CLIENT_CERT_FILE", "value": "/var/run/sandbox-connect/mtls/client.crt"},
+		map[string]any{"name": "NHA_MTLS_CLIENT_KEY_FILE", "value": "/var/run/sandbox-connect/mtls/client.key"},
+	)
+	template["volumes"] = []any{
+		map[string]any{"name": "platform-refresh-token", "secret": map[string]any{"secretName": record.NotebookName + "-plt-token"}},
+		map[string]any{"name": "platform-token-cache", "emptyDir": map[string]any{"medium": "Memory"}},
+		map[string]any{"name": "data-access-mtls", "secret": map[string]any{"secretName": cfg.DataAccessMTLSSecretName}},
+	}
+	template["sidecars"] = []any{map[string]any{
+		"name": "platform-token-sidecar", "image": cfg.PlatformTokenSidecarImage,
+		"imagePullPolicy": "IfNotPresent",
+		"env": []any{
+			map[string]any{"name": "KEYCLOAK_TOKEN_URL", "value": cfg.PlatformTokenURL},
+			map[string]any{"name": "KEYCLOAK_CLIENT_ID", "value": cfg.PlatformTokenClientID},
+			map[string]any{"name": "KEYCLOAK_CLIENT_SECRET_FILE", "value": "/var/run/sandbox-connect/refresh/client_secret"},
+			map[string]any{"name": "REFRESH_TOKEN_FILE", "value": "/var/run/sandbox-connect/refresh/refresh_token"},
+			map[string]any{"name": "BOOTSTRAP_TOKEN_FILE", "value": "/var/run/sandbox-connect/refresh/bootstrap.json"},
+			map[string]any{"name": "ACCESS_TOKEN_FILE", "value": "/var/run/sandbox-connect/platform/token"},
+			map[string]any{"name": "READY_ADDRESS", "value": "127.0.0.1:8081"},
+			map[string]any{"name": "TOKEN_SESSION_URL", "value": strings.TrimRight(cfg.PlatformTokenSessionAPIBaseURL, "/") + "/v1/notebook/" + url.PathEscape(record.NotebookName) + "/notebook-token-session"},
+			map[string]any{"name": "EXPECTED_USER_ID", "value": record.UserID},
+			map[string]any{"name": "EXPECTED_CLIENT_ID", "value": cfg.PlatformTokenClientID},
+		},
+		"volumeMounts": []any{
+			map[string]any{"name": "platform-refresh-token", "mountPath": "/var/run/sandbox-connect/refresh", "readOnly": true},
+			map[string]any{"name": "platform-token-cache", "mountPath": "/var/run/sandbox-connect/platform"},
+		},
+		"securityContext": restrictedContainerSecurityContext(),
+		"resources": map[string]any{
+			"requests": map[string]any{"cpu": "10m", "memory": "32Mi"},
+			"limits":   map[string]any{"cpu": "100m", "memory": "128Mi"},
+		},
+	}}
 }
 
 func (c WorkflowConfig) runnerMaxLogBytes() int64 {

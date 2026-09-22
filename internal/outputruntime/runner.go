@@ -187,6 +187,13 @@ func (r Runner) Execute(ctx context.Context, outputDir string) error {
 	if _, err := ReadBounded(filepath.Join(r.Workspace, "notebook.py"), MaxSourceBytes); err != nil {
 		return err
 	}
+	if tokenFile := strings.TrimSpace(os.Getenv("NHA_TOKEN_FILE")); tokenFile != "" {
+		r.logf("[execute] Waiting for delegated platform token")
+		if err := waitForTokenFile(ctx, tokenFile); err != nil {
+			return fmt.Errorf("delegated platform token unavailable: %w", err)
+		}
+		r.logf("[execute] Delegated platform token is ready")
+	}
 	if err := r.run(ctx, "execute", "python3", []string{"-I", "-u", filepath.Join(r.Workspace, "notebook.py")}, true); err != nil {
 		return err
 	}
@@ -205,6 +212,30 @@ func (r Runner) Execute(ctx context.Context, outputDir string) error {
 		}
 	}
 	return nil
+}
+
+func waitForTokenFile(ctx context.Context, path string) error {
+	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+	check := func() bool {
+		data, err := os.ReadFile(path)
+		return err == nil && len(strings.TrimSpace(string(data))) > 0
+	}
+	if check() {
+		return nil
+	}
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if check() {
+				return nil
+			}
+		}
+	}
 }
 
 func (r Runner) run(ctx context.Context, stage, executable string, args []string, production bool) error {

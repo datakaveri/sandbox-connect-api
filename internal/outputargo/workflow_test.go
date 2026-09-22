@@ -27,6 +27,72 @@ func TestWorkflowImagesMustBePinned(t *testing.T) {
 	}
 }
 
+func TestDataAccessExecuteOnlyCredentialMounts(t *testing.T) {
+	cfg := validWorkflowConfig()
+	cfg.DataAccessEnabled = true
+	cfg.DataAccessBaseURL = "https://data-access-server-mtls.omop-auth.svc.cluster.local"
+	cfg.DataAccessMTLSSecretName = "output-data-access-mtls"
+	cfg.PlatformTokenSidecarImage = "registry.example/token-sidecar@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	cfg.PlatformTokenURL = "https://keycloak.example.com/token"
+	cfg.PlatformTokenClientID = "sandbox-notebook"
+	cfg.PlatformTokenSessionAPIBaseURL = "https://sandbox.example.com"
+	record := output.Record{ID: "run", UserID: "user-ns", Namespace: "user-ns", NotebookName: "demo-notebook", SourceNotebookPath: "input.ipynb", ReviewPrefix: "review/run/"}
+	workflow, err := BuildWorkflow(record, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	templates, _, _ := unstructured.NestedSlice(workflow.Object, "spec", "templates")
+	for _, item := range templates {
+		template := item.(map[string]any)
+		stage := template["name"].(string)
+		if stage == "output" {
+			continue
+		}
+		_, sidecars := template["sidecars"]
+		if stage != "execute" {
+			if sidecars || hasDeclaredVolume(template, "platform-refresh-token") || hasDeclaredVolume(template, "data-access-mtls") {
+				t.Fatalf("%s must not receive data-access credentials", stage)
+			}
+			continue
+		}
+		if !sidecars || !hasDeclaredVolume(template, "platform-refresh-token") || !hasDeclaredVolume(template, "data-access-mtls") {
+			t.Fatal("execute is missing token sidecar or credential volumes")
+		}
+		main := template["container"].(map[string]any)
+		if hasMount(main["volumeMounts"].([]any), "platform-refresh-token") {
+			t.Fatal("notebook code must not receive the refresh token")
+		}
+		if !hasReadOnlyMount(main["volumeMounts"].([]any), "data-access-mtls") || !hasReadOnlyMount(main["volumeMounts"].([]any), "platform-token-cache") {
+			t.Fatal("execute must receive only read-only data-access mounts")
+		}
+		sidecar := template["sidecars"].([]any)[0].(map[string]any)
+		if !hasReadOnlyMount(sidecar["volumeMounts"].([]any), "platform-refresh-token") || hasMount(sidecar["volumeMounts"].([]any), "data-access-mtls") {
+			t.Fatal("sidecar must receive refresh token but not mTLS credentials")
+		}
+	}
+}
+
+func TestDataAccessConfigRequiresPinnedSidecarAndHTTPS(t *testing.T) {
+	cfg := validWorkflowConfig()
+	cfg.DataAccessEnabled = true
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("incomplete data-access configuration must fail")
+	}
+	cfg.PlatformTokenSidecarImage = "registry.example/token-sidecar:latest"
+	cfg.DataAccessBaseURL = "http://example.com"
+	cfg.DataAccessMTLSSecretName = "mtls"
+	cfg.PlatformTokenURL = "https://keycloak.example.com/token"
+	cfg.PlatformTokenClientID = "sandbox-notebook"
+	cfg.PlatformTokenSessionAPIBaseURL = "https://sandbox.example.com"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("mutable sidecar image must fail")
+	}
+	cfg.PlatformTokenSidecarImage = "registry.example/token-sidecar@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("plain HTTP data access must fail")
+	}
+}
+
 func TestWorkflowStageOrderAndCredentialIsolation(t *testing.T) {
 	record := output.Record{
 		ID: "10000000-0000-0000-0000-000000000001", Namespace: "user-ns",
@@ -88,6 +154,9 @@ func TestWorkflowStageOrderAndCredentialIsolation(t *testing.T) {
 	}
 	if _, found := templateByName["execute"]["container"].(map[string]any)["envFrom"]; !found {
 		t.Fatal("execute must receive the approved production environment")
+	}
+	if _, found := templateByName["execute"]["sidecars"]; found {
+		t.Fatal("data-access sidecar must remain disabled by default")
 	}
 	if _, found := prepare["envFrom"]; found {
 		t.Fatal("prepare must not receive credentials")

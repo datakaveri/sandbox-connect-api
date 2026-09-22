@@ -31,22 +31,29 @@ type serviceConfig struct {
 	MaxFileBytes          int64 `env:"OUTPUT_MAX_FILE_BYTES" envDefault:"268435456"`
 	MaxOutputBytes        int64 `env:"OUTPUT_MAX_BYTES" envDefault:"1073741824"`
 
-	RunnerImage              string `env:"OUTPUT_RUNNER_IMAGE,required"`
-	RunnerMaxLogBytes        int64  `env:"OUTPUT_RUNNER_MAX_LOG_BYTES" envDefault:"5242880"`
-	UploaderImage            string `env:"OUTPUT_UPLOADER_IMAGE,required"`
-	WorkflowServiceAccount   string `env:"OUTPUT_WORKFLOW_SERVICE_ACCOUNT" envDefault:"output-runner"`
-	ScratchStorageClass      string `env:"OUTPUT_SCRATCH_STORAGE_CLASS,required"`
-	ScratchStorageSize       string `env:"OUTPUT_SCRATCH_STORAGE_SIZE" envDefault:"5Gi"`
-	ReplacementConfigMapName string `env:"OUTPUT_REPLACEMENT_CONFIG_MAP" envDefault:"output-replacements-v1"`
-	ProductionEnvSecretName  string `env:"OUTPUT_PRODUCTION_ENV_SECRET" envDefault:"output-production-env"`
-	FileServiceSecretName    string `env:"OUTPUT_FILE_SERVICE_SECRET" envDefault:"output-file-service"`
-	FilesConnectBaseURL      string `env:"OUTPUT_FILES_CONNECT_BASE_URL,required"`
-	FilesConnectServiceToken string `env:"OUTPUT_FILES_CONNECT_SERVICE_TOKEN,required"`
-	ReviewDatabankID         string `env:"OUTPUT_REVIEW_DATABANK_ID,required"`
-	WorkspaceDatabankID      string `env:"OUTPUT_WORKSPACE_DATABANK_ID,required"`
-	FilesConnectTimeoutSecs  int    `env:"OUTPUT_FILES_CONNECT_TIMEOUT_SECONDS" envDefault:"30"`
-	WorkflowDeadlineSeconds  int64  `env:"OUTPUT_WORKFLOW_DEADLINE_SECONDS" envDefault:"1800"`
-	WorkflowTTLSeconds       int64  `env:"OUTPUT_WORKFLOW_TTL_SECONDS" envDefault:"3600"`
+	RunnerImage                    string `env:"OUTPUT_RUNNER_IMAGE,required"`
+	RunnerMaxLogBytes              int64  `env:"OUTPUT_RUNNER_MAX_LOG_BYTES" envDefault:"5242880"`
+	UploaderImage                  string `env:"OUTPUT_UPLOADER_IMAGE,required"`
+	WorkflowServiceAccount         string `env:"OUTPUT_WORKFLOW_SERVICE_ACCOUNT" envDefault:"output-runner"`
+	ScratchStorageClass            string `env:"OUTPUT_SCRATCH_STORAGE_CLASS,required"`
+	ScratchStorageSize             string `env:"OUTPUT_SCRATCH_STORAGE_SIZE" envDefault:"5Gi"`
+	ReplacementConfigMapName       string `env:"OUTPUT_REPLACEMENT_CONFIG_MAP" envDefault:"output-replacements-v1"`
+	ProductionEnvSecretName        string `env:"OUTPUT_PRODUCTION_ENV_SECRET" envDefault:"output-production-env"`
+	FileServiceSecretName          string `env:"OUTPUT_FILE_SERVICE_SECRET" envDefault:"output-file-service"`
+	DataAccessEnabled              bool   `env:"OUTPUT_DATA_ACCESS_ENABLED" envDefault:"false"`
+	DataAccessBaseURL              string `env:"OUTPUT_DATA_ACCESS_BASE_URL" envDefault:""`
+	DataAccessMTLSSecretName       string `env:"OUTPUT_DATA_ACCESS_MTLS_SECRET" envDefault:""`
+	PlatformTokenSidecarImage      string `env:"OUTPUT_PLATFORM_TOKEN_SIDECAR_IMAGE" envDefault:""`
+	PlatformTokenURL               string `env:"OUTPUT_PLATFORM_TOKEN_URL" envDefault:""`
+	PlatformTokenClientID          string `env:"OUTPUT_PLATFORM_TOKEN_CLIENT_ID" envDefault:""`
+	PlatformTokenSessionAPIBaseURL string `env:"OUTPUT_PLATFORM_TOKEN_SESSION_API_BASE_URL" envDefault:""`
+	FilesConnectBaseURL            string `env:"OUTPUT_FILES_CONNECT_BASE_URL,required"`
+	FilesConnectServiceToken       string `env:"OUTPUT_FILES_CONNECT_SERVICE_TOKEN,required"`
+	ReviewDatabankID               string `env:"OUTPUT_REVIEW_DATABANK_ID,required"`
+	WorkspaceDatabankID            string `env:"OUTPUT_WORKSPACE_DATABANK_ID,required"`
+	FilesConnectTimeoutSecs        int    `env:"OUTPUT_FILES_CONNECT_TIMEOUT_SECONDS" envDefault:"30"`
+	WorkflowDeadlineSeconds        int64  `env:"OUTPUT_WORKFLOW_DEADLINE_SECONDS" envDefault:"1800"`
+	WorkflowTTLSeconds             int64  `env:"OUTPUT_WORKFLOW_TTL_SECONDS" envDefault:"3600"`
 }
 
 func main() {
@@ -100,14 +107,21 @@ func main() {
 			MaxOutputBytes:   config.MaxOutputBytes,
 			Workflow: outputargo.WorkflowConfig{
 				RunnerImage: config.RunnerImage, RunnerMaxLogBytes: config.RunnerMaxLogBytes, UploaderImage: config.UploaderImage,
-				ServiceAccountName:       config.WorkflowServiceAccount,
-				ScratchStorageClass:      config.ScratchStorageClass,
-				ScratchStorageSize:       config.ScratchStorageSize,
-				ReplacementConfigMapName: config.ReplacementConfigMapName,
-				ProductionEnvSecretName:  config.ProductionEnvSecretName,
-				FileServiceSecretName:    config.FileServiceSecretName,
-				ActiveDeadlineSeconds:    config.WorkflowDeadlineSeconds,
-				TTLSecondsAfterFinished:  config.WorkflowTTLSeconds,
+				ServiceAccountName:             config.WorkflowServiceAccount,
+				ScratchStorageClass:            config.ScratchStorageClass,
+				ScratchStorageSize:             config.ScratchStorageSize,
+				ReplacementConfigMapName:       config.ReplacementConfigMapName,
+				ProductionEnvSecretName:        config.ProductionEnvSecretName,
+				FileServiceSecretName:          config.FileServiceSecretName,
+				DataAccessEnabled:              config.DataAccessEnabled,
+				DataAccessBaseURL:              config.DataAccessBaseURL,
+				DataAccessMTLSSecretName:       config.DataAccessMTLSSecretName,
+				PlatformTokenSidecarImage:      config.PlatformTokenSidecarImage,
+				PlatformTokenURL:               config.PlatformTokenURL,
+				PlatformTokenClientID:          config.PlatformTokenClientID,
+				PlatformTokenSessionAPIBaseURL: config.PlatformTokenSessionAPIBaseURL,
+				ActiveDeadlineSeconds:          config.WorkflowDeadlineSeconds,
+				TTLSecondsAfterFinished:        config.WorkflowTTLSeconds,
 			},
 		}, logger)
 	if err != nil {
