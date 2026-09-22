@@ -66,6 +66,10 @@ func TestDataAccessExecuteOnlyCredentialMounts(t *testing.T) {
 			t.Fatal("execute must receive only read-only data-access mounts")
 		}
 		sidecar := template["sidecars"].([]any)[0].(map[string]any)
+		command, ok := sidecar["command"].([]any)
+		if !ok || len(command) != 1 || command[0] != "/app/platform-token-sidecar" {
+			t.Fatal("token sidecar command must be explicit for the Argo emissary executor")
+		}
 		if !hasReadOnlyMount(sidecar["volumeMounts"].([]any), "platform-refresh-token") || hasMount(sidecar["volumeMounts"].([]any), "data-access-mtls") {
 			t.Fatal("sidecar must receive refresh token but not mTLS credentials")
 		}

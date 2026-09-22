@@ -206,6 +206,7 @@ func configureDataAccessExecute(template map[string]any, cfg WorkflowConfig, rec
 	}
 	template["sidecars"] = []any{map[string]any{
 		"name": "platform-token-sidecar", "image": cfg.PlatformTokenSidecarImage,
+		"command":         []any{"/app/platform-token-sidecar"},
 		"imagePullPolicy": "IfNotPresent",
 		"env": []any{
 			map[string]any{"name": "KEYCLOAK_TOKEN_URL", "value": cfg.PlatformTokenURL},
