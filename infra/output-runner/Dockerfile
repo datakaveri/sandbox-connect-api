@@ -48,6 +48,11 @@ RUN pip install --no-cache-dir \
         "litellm>=1.75" \
         markdown xhtml2pdf
 
+# The same starter notebook is used interactively and by the output workflow.
+# Fail the runner build if its selected notebook base image does not contain
+# the NHA SDK and the optional interactive widget imported by that notebook.
+RUN python -c "from nha_data_access import ABACClient; from nha_connect_widget import NHAConnectWidget, PlatformTokenReadyWidget"
+
 RUN python -m ipykernel install --sys-prefix --name=python3 \
         --display-name "Python 3 (evaluation)"
 
