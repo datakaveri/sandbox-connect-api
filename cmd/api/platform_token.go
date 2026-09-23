@@ -225,6 +225,18 @@ func (app *application) createOrUpdatePlatformTokenSecret(ctx context.Context, n
 	return secretName, sessionID, err
 }
 
+func (app *application) createOrUpdatePlatformTokenSession(ctx context.Context, namespace, notebookName string, bookingID *int64, userID, refreshToken, accessToken, sessionID string) (string, string, int, error, error) {
+	secretName, sessionID, err := app.createOrUpdatePlatformTokenSecret(
+		ctx, namespace, notebookName, bookingID, userID, refreshToken, accessToken, sessionID,
+	)
+	if err != nil {
+		return secretName, sessionID, 0, nil, err
+	}
+
+	patchedPods, projectionErr := app.triggerPlatformTokenProjection(ctx, namespace, notebookName)
+	return secretName, sessionID, patchedPods, projectionErr, nil
+}
+
 func (app *application) deletePlatformTokenSecret(ctx context.Context, namespace, notebookName string) error {
 	if namespace == "" || notebookName == "" {
 		return nil
@@ -493,15 +505,14 @@ func (app *application) createNotebookTokenSession(w http.ResponseWriter, r *htt
 		return
 	}
 	readinessStarted := time.Now()
-	secretName, sessionID, err := app.createOrUpdatePlatformTokenSecret(r.Context(), userInfo.Sub, booking.NotebookName, &bookingID, userInfo.Sub, exchanged.RefreshToken, exchanged.AccessToken, "")
+	secretName, sessionID, patchedPods, projectionErr, err := app.createOrUpdatePlatformTokenSession(r.Context(), userInfo.Sub, booking.NotebookName, &bookingID, userInfo.Sub, exchanged.RefreshToken, exchanged.AccessToken, "")
 	if err != nil {
 		logger.Error("failed to create platform token secret", "error", err, "namespace", userInfo.Sub, "secret", secretName)
 		sendError(w, logger, http.StatusInternalServerError, "Failed to create notebook token session")
 		return
 	}
-	patchedPods, err := app.triggerPlatformTokenProjection(r.Context(), userInfo.Sub, booking.NotebookName)
-	if err != nil {
-		logger.Warn("failed to trigger platform token secret projection", "error", err, "booking_id", bookingID, "notebook", booking.NotebookName)
+	if projectionErr != nil {
+		logger.Warn("failed to trigger platform token secret projection", "error", projectionErr, "booking_id", bookingID, "notebook", booking.NotebookName)
 	} else if patchedPods > 0 {
 		logger.Info("triggered platform token secret projection", "booking_id", bookingID, "notebook", booking.NotebookName, "pod_count", patchedPods)
 	}
@@ -573,11 +584,16 @@ func (app *application) createDirectNotebookTokenSession(w http.ResponseWriter, 
 		return
 	}
 	readinessStarted := time.Now()
-	secretName, sessionID, err := app.createOrUpdatePlatformTokenSecret(r.Context(), userInfo.Sub, notebook.NotebookName, nil, userInfo.Sub, exchanged.RefreshToken, exchanged.AccessToken, "")
+	secretName, sessionID, patchedPods, projectionErr, err := app.createOrUpdatePlatformTokenSession(r.Context(), userInfo.Sub, notebook.NotebookName, nil, userInfo.Sub, exchanged.RefreshToken, exchanged.AccessToken, "")
 	if err != nil {
 		logger.Error("failed to create platform token secret", "error", err, "namespace", userInfo.Sub, "secret", secretName)
 		sendError(w, logger, http.StatusInternalServerError, "Failed to create notebook token session")
 		return
+	}
+	if projectionErr != nil {
+		logger.Warn("failed to trigger platform token secret projection", "error", projectionErr, "notebook", notebook.NotebookName)
+	} else if patchedPods > 0 {
+		logger.Info("triggered platform token secret projection", "notebook", notebook.NotebookName, "pod_count", patchedPods)
 	}
 	if err := app.waitForPlatformTokenReady(r.Context(), userInfo.Sub, notebook.NotebookName, sessionID); err != nil {
 		logger.Warn("platform token is still becoming ready", "error", err, "notebook", notebook.NotebookName, "readiness_duration_ms", time.Since(readinessStarted).Milliseconds())
