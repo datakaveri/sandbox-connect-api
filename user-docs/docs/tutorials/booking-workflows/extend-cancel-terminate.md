@@ -31,7 +31,9 @@ curl -X PATCH "$SANDBOX_API_URL/v1/bookings/123/extend" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 
-The next contiguous slot must be available.
+The next contiguous slot must be available. Extending 20:00–00:00 continues into
+00:00–04:00 on the next day (IST), while keeping the original booking date.
+An active booking can be extended once, within the category’s contiguous-slot limit.
 
 ## Terminate an Active Session
 
