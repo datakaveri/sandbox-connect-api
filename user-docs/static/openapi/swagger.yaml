@@ -1086,8 +1086,13 @@ paths:
   /v1/notebook/{notebook_name}/notebook-token-session:
     post:
       description: Exchanges the caller access token for notebook-specific delegated
-        tokens and returns 200 only after the access token is usable inside the notebook
-        container. Available for direct notebooks when API_BOOKINGS_ENABLED=false.
+        tokens and returns 200 only after the access token is usable inside the
+        notebook container. Available for direct notebooks when
+        API_BOOKINGS_ENABLED=false. When API_BOOKINGS_ENABLED=true, this route is not
+        registered for security reasons. Authenticated requests that pass shared
+        middleware receive 404 Not Found with a text/plain body (404 page not found),
+        without JSON title, detail, or type fields. The success and validation
+        responses documented here apply only when API_BOOKINGS_ENABLED=false.
       parameters:
       - description: Notebook Name
         in: path
@@ -1110,7 +1115,10 @@ paths:
           schema:
             $ref: '#/definitions/main.Error401'
         "404":
-          description: Not Found
+          description: Route not registered when API_BOOKINGS_ENABLED=true. Returns
+            plain-text 404 page not found without JSON error fields. When
+            API_BOOKINGS_ENABLED=false, a missing notebook returns the documented JSON
+            Error404 response.
           schema:
             $ref: '#/definitions/main.Error404'
         "429":
@@ -1134,8 +1142,13 @@ paths:
       consumes:
       - application/json
       description: Replaces the direct notebook refresh token after Keycloak rotation.
-        This route accepts only a delegated notebook-client access token belonging
-        to the notebook owner. Available when API_BOOKINGS_ENABLED=false.
+        This route accepts only a delegated notebook-client access token belonging to
+        the notebook owner. Available when API_BOOKINGS_ENABLED=false. When
+        API_BOOKINGS_ENABLED=true, this route is not registered for security reasons.
+        Authenticated requests that pass shared middleware receive 404 Not Found with
+        a text/plain body (404 page not found), without JSON title, detail, or type
+        fields. The success and validation responses documented here apply only when
+        API_BOOKINGS_ENABLED=false.
       parameters:
       - description: Notebook Name
         in: path
@@ -1164,7 +1177,10 @@ paths:
           schema:
             $ref: '#/definitions/main.Error401'
         "404":
-          description: Not Found
+          description: Route not registered when API_BOOKINGS_ENABLED=true. Returns
+            plain-text 404 page not found without JSON error fields. When
+            API_BOOKINGS_ENABLED=false, a missing notebook returns the documented JSON
+            Error404 response.
           schema:
             $ref: '#/definitions/main.Error404'
         "422":
@@ -1225,8 +1241,13 @@ paths:
     post:
       consumes:
       - application/json
-      description: Creates a CPU or GPU notebook directly when API_BOOKINGS_ENABLED=false.
-        The notebook stays live until stopped or deleted.
+      description: Creates a CPU or GPU notebook directly when
+        API_BOOKINGS_ENABLED=false. The notebook stays live until stopped or deleted.
+        When API_BOOKINGS_ENABLED=true, this route is not registered for security
+        reasons. Authenticated requests that pass shared middleware receive 404 Not
+        Found with a text/plain body (404 page not found), without JSON title, detail,
+        or type fields. The success and validation responses documented here apply
+        only when API_BOOKINGS_ENABLED=false.
       parameters:
       - description: Notebook request
         in: body
@@ -1253,6 +1274,10 @@ paths:
           description: Forbidden
           schema:
             $ref: '#/definitions/main.Error403'
+        "404":
+          description: Route not registered when API_BOOKINGS_ENABLED=true. Returns plain-text 404 page not found without JSON error fields.
+          schema:
+            type: string
         "409":
           description: Conflict
           schema:
@@ -1279,7 +1304,11 @@ paths:
       consumes:
       - application/json
       description: Deletes a directly managed notebook and its PVC. Available when
-        API_BOOKINGS_ENABLED=false.
+        API_BOOKINGS_ENABLED=false. When API_BOOKINGS_ENABLED=true, this route is not
+        registered for security reasons. Authenticated requests that pass shared
+        middleware receive 404 Not Found with a text/plain body (404 page not found),
+        without JSON title, detail, or type fields. The success and validation
+        responses documented here apply only when API_BOOKINGS_ENABLED=false.
       parameters:
       - description: Notebook delete request
         in: body
@@ -1303,7 +1332,10 @@ paths:
           schema:
             $ref: '#/definitions/main.Error401'
         "404":
-          description: Not Found
+          description: Route not registered when API_BOOKINGS_ENABLED=true. Returns
+            plain-text 404 page not found without JSON error fields. When
+            API_BOOKINGS_ENABLED=false, a missing notebook returns the documented JSON
+            Error404 response.
           schema:
             $ref: '#/definitions/main.Error404'
         "409":
@@ -1409,7 +1441,12 @@ paths:
       consumes:
       - application/json
       description: Starts a directly managed stopped notebook by removing the Kubeflow
-        stopped annotation. Available when API_BOOKINGS_ENABLED=false.
+        stopped annotation. Available when API_BOOKINGS_ENABLED=false. When
+        API_BOOKINGS_ENABLED=true, this route is not registered for security reasons.
+        Authenticated requests that pass shared middleware receive 404 Not Found with
+        a text/plain body (404 page not found), without JSON title, detail, or type
+        fields. The success and validation responses documented here apply only when
+        API_BOOKINGS_ENABLED=false.
       parameters:
       - description: Notebook start request
         in: body
@@ -1437,7 +1474,10 @@ paths:
           schema:
             $ref: '#/definitions/main.Error403'
         "404":
-          description: Not Found
+          description: Route not registered when API_BOOKINGS_ENABLED=true. Returns
+            plain-text 404 page not found without JSON error fields. When
+            API_BOOKINGS_ENABLED=false, a missing notebook returns the documented JSON
+            Error404 response.
           schema:
             $ref: '#/definitions/main.Error404'
         "422":
@@ -1499,7 +1539,12 @@ paths:
       consumes:
       - application/json
       description: Stops a directly managed notebook by adding the Kubeflow stopped
-        annotation. Available when API_BOOKINGS_ENABLED=false.
+        annotation. Available when API_BOOKINGS_ENABLED=false. When
+        API_BOOKINGS_ENABLED=true, this route is not registered for security reasons.
+        Authenticated requests that pass shared middleware receive 404 Not Found with
+        a text/plain body (404 page not found), without JSON title, detail, or type
+        fields. The success and validation responses documented here apply only when
+        API_BOOKINGS_ENABLED=false.
       parameters:
       - description: Notebook stop request
         in: body
@@ -1523,7 +1568,10 @@ paths:
           schema:
             $ref: '#/definitions/main.Error401'
         "404":
-          description: Not Found
+          description: Route not registered when API_BOOKINGS_ENABLED=true. Returns
+            plain-text 404 page not found without JSON error fields. When
+            API_BOOKINGS_ENABLED=false, a missing notebook returns the documented JSON
+            Error404 response.
           schema:
             $ref: '#/definitions/main.Error404'
         "422":

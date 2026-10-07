@@ -62,7 +62,7 @@ func (app *application) checkNotebookExists(w http.ResponseWriter, r *http.Reque
 
 // createNotebook godoc
 // @Summary      Create notebook directly
-// @Description  Creates a CPU or GPU notebook directly when API_BOOKINGS_ENABLED=false. The notebook stays live until stopped or deleted.
+// @Description  Creates a CPU or GPU notebook directly when API_BOOKINGS_ENABLED=false. The notebook stays live until stopped or deleted. When API_BOOKINGS_ENABLED=true, this route is not registered for security reasons. Authenticated requests that pass shared middleware receive 404 Not Found with a text/plain body (404 page not found), without JSON title, detail, or type fields. The success and validation responses documented here apply only when API_BOOKINGS_ENABLED=false.
 // @Tags         notebook
 // @Accept       json
 // @Produce      json
@@ -71,6 +71,7 @@ func (app *application) checkNotebookExists(w http.ResponseWriter, r *http.Reque
 // @Failure      400  {object}  Error400
 // @Failure      401  {object}  Error401
 // @Failure      403  {object}  Error403
+// @Failure      404  {string}  string  "Route not registered when API_BOOKINGS_ENABLED=true. Returns plain-text 404 page not found without JSON error fields."
 // @Failure      409  {object}  Error409
 // @Failure      422  {object}  Error422
 // @Failure      429  {object}  Error429
@@ -394,7 +395,7 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 
 // stopNotebook godoc
 // @Summary      Stop notebook
-// @Description  Stops a directly managed notebook by adding the Kubeflow stopped annotation. Available when API_BOOKINGS_ENABLED=false.
+// @Description  Stops a directly managed notebook by adding the Kubeflow stopped annotation. Available when API_BOOKINGS_ENABLED=false. When API_BOOKINGS_ENABLED=true, this route is not registered for security reasons. Authenticated requests that pass shared middleware receive 404 Not Found with a text/plain body (404 page not found), without JSON title, detail, or type fields. The success and validation responses documented here apply only when API_BOOKINGS_ENABLED=false.
 // @Tags         notebook
 // @Accept       json
 // @Produce      json
@@ -402,7 +403,7 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 // @Success      200  {object}  SwaggerMessageResponse
 // @Failure      400  {object}  Error400
 // @Failure      401  {object}  Error401
-// @Failure      404  {object}  Error404
+// @Failure      404  {object}  Error404  "Route not registered when API_BOOKINGS_ENABLED=true. Returns plain-text 404 page not found without JSON error fields. When API_BOOKINGS_ENABLED=false, a missing notebook returns the documented JSON Error404 response."
 // @Failure      422  {object}  Error422
 // @Failure      429  {object}  Error429
 // @Failure      500  {object}  Error500
@@ -467,7 +468,7 @@ func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
 
 // startNotebook godoc
 // @Summary      Start notebook
-// @Description  Starts a directly managed stopped notebook by removing the Kubeflow stopped annotation. Available when API_BOOKINGS_ENABLED=false.
+// @Description  Starts a directly managed stopped notebook by removing the Kubeflow stopped annotation. Available when API_BOOKINGS_ENABLED=false. When API_BOOKINGS_ENABLED=true, this route is not registered for security reasons. Authenticated requests that pass shared middleware receive 404 Not Found with a text/plain body (404 page not found), without JSON title, detail, or type fields. The success and validation responses documented here apply only when API_BOOKINGS_ENABLED=false.
 // @Tags         notebook
 // @Accept       json
 // @Produce      json
@@ -476,7 +477,7 @@ func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
 // @Failure      400  {object}  Error400
 // @Failure      401  {object}  Error401
 // @Failure      403  {object}  Error403
-// @Failure      404  {object}  Error404
+// @Failure      404  {object}  Error404  "Route not registered when API_BOOKINGS_ENABLED=true. Returns plain-text 404 page not found without JSON error fields. When API_BOOKINGS_ENABLED=false, a missing notebook returns the documented JSON Error404 response."
 // @Failure      422  {object}  Error422
 // @Failure      429  {object}  Error429
 // @Failure      500  {object}  Error500
@@ -650,7 +651,7 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 
 // deleteNotebook godoc
 // @Summary      Delete notebook
-// @Description  Deletes a directly managed notebook and its PVC. Available when API_BOOKINGS_ENABLED=false.
+// @Description  Deletes a directly managed notebook and its PVC. Available when API_BOOKINGS_ENABLED=false. When API_BOOKINGS_ENABLED=true, this route is not registered for security reasons. Authenticated requests that pass shared middleware receive 404 Not Found with a text/plain body (404 page not found), without JSON title, detail, or type fields. The success and validation responses documented here apply only when API_BOOKINGS_ENABLED=false.
 // @Tags         notebook
 // @Accept       json
 // @Produce      json
@@ -658,7 +659,7 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 // @Success      200  {object}  SwaggerMessageResponse
 // @Failure      400  {object}  Error400
 // @Failure      401  {object}  Error401
-// @Failure      404  {object}  Error404
+// @Failure      404  {object}  Error404  "Route not registered when API_BOOKINGS_ENABLED=true. Returns plain-text 404 page not found without JSON error fields. When API_BOOKINGS_ENABLED=false, a missing notebook returns the documented JSON Error404 response."
 // @Failure      409  {object}  Error409
 // @Failure      422  {object}  Error422
 // @Failure      429  {object}  Error429

@@ -518,14 +518,14 @@ func (app *application) createNotebookTokenSession(w http.ResponseWriter, r *htt
 }
 
 // @Summary      Create direct notebook token session
-// @Description  Exchanges the caller access token for notebook-specific delegated tokens and returns 200 only after the access token is usable inside the notebook container. Available for direct notebooks when API_BOOKINGS_ENABLED=false.
+// @Description  Exchanges the caller access token for notebook-specific delegated tokens and returns 200 only after the access token is usable inside the notebook container. Available for direct notebooks when API_BOOKINGS_ENABLED=false. When API_BOOKINGS_ENABLED=true, this route is not registered for security reasons. Authenticated requests that pass shared middleware receive 404 Not Found with a text/plain body (404 page not found), without JSON title, detail, or type fields. The success and validation responses documented here apply only when API_BOOKINGS_ENABLED=false.
 // @Tags         notebook
 // @Produce      json
 // @Param        notebook_name  path  string  true  "Notebook Name"
 // @Success      200  {object}  NotebookTokenSessionResponse
 // @Failure      400  {object}  Error400
 // @Failure      401  {object}  Error401
-// @Failure      404  {object}  Error404
+// @Failure      404  {object}  Error404  "Route not registered when API_BOOKINGS_ENABLED=true. Returns plain-text 404 page not found without JSON error fields. When API_BOOKINGS_ENABLED=false, a missing notebook returns the documented JSON Error404 response."
 // @Failure      429  {object}  Error429
 // @Failure      500  {object}  Error500
 // @Failure      503  {object}  Error503
@@ -592,7 +592,7 @@ func (app *application) createDirectNotebookTokenSession(w http.ResponseWriter, 
 }
 
 // @Summary      Persist direct notebook refresh-token rotation
-// @Description  Replaces the direct notebook refresh token after Keycloak rotation. This route accepts only a delegated notebook-client access token belonging to the notebook owner. Available when API_BOOKINGS_ENABLED=false.
+// @Description  Replaces the direct notebook refresh token after Keycloak rotation. This route accepts only a delegated notebook-client access token belonging to the notebook owner. Available when API_BOOKINGS_ENABLED=false. When API_BOOKINGS_ENABLED=true, this route is not registered for security reasons. Authenticated requests that pass shared middleware receive 404 Not Found with a text/plain body (404 page not found), without JSON title, detail, or type fields. The success and validation responses documented here apply only when API_BOOKINGS_ENABLED=false.
 // @Tags         notebook
 // @Accept       json
 // @Produce      json
@@ -601,7 +601,7 @@ func (app *application) createDirectNotebookTokenSession(w http.ResponseWriter, 
 // @Success      200  {object}  NotebookTokenSessionResponse
 // @Failure      400  {object}  Error400
 // @Failure      401  {object}  Error401
-// @Failure      404  {object}  Error404
+// @Failure      404  {object}  Error404  "Route not registered when API_BOOKINGS_ENABLED=true. Returns plain-text 404 page not found without JSON error fields. When API_BOOKINGS_ENABLED=false, a missing notebook returns the documented JSON Error404 response."
 // @Failure      422  {object}  Error422
 // @Failure      429  {object}  Error429
 // @Failure      500  {object}  Error500

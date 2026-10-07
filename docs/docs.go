@@ -705,7 +705,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates a CPU or GPU notebook directly when API_BOOKINGS_ENABLED=false. The notebook stays live until stopped or deleted.",
+                "description": "Creates a CPU or GPU notebook directly when API_BOOKINGS_ENABLED=false. The notebook stays live until stopped or deleted. When API_BOOKINGS_ENABLED=true, this route is not registered for security reasons. Authenticated requests that pass shared middleware receive 404 Not Found with a text/plain body (404 page not found), without JSON title, detail, or type fields. The success and validation responses documented here apply only when API_BOOKINGS_ENABLED=false.",
                 "consumes": [
                     "application/json"
                 ],
@@ -752,6 +752,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/main.Error403"
                         }
                     },
+                    "404": {
+                        "description": "Route not registered when API_BOOKINGS_ENABLED=true. Returns plain-text 404 page not found without JSON error fields.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
                     "409": {
                         "description": "Conflict",
                         "schema": {
@@ -786,7 +792,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Deletes a directly managed notebook and its PVC. Available when API_BOOKINGS_ENABLED=false.",
+                "description": "Deletes a directly managed notebook and its PVC. Available when API_BOOKINGS_ENABLED=false. When API_BOOKINGS_ENABLED=true, this route is not registered for security reasons. Authenticated requests that pass shared middleware receive 404 Not Found with a text/plain body (404 page not found), without JSON title, detail, or type fields. The success and validation responses documented here apply only when API_BOOKINGS_ENABLED=false.",
                 "consumes": [
                     "application/json"
                 ],
@@ -828,7 +834,7 @@ const docTemplate = `{
                         }
                     },
                     "404": {
-                        "description": "Not Found",
+                        "description": "Route not registered when API_BOOKINGS_ENABLED=true. Returns plain-text 404 page not found without JSON error fields. When API_BOOKINGS_ENABLED=false, a missing notebook returns the documented JSON Error404 response.",
                         "schema": {
                             "$ref": "#/definitions/main.Error404"
                         }
@@ -985,7 +991,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Starts a directly managed stopped notebook by removing the Kubeflow stopped annotation. Available when API_BOOKINGS_ENABLED=false.",
+                "description": "Starts a directly managed stopped notebook by removing the Kubeflow stopped annotation. Available when API_BOOKINGS_ENABLED=false. When API_BOOKINGS_ENABLED=true, this route is not registered for security reasons. Authenticated requests that pass shared middleware receive 404 Not Found with a text/plain body (404 page not found), without JSON title, detail, or type fields. The success and validation responses documented here apply only when API_BOOKINGS_ENABLED=false.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1033,7 +1039,7 @@ const docTemplate = `{
                         }
                     },
                     "404": {
-                        "description": "Not Found",
+                        "description": "Route not registered when API_BOOKINGS_ENABLED=true. Returns plain-text 404 page not found without JSON error fields. When API_BOOKINGS_ENABLED=false, a missing notebook returns the documented JSON Error404 response.",
                         "schema": {
                             "$ref": "#/definitions/main.Error404"
                         }
@@ -1124,7 +1130,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Stops a directly managed notebook by adding the Kubeflow stopped annotation. Available when API_BOOKINGS_ENABLED=false.",
+                "description": "Stops a directly managed notebook by adding the Kubeflow stopped annotation. Available when API_BOOKINGS_ENABLED=false. When API_BOOKINGS_ENABLED=true, this route is not registered for security reasons. Authenticated requests that pass shared middleware receive 404 Not Found with a text/plain body (404 page not found), without JSON title, detail, or type fields. The success and validation responses documented here apply only when API_BOOKINGS_ENABLED=false.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1166,7 +1172,7 @@ const docTemplate = `{
                         }
                     },
                     "404": {
-                        "description": "Not Found",
+                        "description": "Route not registered when API_BOOKINGS_ENABLED=true. Returns plain-text 404 page not found without JSON error fields. When API_BOOKINGS_ENABLED=false, a missing notebook returns the documented JSON Error404 response.",
                         "schema": {
                             "$ref": "#/definitions/main.Error404"
                         }
@@ -1199,7 +1205,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Replaces the direct notebook refresh token after Keycloak rotation. This route accepts only a delegated notebook-client access token belonging to the notebook owner. Available when API_BOOKINGS_ENABLED=false.",
+                "description": "Replaces the direct notebook refresh token after Keycloak rotation. This route accepts only a delegated notebook-client access token belonging to the notebook owner. Available when API_BOOKINGS_ENABLED=false. When API_BOOKINGS_ENABLED=true, this route is not registered for security reasons. Authenticated requests that pass shared middleware receive 404 Not Found with a text/plain body (404 page not found), without JSON title, detail, or type fields. The success and validation responses documented here apply only when API_BOOKINGS_ENABLED=false.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1248,7 +1254,7 @@ const docTemplate = `{
                         }
                     },
                     "404": {
-                        "description": "Not Found",
+                        "description": "Route not registered when API_BOOKINGS_ENABLED=true. Returns plain-text 404 page not found without JSON error fields. When API_BOOKINGS_ENABLED=false, a missing notebook returns the documented JSON Error404 response.",
                         "schema": {
                             "$ref": "#/definitions/main.Error404"
                         }
@@ -1279,7 +1285,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Exchanges the caller access token for notebook-specific delegated tokens and returns 200 only after the access token is usable inside the notebook container. Available for direct notebooks when API_BOOKINGS_ENABLED=false.",
+                "description": "Exchanges the caller access token for notebook-specific delegated tokens and returns 200 only after the access token is usable inside the notebook container. Available for direct notebooks when API_BOOKINGS_ENABLED=false. When API_BOOKINGS_ENABLED=true, this route is not registered for security reasons. Authenticated requests that pass shared middleware receive 404 Not Found with a text/plain body (404 page not found), without JSON title, detail, or type fields. The success and validation responses documented here apply only when API_BOOKINGS_ENABLED=false.",
                 "produces": [
                     "application/json"
                 ],
@@ -1316,7 +1322,7 @@ const docTemplate = `{
                         }
                     },
                     "404": {
-                        "description": "Not Found",
+                        "description": "Route not registered when API_BOOKINGS_ENABLED=true. Returns plain-text 404 page not found without JSON error fields. When API_BOOKINGS_ENABLED=false, a missing notebook returns the documented JSON Error404 response.",
                         "schema": {
                             "$ref": "#/definitions/main.Error404"
                         }
