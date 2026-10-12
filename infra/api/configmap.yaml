@@ -39,6 +39,9 @@ data:
   API_IDLE_TIMEOUT_SECS: "120"
   API_BOOKINGS_ENABLED: "true"
   WORKSPACE_ENABLED: "true"
+  # For an existing 10Gi EFS workspace claim, use efs-csi-storage-class and 10Gi.
+  API_WORKSPACE_STORAGE_CLASS: "ceph-filesystem"
+  API_WORKSPACE_STORAGE_SIZE: "50Gi"
   API_MAX_BODY_SIZE_IN_MB: "5"
   API_WRITE_TIMEOUT_SECS: "60"
   API_READ_TIMEOUT_SECS: "30"

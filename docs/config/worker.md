@@ -119,7 +119,7 @@ As above, loaded with kind `"gpu"` and used for GPU notebooks.
     `workspace`, which the API never creates. The template's `existing` volume policy expects a
     bound `ReadWriteMany` claim, so notebooks stall instead of starting.
   - worker `false`, API `true` → PVCs are created per profile and never mounted; users see no
-    workspace and 50 GiB per profile is wasted.
+    workspace and the configured claim capacity per profile is wasted.
 - **Change impact:** applies to newly created notebooks only, since templates are resolved per
   notebook at creation.
 - **Notes / gotchas:** unprefixed and shared with the API — set both from one source of truth. The

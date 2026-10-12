@@ -578,28 +578,28 @@ the same thing for each — the distinction is the point of this subsection.
 
 - **Type / format:** bool.
 - **Required:** no
-- **Purpose:** enables the profile-scoped shared CephFS workspace used by the no-code sharing flow.
+- **Purpose:** enables the profile-scoped shared workspace used by the no-code sharing flow.
   When true, `ensureProfileWorkspacePVC` in `cmd/api/k8s.go` creates a PVC named `workspace` in
-  each user's profile namespace — storage class `ceph-filesystem`, `ReadWriteMany`, `Filesystem`,
-  `50Gi` — labelled `sandbox-connect.tgdex.io/profile-workspace: true`. The API waits for Kubeflow
-  to create the namespace first.
-- **Expected value:** `true` only on clusters that provide a `ReadWriteMany` CephFS storage class.
+  each user's profile namespace with `ReadWriteMany` and `Filesystem`. Its class and requested size
+  come from `API_WORKSPACE_STORAGE_CLASS` and `API_WORKSPACE_STORAGE_SIZE`. An existing compatible
+  claim is reused. The API waits for Kubeflow to create the namespace first.
+- **Expected value:** `true` when the configured storage class supports `ReadWriteMany`.
 - **Example value:** `false`
 - **Default if omitted:** `false`.
-- **How to obtain:** determined by the cluster's storage capability, not by preference — check for
-  the storage class with `kubectl get storageclass ceph-filesystem`.
-- **Fields that become required as a result:** none in config, but the cluster **must** provide a
-  `ceph-filesystem` storage class supporting `ReadWriteMany`. The size, class, access mode and
-  volume mode are compile-time constants in `cmd/api/k8s.go`, not configurable.
+- **How to obtain:** check the storage class and size of an existing `workspace` PVC, or choose
+  values supported by the cluster for new claims. For the existing 10 GiB EFS claim, set
+  `API_WORKSPACE_STORAGE_CLASS=efs-csi-storage-class` and `API_WORKSPACE_STORAGE_SIZE=10Gi` on the API.
+- **Fields that become required as a result:** the configured class must support `ReadWriteMany`.
+  Access mode and volume mode remain fixed as `ReadWriteMany` and `Filesystem`.
 - **Failure mode:** **this flag is read by both the API and the worker and the two must agree.**
   The split cases fail differently and neither is obvious:
-  - API `true`, worker `false` → a 50 GiB RWX PVC is created per profile and never mounted. Silent
+  - API `true`, worker `false` → an RWX PVC is created per profile and never mounted. Silent
     storage waste that scales with user count.
   - API `false`, worker `true` → the worker keeps the `shared-workspace` volume in the notebook
     spec and waits for a PVC the API never creates, so notebooks stall against the template's
     `existing` volume policy rather than starting.
 
-  On a cluster with no `ceph-filesystem` class, the PVC is created but stays `Pending` forever, and
+  If the configured storage class is unavailable, the PVC stays `Pending`, and
   every notebook then blocks waiting for it to bind.
 - **Change impact:** enabling it on an existing deployment provisions a PVC per profile namespace
   on next reconcile. Disabling it leaves those PVCs behind — they are not garbage-collected, so
@@ -607,8 +607,19 @@ the same thing for each — the distinction is the point of this subsection.
 - **Notes / gotchas:** deliberately unprefixed, like `SLOT_CONFIG_PROFILE`, because it is shared
   across services. Notebooks mount the claim **read-only** at `/home/jovyan/workspace`; the claim
   stays writable so an external copy pod can populate it. If an existing `workspace` PVC does not
-  match the expected class, access mode, volume mode and size, the API logs a mismatch rather than
-  silently adopting it.
+  match the configured class, access mode, volume mode and minimum size, the API logs a mismatch
+  rather than silently adopting it.
+
+### `API_WORKSPACE_STORAGE_CLASS` and `API_WORKSPACE_STORAGE_SIZE`
+
+- **Type / format:** storage class name and positive Kubernetes storage quantity.
+- **Required:** no; defaults are `ceph-filesystem` and `50Gi` to preserve existing deployments.
+- **Purpose:** configure the class and requested size when the API creates a profile `workspace`
+  PVC. The API also checks existing claims against this class and minimum size; a larger claim is
+  accepted. An empty class or invalid or non-positive size is rejected before creating a claim.
+- **Example for the existing EFS claim:** `efs-csi-storage-class` and `10Gi`. Set both values in
+  `infra/api/configmap.yaml` (or the deployed API environment), then deploy a new API image.
+  The worker needs only `WORKSPACE_ENABLED=true`; it mounts claim `workspace` by name.
 
 ### Notebook defaults and quotas
 
@@ -1203,7 +1214,7 @@ There is no connection-pool size knob — the `pgx` pool uses its defaults. If P
 | `API_KYC_ENABLED=true` | KYC gating on notebook creation | nothing in this service |
 | `API_BOOKINGS_ENABLED=true` | slot booking routes | `SLOT_CONFIG_PROFILE`; the slot-lifecycle Deployment must be running |
 | `API_DISABLE_INIT=true` | notebook URLs point at the JupyterLab auto workspace | `demoFiles.enabled: false` in both notebook templates |
-| `WORKSPACE_ENABLED=true` | per-profile CephFS `workspace` PVC creation | a `ceph-filesystem` RWX storage class in the cluster; the **same** value on the worker |
+| `WORKSPACE_ENABLED=true` | per-profile `workspace` PVC creation | an RWX storage class selected by `API_WORKSPACE_STORAGE_CLASS`; the **same** flag value on the worker |
 | `API_REGISTRY_SECRET_TYPE=ecr` | ECR token minting | `API_REGISTRY_ECR_REGION`, `API_REGISTRY_AWS_ACCESS_KEY_ID`, `API_REGISTRY_AWS_SECRET_KEY`, `API_REGISTRY_URL` |
 | `API_REGISTRY_SECRET_TYPE=private-registry` | static registry credentials | `API_REGISTRY_USERNAME`, `API_REGISTRY_PASSWORD`, `API_REGISTRY_URL` |
 | `RABBITMQ_HOST` non-empty | audit publishing | `RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD`, `RABBITMQ_EXCHANGE`, `RABBITMQ_ROUTING_KEY` |
