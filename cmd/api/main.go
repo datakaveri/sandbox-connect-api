@@ -72,6 +72,9 @@ func main() {
 	if err := env.Parse(&config); err != nil {
 		utils.LogErrorAndExit(logger, "failed to parse environment variables", "error", err)
 	}
+	if err := validateDashboardConfig(config); err != nil {
+		utils.LogErrorAndExit(logger, "invalid dashboard configuration", "error", err)
+	}
 
 	// Backward compatibility: if SLOT_CONFIG_PROFILE isn't set, fall back to API_GPU_SLOT_CONFIG_PROFILE.
 	if config.NotebookConfig.SlotConfigProfile == "" {

@@ -29,6 +29,12 @@ Regenerate all three after changing route annotations or API types:
 ./scripts/generate-openapi.sh
 ```
 
+## COS admin dashboard APIs
+
+The four read-only CPU/GPU dashboard endpoints are included in the implemented API reference.
+See [API configuration](config/api.md#cos-admin-cpugpu-dashboard) for deployment settings and
+[dashboard mockups](dashboard-mockups/README.md) for visual concepts.
+
 ## Component-specific references
 
 - [API configuration](config/api.md)

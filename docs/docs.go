@@ -1348,6 +1348,414 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/platform/sandbox-dashboard/sandboxes": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Requires cos_admin. Non-deleted managed notebooks, numeric ID descending. No historical window. New identities missing from the cache force a refresh; only confirmed absence is orphaned. Live failures or unconfirmed absence yield unknown state. Read-only requests; no launch URLs or secrets.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "platform-dashboard"
+                ],
+                "summary": "Current sandbox inventory and user drill-down",
+                "parameters": [
+                    {
+                        "enum": [
+                            "all",
+                            "cpu",
+                            "gpu"
+                        ],
+                        "type": "string",
+                        "default": "all",
+                        "description": "Resource type",
+                        "name": "resourceType",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Exact owner UUID",
+                        "name": "userId",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "opening",
+                            "running",
+                            "stopped",
+                            "failed",
+                            "orphaned",
+                            "unknown"
+                        ],
+                        "type": "string",
+                        "description": "Runtime state",
+                        "name": "state",
+                        "in": "query"
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "default": 1,
+                        "description": "One-based page",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Page size",
+                        "name": "size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/main.DashboardSandboxesResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error400"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error401"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error403"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error429"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error500"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error503"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/platform/sandbox-dashboard/summary": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Requires cos_admin realm role and the configured API client. Current counts/requests describe now; period hours cover recorded booking intervals only. Partial-source warnings and null values indicate unavailable data.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "platform-dashboard"
+                ],
+                "summary": "CPU/GPU dashboard overview",
+                "parameters": [
+                    {
+                        "enum": [
+                            "all",
+                            "cpu",
+                            "gpu"
+                        ],
+                        "type": "string",
+                        "default": "all",
+                        "description": "Resource type",
+                        "name": "resourceType",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Inclusive RFC3339 instant; supply with to. Default last 7 IST calendar days.",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Exclusive RFC3339 instant; no later than now, maximum 30-day window.",
+                        "name": "to",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/main.DashboardSummaryResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error400"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error401"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error403"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error429"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error500"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error503"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/platform/sandbox-dashboard/trends": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Requires cos_admin. Daily IST buckets; hours are split across boundaries. Direct/browser session history is excluded. Unverified event timezone yields points=null with a warning.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "platform-dashboard"
+                ],
+                "summary": "Daily CPU/GPU recorded session hours",
+                "parameters": [
+                    {
+                        "enum": [
+                            "all",
+                            "cpu",
+                            "gpu"
+                        ],
+                        "type": "string",
+                        "default": "all",
+                        "description": "Resource type",
+                        "name": "resourceType",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Inclusive RFC3339 instant; supply with to.",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Exclusive RFC3339 instant; maximum 30-day window.",
+                        "name": "to",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/main.DashboardTrendsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error400"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error401"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error403"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error429"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error500"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error503"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/platform/sandbox-dashboard/users": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Requires cos_admin. Includes retained notebook/booking owners, excluding unused profiles. No credit fields. Current stats and period hours have separate scopes; q only filters the users table.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "platform-dashboard"
+                ],
+                "summary": "CPU/GPU sandbox usage by user",
+                "parameters": [
+                    {
+                        "enum": [
+                            "all",
+                            "cpu",
+                            "gpu"
+                        ],
+                        "type": "string",
+                        "default": "all",
+                        "description": "Resource type",
+                        "name": "resourceType",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Inclusive RFC3339 instant; supply with to.",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Exclusive RFC3339 instant; maximum 30-day window.",
+                        "name": "to",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Literal case-insensitive email or user ID substring, max 100 characters",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "bookedSessionHours:desc",
+                            "runningSandboxes:desc",
+                            "email:asc"
+                        ],
+                        "type": "string",
+                        "default": "bookedSessionHours:desc",
+                        "description": "Sort (nulls last, user ID tie breaker)",
+                        "name": "sort",
+                        "in": "query"
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "default": 1,
+                        "description": "One-based page",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Page size",
+                        "name": "size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/main.DashboardUsersResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error400"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error401"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error403"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error429"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error500"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error503"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/profile/create": {
             "post": {
                 "security": [
@@ -1884,6 +2292,394 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "main.DashboardCluster": {
+            "type": "object",
+            "properties": {
+                "clusterId": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "main.DashboardCurrent": {
+            "type": "object",
+            "properties": {
+                "runningRequests": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/main.DashboardRequests"
+                        }
+                    ],
+                    "x-nullable": true
+                },
+                "runningUsers": {
+                    "type": "integer",
+                    "x-nullable": true
+                },
+                "sandboxes": {
+                    "$ref": "#/definitions/main.DashboardSandboxCounts"
+                }
+            }
+        },
+        "main.DashboardGPUUnits": {
+            "type": "object",
+            "properties": {
+                "resourceName": {
+                    "type": "string"
+                },
+                "units": {
+                    "type": "integer"
+                }
+            }
+        },
+        "main.DashboardHours": {
+            "type": "object",
+            "properties": {
+                "cpu": {
+                    "type": "number"
+                },
+                "gpu": {
+                    "type": "number"
+                },
+                "total": {
+                    "type": "number"
+                }
+            }
+        },
+        "main.DashboardMeta": {
+            "type": "object",
+            "properties": {
+                "clusterId": {
+                    "type": "string"
+                },
+                "generatedAt": {
+                    "type": "string"
+                },
+                "partial": {
+                    "type": "boolean"
+                },
+                "resourceType": {
+                    "type": "string"
+                },
+                "sources": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/main.DashboardSource"
+                    }
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/main.DashboardWarning"
+                    }
+                },
+                "window": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/main.DashboardWindow"
+                        }
+                    ],
+                    "x-nullable": true
+                }
+            }
+        },
+        "main.DashboardPeriod": {
+            "type": "object",
+            "properties": {
+                "bookedSessionHours": {
+                    "$ref": "#/definitions/main.DashboardHours"
+                },
+                "excludedSessionRows": {
+                    "type": "integer"
+                },
+                "sessionHoursBasis": {
+                    "type": "string"
+                },
+                "usersWithSessions": {
+                    "type": "integer"
+                }
+            }
+        },
+        "main.DashboardRequests": {
+            "type": "object",
+            "properties": {
+                "cpuCores": {
+                    "type": "number"
+                },
+                "gpuResources": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/main.DashboardGPUUnits"
+                    }
+                },
+                "memoryBytes": {
+                    "type": "integer"
+                }
+            }
+        },
+        "main.DashboardSandbox": {
+            "type": "object",
+            "properties": {
+                "clusterId": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "namespace": {
+                    "type": "string"
+                },
+                "resourceType": {
+                    "type": "string"
+                },
+                "resources": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/main.DashboardSandboxResources"
+                        }
+                    ],
+                    "x-nullable": true
+                },
+                "state": {
+                    "type": "string"
+                },
+                "userId": {
+                    "type": "string"
+                }
+            }
+        },
+        "main.DashboardSandboxCounts": {
+            "type": "object",
+            "properties": {
+                "byState": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "cpu": {
+                    "type": "integer"
+                },
+                "gpu": {
+                    "type": "integer"
+                },
+                "runningCpu": {
+                    "type": "integer",
+                    "x-nullable": true
+                },
+                "runningGpu": {
+                    "type": "integer",
+                    "x-nullable": true
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "main.DashboardSandboxResources": {
+            "type": "object",
+            "properties": {
+                "cpuRequestCores": {
+                    "type": "number"
+                },
+                "gpuResources": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/main.DashboardGPUUnits"
+                    }
+                },
+                "memoryRequestBytes": {
+                    "type": "integer"
+                }
+            }
+        },
+        "main.DashboardSandboxesResponse": {
+            "type": "object",
+            "properties": {
+                "meta": {
+                    "$ref": "#/definitions/main.DashboardMeta"
+                },
+                "paginationInfo": {
+                    "$ref": "#/definitions/main.PaginationInfo"
+                },
+                "result": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/main.DashboardSandbox"
+                    }
+                }
+            }
+        },
+        "main.DashboardSource": {
+            "type": "object",
+            "properties": {
+                "observedAt": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "source": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "main.DashboardStats": {
+            "type": "object",
+            "properties": {
+                "current": {
+                    "$ref": "#/definitions/main.DashboardCurrent"
+                },
+                "period": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/main.DashboardPeriod"
+                        }
+                    ],
+                    "x-nullable": true
+                }
+            }
+        },
+        "main.DashboardSummaryResponse": {
+            "type": "object",
+            "properties": {
+                "meta": {
+                    "$ref": "#/definitions/main.DashboardMeta"
+                },
+                "result": {
+                    "$ref": "#/definitions/main.DashboardSummaryResult"
+                }
+            }
+        },
+        "main.DashboardSummaryResult": {
+            "type": "object",
+            "properties": {
+                "cluster": {
+                    "$ref": "#/definitions/main.DashboardCluster"
+                },
+                "current": {
+                    "$ref": "#/definitions/main.DashboardCurrent"
+                },
+                "period": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/main.DashboardPeriod"
+                        }
+                    ],
+                    "x-nullable": true
+                }
+            }
+        },
+        "main.DashboardTrendPoint": {
+            "type": "object",
+            "properties": {
+                "bookedSessionHours": {
+                    "$ref": "#/definitions/main.DashboardHours"
+                },
+                "end": {
+                    "type": "string"
+                },
+                "start": {
+                    "type": "string"
+                }
+            }
+        },
+        "main.DashboardTrendsResponse": {
+            "type": "object",
+            "properties": {
+                "meta": {
+                    "$ref": "#/definitions/main.DashboardMeta"
+                },
+                "result": {
+                    "$ref": "#/definitions/main.DashboardTrendsResult"
+                }
+            }
+        },
+        "main.DashboardTrendsResult": {
+            "type": "object",
+            "properties": {
+                "excludedSessionRows": {
+                    "type": "integer",
+                    "x-nullable": true
+                },
+                "interval": {
+                    "type": "string"
+                },
+                "points": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/main.DashboardTrendPoint"
+                    },
+                    "x-nullable": true
+                },
+                "sessionHoursBasis": {
+                    "type": "string"
+                }
+            }
+        },
+        "main.DashboardUser": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "stats": {
+                    "$ref": "#/definitions/main.DashboardStats"
+                },
+                "userId": {
+                    "type": "string"
+                }
+            }
+        },
+        "main.DashboardUsersResponse": {
+            "type": "object",
+            "properties": {
+                "meta": {
+                    "$ref": "#/definitions/main.DashboardMeta"
+                },
+                "paginationInfo": {
+                    "$ref": "#/definitions/main.PaginationInfo"
+                },
+                "result": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/main.DashboardUser"
+                    }
+                }
+            }
+        },
+        "main.DashboardWarning": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "detail": {
+                    "type": "string"
+                }
+            }
+        },
+        "main.DashboardWindow": {
+            "type": "object",
+            "properties": {
+                "from": {
+                    "type": "string"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "to": {
                     "type": "string"
                 }
             }

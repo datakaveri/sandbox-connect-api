@@ -39,6 +39,8 @@ data:
   API_IDLE_TIMEOUT_SECS: "120"
   API_BOOKINGS_ENABLED: "true"
   WORKSPACE_ENABLED: "true"
+  # Verified API/lifecycle database sessions use UTC; chart days still use IST.
+  API_DASHBOARD_EVENT_TIMEZONE: "UTC"
   API_MAX_BODY_SIZE_IN_MB: "5"
   API_WRITE_TIMEOUT_SECS: "60"
   API_READ_TIMEOUT_SECS: "30"

@@ -30,6 +30,7 @@ func (app *application) router() http.Handler {
 	rootMux.HandleFunc("GET /v1/health", app.healthCheck)
 
 	apiMux := http.NewServeMux()
+	app.registerDashboardRoutes(apiMux)
 
 	// Standard notebook read/status routes (non-permission protected)
 	apiMux.HandleFunc("GET /v1/notebook/list", app.listNotebooks)

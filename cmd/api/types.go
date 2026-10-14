@@ -39,6 +39,7 @@ type ApiEnv struct {
 	IdleTimeoutSecs                   int    `env:"API_IDLE_TIMEOUT_SECS"`
 	BookingsEnabled                   bool   `env:"API_BOOKINGS_ENABLED" envDefault:"true"`
 	WorkspaceEnabled                  bool   `env:"WORKSPACE_ENABLED" envDefault:"false"`
+	DashboardEventTimezone            string `env:"API_DASHBOARD_EVENT_TIMEZONE" envDefault:""`
 	MaxBodySizeInMB                   int    `env:"API_MAX_BODY_SIZE_IN_MB"`
 	WriteTimeoutSecs                  int    `env:"API_WRITE_TIMEOUT_SECS"`
 	ReadTimeoutSecs                   int    `env:"API_READ_TIMEOUT_SECS"`
@@ -95,6 +96,8 @@ type application struct {
 	ecrClient      *ECRClient // non-nil only when SecretType == "ecr"
 	registrySecret RegistrySecretConfig
 	auditService   *AuditService // nil if auditing is disabled
+	dashboardStore dashboardStore
+	dashboardCache dashboardRuntimeCache
 }
 type Resource struct {
 	Request float64 `json:"request" validate:"required,gt=0.1"`
