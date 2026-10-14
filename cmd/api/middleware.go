@@ -142,7 +142,7 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 		parseOptions := []jwt.ParserOption{jwt.WithValidMethods([]string{"RS256"})}
 		if isDashboard {
 			parseOptions = append(parseOptions, jwt.WithIssuer(app.platformTokenIssuer()),
-				jwt.WithAudience(app.env.KeycloakClientID), jwt.WithExpirationRequired())
+				jwt.WithExpirationRequired())
 		}
 		token, err := jwt.ParseWithClaims(tokenString, &jwtPayload, func(token *jwt.Token) (interface{}, error) {
 			if token.Method != jwt.SigningMethodRS256 {

@@ -421,7 +421,7 @@ func TestDashboardAuthenticatedRoutes(t *testing.T) {
 	store := &dashboardFakeStore{data: dashboardData{HistoryReady: true, Owners: map[string]*string{}}}
 	app.dashboardStore = store
 	claims := func() JWTPayload {
-		return JWTPayload{Sub: "00000000-0000-4000-8000-000000000001", Exp: time.Now().Add(time.Hour).Unix(), Iss: app.platformTokenIssuer(), Aud: jwt.ClaimStrings{"frontend"}, Azp: "frontend", Email: "admin@example.com", EmailVerified: true, RealmAccess: RealmAccess{Roles: []string{"cos_admin"}}}
+		return JWTPayload{Sub: "00000000-0000-4000-8000-000000000001", Exp: time.Now().Add(time.Hour).Unix(), Iss: app.platformTokenIssuer(), Aud: jwt.ClaimStrings{"sandbox-notebook", "account"}, Azp: "frontend", Email: "admin@example.com", EmailVerified: true, RealmAccess: RealmAccess{Roles: []string{"cos_admin"}}}
 	}
 	tests := []struct {
 		name   string
@@ -429,13 +429,17 @@ func TestDashboardAuthenticatedRoutes(t *testing.T) {
 		status int
 	}{
 		{"admin", func(*JWTPayload) {}, 200},
+		{"frontend audience", func(p *JWTPayload) { p.Aud = jwt.ClaimStrings{"frontend"} }, 200},
+		{"other audience", func(p *JWTPayload) { p.Aud = jwt.ClaimStrings{"other"} }, 200},
+		{"missing audience", func(p *JWTPayload) { p.Aud = nil }, 200},
 		{"ordinary", func(p *JWTPayload) { p.RealmAccess.Roles = nil }, 403},
 		{"compute", func(p *JWTPayload) { p.RealmAccess.Roles = []string{"compute"} }, 403},
 		{"lookalike role", func(p *JWTPayload) { p.RealmAccess.Roles = []string{"COS_ADMIN"} }, 403},
 		{"delegated", func(p *JWTPayload) { p.Azp = "sandbox-notebook" }, 401},
+		{"wrong client", func(p *JWTPayload) { p.Azp = "other"; p.Aud = jwt.ClaimStrings{"frontend"} }, 401},
+		{"missing client", func(p *JWTPayload) { p.Azp = "" }, 401},
 		{"wrong issuer", func(p *JWTPayload) { p.Iss = "https://wrong.example.com" }, 401},
 		{"missing expiry", func(p *JWTPayload) { p.Exp = 0 }, 401},
-		{"wrong audience", func(p *JWTPayload) { p.Aud = jwt.ClaimStrings{"other"} }, 401},
 		{"missing subject", func(p *JWTPayload) { p.Sub = "" }, 401},
 		{"expired", func(p *JWTPayload) { p.Exp = time.Now().Add(-time.Hour).Unix() }, 401},
 		{"unverified email", func(p *JWTPayload) { p.EmailVerified = false }, 401},
@@ -444,6 +448,7 @@ func TestDashboardAuthenticatedRoutes(t *testing.T) {
 		app.env.BookingsEnabled = mode
 		for _, tt := range tests {
 			t.Run(tt.name+"/mode="+map[bool]string{true: "booking", false: "direct"}[mode], func(t *testing.T) {
+				app.rateLimiter = NewIPRateLimiter(100, 60)
 				c := claims()
 				tt.mutate(&c)
 				token, err := jwt.NewWithClaims(jwt.SigningMethodRS256, &c).SignedString(key)

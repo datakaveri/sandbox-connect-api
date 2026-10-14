@@ -213,8 +213,8 @@ Client-level requirements are in §3. The fields:
 
 - **Type / format:** string, Keycloak client ID.
 - **Required:** yes
-- **Purpose:** the public client whose tokens the API expects; used for audience and authorized-party
-  checks on incoming user tokens.
+- **Purpose:** the public client whose tokens the API expects; used for the `azp` (authorized-party)
+  check on incoming user tokens.
 - **Expected value:** the client the **frontend** authenticates with — not a service account.
 - **Example value:** `angular-tgdex-client`
 - **Default if omitted:** none — startup fails.
@@ -632,9 +632,10 @@ timezone fails startup. No new database tables or node/metrics permissions are r
 the runtime collector uses the existing cluster-wide Notebook list grant.
 
 Dashboard bearer tokens must have the configured realm issuer, an expiry, `azp` equal to
-`API_KEYCLOAK_CLIENT_ID`, and that client ID in `aud`, as well as the realm role. Add a Keycloak
-audience mapper if browser tokens currently contain only `account` in `aud`. Existing email,
-blocked-domain and KYC requirements remain in force. Notebook-delegated tokens are denied.
+`API_KEYCLOAK_CLIENT_ID`, as well as the realm role `cos_admin`. Client validation follows the
+existing APIs: `azp` identifies the requesting app, and `aud` is not validated. No additional
+audience mapper is needed for the dashboard. Token signatures and existing email, blocked-domain
+and KYC requirements remain in force. Notebook-delegated tokens are denied.
 
 ### Notebook defaults and quotas
 
