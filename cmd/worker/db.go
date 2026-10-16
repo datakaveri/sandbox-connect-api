@@ -21,7 +21,7 @@ func FetchAndMarkNotebook(pg *db.PgPool, logger *slog.Logger, originalCtx contex
 			logger.Warn("failed to begin transaction, will retry", "error", err)
 			return constants.RetryContinue, err
 		}
-		defer tx.Rollback(ctx)
+		defer func() { _ = tx.Rollback(ctx) }() // a no-op after Commit
 
 		notebooks = nil
 

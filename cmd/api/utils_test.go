@@ -63,10 +63,12 @@ func TestDetermineNotebookState(t *testing.T) {
 		}
 	})
 
+	// No Kubernetes object and no applied event: the notebook has not been
+	// created yet, so it is still opening — it cannot be running.
 	t.Run("nil k8sSpec, event empty", func(t *testing.T) {
 		result := determineNotebookState("", nil)
-		if result != NotebookStateRunning {
-			t.Errorf("expected running, got %v", result)
+		if result != NotebookStateOpening {
+			t.Errorf("expected opening, got %v", result)
 		}
 	})
 

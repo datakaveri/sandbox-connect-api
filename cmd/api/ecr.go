@@ -159,7 +159,7 @@ func (e *ECRClient) CreateOrUpdateSecret(ctx context.Context, logger *slog.Logge
 		if err == nil {
 			if !shouldRefreshToken(metadata.Expiration) {
 				expirationTime := time.Unix(metadata.Expiration, 0)
-				timeUntilRefresh := expirationTime.Add(-RefreshBeforeExpiry).Sub(time.Now())
+				timeUntilRefresh := time.Until(expirationTime.Add(-RefreshBeforeExpiry))
 				logger.Debug("ECR token is still valid, skipping refresh",
 					"namespace", namespace,
 					"secret_name", e.Config.SecretName,
@@ -241,7 +241,9 @@ func (e *ECRClient) CreateOrUpdateSecret(ctx context.Context, logger *slog.Logge
 			annotations = make(map[string]string)
 		}
 		annotations[TokenMetadataAnnotation] = string(metadataJSON)
-		unstructured.SetNestedStringMap(existingSecret.Object, annotations, "metadata", "annotations")
+		if err := unstructured.SetNestedStringMap(existingSecret.Object, annotations, "metadata", "annotations"); err != nil {
+			return fmt.Errorf("set secret annotations: %w", err)
+		}
 
 		_, err = k8sClient.Dynamic.Resource(secretGVR).Namespace(namespace).Update(ctx, existingSecret, metav1.UpdateOptions{})
 		if err != nil {

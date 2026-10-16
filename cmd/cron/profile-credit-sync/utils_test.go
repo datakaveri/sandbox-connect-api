@@ -10,20 +10,23 @@ func TestNormalizeValue(t *testing.T) {
 		input    float64
 		expected float64
 	}{
+		// epsilon is 1e-10: only floating-point noise is zeroed. A small but
+		// real per-minute charge (1e-6) must survive — rounding it away would
+		// under-bill every short session.
 		{
-			name:     "value smaller than epsilon should be zero",
-			input:    1e-6,
+			name:     "floating-point noise below epsilon should be zero",
+			input:    1e-12,
 			expected: 0,
 		},
 		{
 			name:     "value equal to epsilon should be zero",
-			input:    1e-5,
+			input:    1e-10,
 			expected: 0,
 		},
 		{
-			name:     "value larger than epsilon should remain unchanged",
-			input:    1e-4,
-			expected: 1e-4,
+			name:     "a small real charge should remain unchanged",
+			input:    1e-6,
+			expected: 1e-6,
 		},
 		{
 			name:     "zero should remain zero",

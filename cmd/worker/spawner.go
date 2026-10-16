@@ -68,8 +68,8 @@ func (app *application) worker(ctx context.Context) {
 		}
 	}
 
-	var failed bool = true
-	var failedPtr *bool = &failed
+	failed := true
+	failedPtr := &failed
 
 	defer cleanupResources(failedPtr)
 

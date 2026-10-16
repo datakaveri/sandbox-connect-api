@@ -204,7 +204,9 @@ func (app *application) createOrUpdatePlatformTokenSecret(ctx context.Context, n
 	data[platformTokenSecretKey] = encodedToken
 	data[platformTokenClientSecretKey] = encodedClientSecret
 	data[platformTokenBootstrapKey] = encodedBootstrap
-	unstructured.SetNestedStringMap(existing.Object, data, "data")
+	if err := unstructured.SetNestedStringMap(existing.Object, data, "data"); err != nil {
+		return "", "", fmt.Errorf("set platform token secret data: %w", err)
+	}
 
 	existingLabels := existing.GetLabels()
 	if existingLabels == nil {
@@ -347,9 +349,9 @@ func (app *application) exchangeNotebookToken(ctx context.Context, subjectToken,
 	if err != nil {
 		return nil, fmt.Errorf("call Keycloak token exchange: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // response body: nothing useful to do with a close error
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("Keycloak token exchange returned status %d", resp.StatusCode)
+		return nil, fmt.Errorf("keycloak token exchange returned status %d", resp.StatusCode)
 	}
 	var exchanged platformTokenExchangeResponse
 	if err := json.NewDecoder(resp.Body).Decode(&exchanged); err != nil {
@@ -358,7 +360,7 @@ func (app *application) exchangeNotebookToken(ctx context.Context, subjectToken,
 	exchanged.AccessToken = strings.TrimSpace(exchanged.AccessToken)
 	exchanged.RefreshToken = strings.TrimSpace(exchanged.RefreshToken)
 	if exchanged.AccessToken == "" || exchanged.RefreshToken == "" {
-		return nil, fmt.Errorf("Keycloak token exchange did not return access and refresh tokens")
+		return nil, fmt.Errorf("keycloak token exchange did not return access and refresh tokens")
 	}
 	if err := app.validateDelegatedAccessToken(exchanged.AccessToken, expectedUserID); err != nil {
 		return nil, err

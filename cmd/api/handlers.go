@@ -228,7 +228,7 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
 		return
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }() // a no-op after Commit
 
 	// Lock profile for concurrency control
 	var profileID int64
@@ -516,7 +516,7 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
 		return
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }() // a no-op after Commit
 
 	// Lock profile for concurrency control
 	var profileID int64
@@ -1242,7 +1242,7 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		"response_status", http.StatusOK,
 	)
 
-	var resp NotebookListResponse = NotebookListResponse{
+	resp := NotebookListResponse{
 		Notebooks:  notebooks,
 		NextOffset: nextOffset,
 	}

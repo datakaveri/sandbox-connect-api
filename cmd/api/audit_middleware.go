@@ -116,7 +116,7 @@ func (app *application) auditMiddleware(next http.Handler) http.Handler {
 		userAgent := r.UserAgent()
 		api := r.URL.Path
 		method := r.Method
-		requestID, _ := r.Context().Value("requestID").(string)
+		requestID, _ := r.Context().Value(requestIDKey).(string)
 
 		// Inject audit metadata pointer so handlers can set sandbox_type
 		metadata := &AuditMetadata{}

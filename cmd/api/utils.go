@@ -26,7 +26,9 @@ func checkNotebookFailed(latestEvent constants.Events) bool {
 func jsonResponse(w http.ResponseWriter, statusCode int, data any) {
 	w.Header().Set("content-type", "application/json")
 	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(data)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		slog.Warn("writing JSON response failed", "error", err)
+	}
 }
 func sendResponse(w http.ResponseWriter, logger *slog.Logger, status int, userMessage string) {
 	formattedMessage := formatMessage(userMessage)
@@ -72,7 +74,9 @@ func formatMessage(message string) string {
 }
 
 func getLogger(r *http.Request) *slog.Logger {
-	requestID := r.Context().Value("requestID").(string)
+	// Checked: a request that did not pass the request-ID middleware must log
+	// without one, not panic.
+	requestID, _ := r.Context().Value(requestIDKey).(string)
 	logger := slog.With(
 		slog.String("request_id", requestID),
 		slog.String("method", r.Method),
@@ -154,11 +158,12 @@ func generateNotebookURL(baseURL, namespace, notebookName string, imageName *str
 
 	fileName := startupFileName
 	if imageName != nil {
-		if *imageName == "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps1-v3" {
+		switch *imageName {
+		case "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps1-v3":
 			fileName = "nha_ps1_skeletal_notebook_main.ipynb"
-		} else if *imageName == "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps2-v4" {
+		case "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps2-v4":
 			fileName = "nha_ps2_skeletal_notebook_main.ipynb"
-		} else if *imageName == "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps3-v3" {
+		case "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps3-v3":
 			fileName = "nha_ps3_skeletal_notebook_main.ipynb"
 		}
 	}

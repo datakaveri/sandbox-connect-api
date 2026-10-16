@@ -168,7 +168,9 @@ func (app *application) createOrUpdateGitAccessTokenSecret(ctx context.Context, 
 		data = map[string]string{}
 	}
 	data["token"] = encodedToken
-	unstructured.SetNestedStringMap(existing.Object, data, "data")
+	if err := unstructured.SetNestedStringMap(existing.Object, data, "data"); err != nil {
+		return fmt.Errorf("set git access token secret data: %w", err)
+	}
 	labels := existing.GetLabels()
 	if labels == nil {
 		labels = map[string]string{}

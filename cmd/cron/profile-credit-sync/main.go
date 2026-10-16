@@ -217,7 +217,7 @@ func (ps *profileSync) executeProfileProcessing(userID string, token string, log
 	}
 
 	defer func() {
-		tx.Rollback(ctx)
+		_ = tx.Rollback(ctx) // a no-op after Commit
 	}()
 	lockCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -409,7 +409,7 @@ func (ps *profileSync) getProfileCostFromOpenCost(lastSyncAt time.Time, endTime 
 			logger.Warn("OpenCost request failed, will retry", "error", err)
 			return constants.RetryContinue, err
 		}
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck // response body: nothing useful to do with a close error
 
 		if resp.StatusCode != http.StatusOK {
 			logger.Warn("OpenCost returned non-OK status code, will retry", "status_code", resp.StatusCode)
@@ -544,7 +544,7 @@ func (ps *profileSync) costDeductionRequest(ctx context.Context, profileID strin
 			statusCode = 0
 			return constants.RetryContinue, err
 		}
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck // response body: nothing useful to do with a close error
 
 		statusCode = resp.StatusCode
 		responseBody, err = io.ReadAll(resp.Body)
@@ -641,7 +641,7 @@ func (ps *profileSync) getUserBalance(ctx context.Context, userID string, token 
 			statusCode = 0
 			return constants.RetryContinue, err
 		}
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck // response body: nothing useful to do with a close error
 
 		statusCode = resp.StatusCode
 		responseBody, err = io.ReadAll(resp.Body)
@@ -732,7 +732,7 @@ func (ps *profileSync) getKeycloakToken() (string, error) {
 			ps.logger.Warn("Keycloak token request failed, will retry", "error", err)
 			return constants.RetryContinue, err
 		}
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck // response body: nothing useful to do with a close error
 
 		statusCode = resp.StatusCode
 		if statusCode != http.StatusOK {

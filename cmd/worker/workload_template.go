@@ -141,7 +141,7 @@ func LoadSandboxNotebookTemplate(templatePath, expectedWorkload string) (*Sandbo
 	if err != nil {
 		return nil, fmt.Errorf("open notebook template %s: %w", templatePath, err)
 	}
-	defer file.Close()
+	defer file.Close() //nolint:errcheck // read-only file
 	decoder := k8syaml.NewYAMLOrJSONDecoder(file, 4096)
 	documents := make([]map[string]any, 0, 2)
 	for {

@@ -1,7 +1,6 @@
 package k8s
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
 
@@ -21,6 +20,6 @@ func getKubernetesConfig(configType, configPath string) (*rest.Config, error) {
 	case "cluster":
 		return rest.InClusterConfig()
 	default:
-		return nil, errors.New(fmt.Sprintf("invalid Kubernetes configuration type: type=%s", configType))
+		return nil, fmt.Errorf("invalid Kubernetes configuration type: type=%s", configType)
 	}
 }

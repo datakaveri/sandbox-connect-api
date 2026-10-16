@@ -220,7 +220,7 @@ func processBookingToReady(ctx context.Context, pool *db.PgPool, logger *slog.Lo
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }() // a no-op after Commit
 
 	pvcName := b.Notebook + "-pvc"
 

@@ -8,14 +8,6 @@ import (
 	"time"
 )
 
-func getTemplateKey(template string) string {
-	if template == "ai" {
-		return "template/ai.zip"
-	} else {
-		return "template/ml.zip"
-	}
-}
-
 func WithK8sRetry(ctx context.Context, logger *slog.Logger, operation func() (constants.ShouldContinue, error)) error {
 	return utils.WithExponentialBackoff(ctx, k8sRetryConfig, logger, operation)
 }

@@ -12,6 +12,15 @@ import (
 	"github.com/google/uuid"
 )
 
+// ctxKey is this package's context key type. A plain string key can collide
+// with any other package's (SA1029).
+type ctxKey string
+
+const (
+	requestIDKey ctxKey = "requestID"
+	startTimeKey ctxKey = "startTime"
+)
+
 func (app *application) enableCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("origin")
@@ -50,9 +59,9 @@ func loggingMiddleware(next http.Handler) http.Handler {
 			requestID = uuid.New().String()
 		}
 
-		ctx := context.WithValue(r.Context(), "requestID", requestID)
+		ctx := context.WithValue(r.Context(), requestIDKey, requestID)
 		startTime := time.Now()
-		ctx = context.WithValue(ctx, "startTime", startTime)
+		ctx = context.WithValue(ctx, startTimeKey, startTime)
 		r = r.WithContext(ctx)
 		logger := getLogger(r)
 		logger.Info("Request Start")
@@ -355,11 +364,7 @@ func isValidIP(ip string) bool {
 		return false
 	}
 
-	// Check for private IP ranges (you might want to allow these depending on your setup)
-	if parsedIP.IsPrivate() {
-		// Uncomment the line below if you want to reject private IPs
-		// return false
-	}
-
+	// Private ranges are ACCEPTED: in-cluster callers and the ingress present
+	// them. Reject them here only if every caller is known to be public.
 	return true
 }

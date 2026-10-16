@@ -179,7 +179,7 @@ func (app *application) jupyterLiteStaticHandler() http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-		defer file.Close()
+		defer file.Close() //nolint:errcheck // read-only file
 
 		stat, err := file.Stat()
 		if err != nil {
@@ -187,14 +187,14 @@ func (app *application) jupyterLiteStaticHandler() http.Handler {
 			return
 		}
 		if stat.IsDir() {
-			file.Close()
+			_ = file.Close()
 			name = path.Join(name, "index.html")
 			file, err = fs.Open(name)
 			if err != nil {
 				http.NotFound(w, r)
 				return
 			}
-			defer file.Close()
+			defer file.Close() //nolint:errcheck // read-only file
 			stat, err = file.Stat()
 			if err != nil || stat.IsDir() {
 				http.NotFound(w, r)

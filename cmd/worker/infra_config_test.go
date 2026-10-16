@@ -24,7 +24,7 @@ func TestCheckedInWorkerNotebookTemplates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer manifest.Close()
+	defer manifest.Close() //nolint:errcheck // read-only file
 	decoder := k8syaml.NewYAMLOrJSONDecoder(manifest, 4096)
 	data := map[string]string{}
 	for {

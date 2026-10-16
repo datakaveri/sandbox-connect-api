@@ -20,7 +20,7 @@ import (
 
 func requestWithLoggerContext(method, target string, body []byte) *http.Request {
 	req := httptest.NewRequest(method, target, bytes.NewReader(body))
-	ctx := context.WithValue(req.Context(), "requestID", "test-request-id")
+	ctx := context.WithValue(req.Context(), requestIDKey, "test-request-id")
 	return req.WithContext(ctx)
 }
 

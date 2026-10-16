@@ -150,7 +150,7 @@ func main() {
 		defer cancel()
 
 		if err := server.Shutdown(ctx); err != nil {
-			server.Close()
+			_ = server.Close()
 			utils.LogErrorAndExit(logger, "could not stop server gracefully", "error", err)
 		}
 

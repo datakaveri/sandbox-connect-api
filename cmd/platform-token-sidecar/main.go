@@ -331,7 +331,7 @@ func requestAccessToken(ctx context.Context, cfg config, refreshToken string) (*
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // response body: nothing useful to do with a close error
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("token endpoint returned status %d", resp.StatusCode)
 	}
@@ -386,7 +386,7 @@ func persistRefreshToken(ctx context.Context, cfg config, accessToken, refreshTo
 	if err != nil {
 		return fmt.Errorf("persist rotated refresh token: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // response body: nothing useful to do with a close error
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("persist rotated refresh token returned status %d", resp.StatusCode)
 	}
@@ -451,7 +451,7 @@ func atomicWrite(path, value string, mode os.FileMode) error {
 		return err
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
+	defer func() { _ = os.Remove(tmpName) }() // gone already after a successful rename
 	if _, err := tmp.WriteString(value); err != nil {
 		_ = tmp.Close()
 		return err

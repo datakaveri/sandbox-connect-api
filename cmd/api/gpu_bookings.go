@@ -401,7 +401,7 @@ func (app *application) createGPUBooking(w http.ResponseWriter, r *http.Request)
 		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
 		return
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }() // a no-op after Commit
 
 	if category.RequiresCredits {
 		var canCreateCategory bool
@@ -1090,7 +1090,7 @@ func (app *application) extendGPUBooking(w http.ResponseWriter, r *http.Request)
 		sendError(w, logger, http.StatusInternalServerError, "Failed to extend booking")
 		return
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }() // a no-op after Commit
 
 	var (
 		status        string
@@ -1269,7 +1269,7 @@ func (app *application) resetGPUBooking(w http.ResponseWriter, r *http.Request) 
 		sendError(w, logger, http.StatusInternalServerError, "Failed to reset booking")
 		return
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }() // a no-op after Commit
 
 	// Lock the bookings row only (no outer join locking in Postgres).
 	var (
@@ -1431,7 +1431,7 @@ func (app *application) terminateGPUBooking(w http.ResponseWriter, r *http.Reque
 		sendError(w, logger, http.StatusInternalServerError, "Failed to terminate booking")
 		return
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }() // a no-op after Commit
 
 	var (
 		dbStatus   string

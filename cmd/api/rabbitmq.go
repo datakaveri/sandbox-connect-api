@@ -121,7 +121,7 @@ func (s *RabbitMQService) connect() error {
 
 	ch, err := conn.Channel()
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return fmt.Errorf("failed to open RabbitMQ channel: %w", err)
 	}
 
