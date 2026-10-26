@@ -248,9 +248,9 @@ const redocTemplate = `<!DOCTYPE html>
         <h1>{{.Title}}</h1>
         <span class="api-version">v{{.Version}}</span>
     </div>
-    <redoc spec-url="swagger.json" hide-hostname="true" expand-responses="200,201"></redoc>
-    <!-- Pin the classic-script renderer: Redoc 3 requires ES modules and removes these display options. -->
-    <script src="https://cdn.redoc.ly/redoc/v2.5.3/bundles/redoc.standalone.js"></script>
+    <redoc spec-url="swagger.json"></redoc>
+    <!-- Pin the Redoc version to avoid unexpected renderer upgrades. -->
+    <script type="module" src="https://cdn.redoc.ly/redoc/v3.0.1/bundles/redoc.standalone.js"></script>
 </body>
 </html>`
 
