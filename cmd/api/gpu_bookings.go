@@ -198,6 +198,8 @@ func orderedContiguousSlotKeys(keys []string, ordered []gpuconfig.SlotTemplate) 
 // @Failure      429  {object}  Error429
 // @Failure      500  {object}  Error500
 // @Security     BearerAuth
+// @ID           createBooking
+// @x-dx-authz   {"authentication":"required","authorization":"identity"}
 // @Router       /v1/bookings [post]
 func (app *application) createGPUBooking(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
@@ -554,6 +556,8 @@ func (app *application) createGPUBooking(w http.ResponseWriter, r *http.Request)
 // @Failure      429  {object}  Error429
 // @Failure      500  {object}  Error500
 // @Security     BearerAuth
+// @ID           listBookings
+// @x-dx-authz   {"authentication":"required","authorization":"identity"}
 // @Router       /v1/bookings [get]
 func (app *application) listGPUBookings(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
@@ -753,6 +757,8 @@ func (app *application) listGPUBookings(w http.ResponseWriter, r *http.Request) 
 // @Failure      429  {object}  Error429
 // @Failure      500  {object}  Error500
 // @Security     BearerAuth
+// @ID           listAvailableSlots
+// @x-dx-authz   {"authentication":"required","authorization":"identity"}
 // @Router       /v1/slots/available [get]
 func (app *application) listGPUAvailableSlots(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
@@ -880,6 +886,8 @@ func (app *application) listGPUAvailableSlots(w http.ResponseWriter, r *http.Req
 // @Failure      429  {object}  Error429
 // @Failure      500  {object}  Error500
 // @Security     BearerAuth
+// @ID           listCalendarSlots
+// @x-dx-authz   {"authentication":"required","authorization":"identity"}
 // @Router       /v1/slots/calendar [get]
 func (app *application) listGPUCalendarSlots(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
@@ -1006,6 +1014,8 @@ func (app *application) listGPUCalendarSlots(w http.ResponseWriter, r *http.Requ
 // @Failure      429  {object}  Error429
 // @Failure      500  {object}  Error500
 // @Security     BearerAuth
+// @ID           cancelBooking
+// @x-dx-authz   {"authentication":"required","authorization":"identity"}
 // @Router       /v1/bookings/{id}/cancel [patch]
 func (app *application) cancelGPUBooking(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
@@ -1066,6 +1076,8 @@ func (app *application) cancelGPUBooking(w http.ResponseWriter, r *http.Request)
 // @Failure      409  {object}  Error409
 // @Failure      500  {object}  Error500
 // @Security     BearerAuth
+// @ID           extendBooking
+// @x-dx-authz   {"authentication":"required","authorization":"identity"}
 // @Router       /v1/bookings/{id}/extend [patch]
 func (app *application) extendGPUBooking(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
@@ -1244,6 +1256,8 @@ func (app *application) extendGPUBooking(w http.ResponseWriter, r *http.Request)
 // @Failure      404  {object}  Error404
 // @Failure      500  {object}  Error500
 // @Security     BearerAuth
+// @ID           resetBooking
+// @x-dx-authz   {"authentication":"required","authorization":"identity"}
 // @Router       /v1/bookings/{id}/reset [patch]
 func (app *application) resetGPUBooking(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
@@ -1406,6 +1420,8 @@ func (app *application) resetGPUBooking(w http.ResponseWriter, r *http.Request) 
 // @Failure      404  {object}  Error404
 // @Failure      500  {object}  Error500
 // @Security     BearerAuth
+// @ID           terminateBooking
+// @x-dx-authz   {"authentication":"required","authorization":"identity"}
 // @Router       /v1/bookings/{id}/terminate [patch]
 func (app *application) terminateGPUBooking(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)

@@ -108,7 +108,19 @@ func (app *application) contextTimeout(next http.Handler) http.Handler {
 	})
 }
 
+// authMiddleware authenticates every request it wraps. Standalone mode (the
+// default) is the service's original behaviour: it verifies the caller's
+// bearer itself. Gateway and hybrid modes are in gateway_auth.go.
 func (app *application) authMiddleware(next http.Handler) http.Handler {
+	if app.authMode == authModeGateway || app.authMode == authModeHybrid {
+		return app.gatewayAuthMiddleware(next)
+	}
+	return app.bearerAuthMiddleware(next)
+}
+
+// bearerAuthMiddleware authenticates the request from its own bearer (or the
+// JupyterLite cookie) with the full local claim policy.
+func (app *application) bearerAuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logger := getLogger(r)
 
@@ -124,144 +136,13 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		tokenString, ok := bearerTokenFromAuthorizationHeader(authHeader)
-		if !ok {
-			logger.Warn("Invalid authorization header format")
-			sendError(w, logger, http.StatusUnauthorized, "Invalid authorization header format")
+		jwtPayload, authErr := app.authenticateBearer(r, authHeader)
+		if authErr != nil {
+			sendError(w, logger, authErr.status, authErr.message)
 			return
 		}
 
-		formattedPublicKey := app.env.KeycloakPublicKey
-		if !strings.Contains(formattedPublicKey, "BEGIN PUBLIC KEY") {
-			formattedPublicKey = fmt.Sprintf("-----BEGIN PUBLIC KEY-----\n%s\n-----END PUBLIC KEY-----", formattedPublicKey)
-		}
-
-		publicKey, err := jwt.ParseRSAPublicKeyFromPEM([]byte(formattedPublicKey))
-		if err != nil {
-			logger.Error("Failed to parse public key", "error", err)
-			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
-			return
-		}
-
-		var jwtPayload JWTPayload
-		token, err := jwt.ParseWithClaims(tokenString, &jwtPayload, func(token *jwt.Token) (interface{}, error) {
-			if token.Method != jwt.SigningMethodRS256 {
-				return nil, fmt.Errorf("unexpected signing method: %v, expected RS256", token.Header["alg"])
-			}
-			return publicKey, nil
-		}, jwt.WithValidMethods([]string{"RS256"}))
-
-		if err != nil {
-			logger.Error("Failed to validate token", "error", err)
-			sendError(w, logger, http.StatusUnauthorized, "Invalid token")
-			return
-		}
-
-		if !token.Valid {
-			logger.Warn("Invalid token")
-			sendError(w, logger, http.StatusUnauthorized, "Invalid token")
-			return
-		}
-
-		// Debug: Log detailed user information from JWT payload
-		logger.Debug("JWT token successfully parsed and validated",
-			"user_id", jwtPayload.Sub,
-			"email", jwtPayload.Email,
-			"name", jwtPayload.Name,
-			"client_id", jwtPayload.Azp,
-			"issuer", jwtPayload.Iss,
-			"token_type", jwtPayload.Typ,
-			"email_verified", jwtPayload.EmailVerified,
-			"kyc_verified", jwtPayload.KycVerified,
-			"realm_roles", jwtPayload.RealmAccess.Roles,
-			"account_roles", jwtPayload.ResourceAccess.Account.Roles,
-			"exp", jwtPayload.Exp,
-			"iat", jwtPayload.Iat,
-			"jti", jwtPayload.Jti,
-		)
-
-		expectedClientID := app.env.KeycloakClientID
-		isNotebookTokenRotation := app.isNotebookTokenRotationRequest(r)
-		if isNotebookTokenRotation {
-			expectedClientID = app.env.PlatformTokenNotebookClientID
-		}
-		if jwtPayload.Azp == "" || jwtPayload.Azp != expectedClientID {
-			logger.Warn("Authentication failed: Invalid client ID",
-				"provided_client_id", jwtPayload.Azp,
-				"expected_client_id", expectedClientID,
-				"user_id", jwtPayload.Sub,
-				"email", jwtPayload.Email,
-			)
-			sendError(w, logger, http.StatusUnauthorized, "Invalid client")
-			return
-		}
-		if isNotebookTokenRotation && jwtPayload.Iss != app.platformTokenIssuer() {
-			logger.Warn("Authentication failed: Invalid token issuer",
-				"provided_issuer", jwtPayload.Iss,
-				"expected_issuer", app.platformTokenIssuer(),
-				"user_id", jwtPayload.Sub,
-			)
-			sendError(w, logger, http.StatusUnauthorized, "Invalid token issuer")
-			return
-		}
-
-		currentTime := time.Now().Unix()
-		exp, _ := jwtPayload.GetExpirationTime()
-		if isNotebookTokenRotation && exp == nil {
-			logger.Warn("Authentication failed: Missing token expiry", "user_id", jwtPayload.Sub)
-			sendError(w, logger, http.StatusUnauthorized, "Invalid token expiry")
-			return
-		}
-		if exp != nil && exp.Unix() < currentTime {
-			logger.Warn("Authentication failed: Token expired",
-				"exp", exp.Unix(),
-				"current_time", currentTime,
-				"expired_seconds_ago", currentTime-exp.Unix(),
-				"user_id", jwtPayload.Sub,
-				"email", jwtPayload.Email,
-			)
-			sendError(w, logger, http.StatusUnauthorized, "Token expired")
-			return
-		}
-
-		// Check email verification
-		if !jwtPayload.EmailVerified {
-			logger.Warn("Authentication failed: Email not verified",
-				"user_id", jwtPayload.Sub,
-				"email", jwtPayload.Email,
-				"name", jwtPayload.Name,
-				"email_verified", jwtPayload.EmailVerified,
-				"kyc_verified", jwtPayload.KycVerified,
-			)
-			sendError(w, logger, http.StatusUnauthorized, "Your email is not verified")
-			return
-		}
-
-		// Check KYC verification
-		needKYC := app.env.KYCEnabled
-		if r.URL.Path == "/v1/profile/create" ||
-			r.URL.Path == "/v1/jupyterlite/session" ||
-			app.isJupyterLiteRequestPath(r.URL.Path) {
-			needKYC = false
-		}
-		if needKYC && !jwtPayload.KycVerified {
-			logger.Warn("Authentication failed: KYC not verified",
-				"user_id", jwtPayload.Sub,
-				"email", jwtPayload.Email,
-				"name", jwtPayload.Name,
-				"email_verified", jwtPayload.EmailVerified,
-				"kyc_verified", jwtPayload.KycVerified,
-			)
-			sendError(w, logger, http.StatusUnauthorized, "KYC is not verified")
-			return
-		}
-
-		userInfo := UserInfo{
-			Sub:      jwtPayload.Sub,
-			Email:    jwtPayload.Email,
-			Roles:    jwtPayload.RealmAccess.Roles,
-			ClientID: jwtPayload.Azp,
-		}
+		userInfo := userInfoFromPayload(jwtPayload)
 
 		// Debug: Log successful authentication with user context
 		logger.Debug("User authentication successful, setting user context",
@@ -273,10 +154,160 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 		)
 
 		ctx := context.WithValue(r.Context(), UserContextKey, userInfo)
-		r = r.WithContext(ctx)
-
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// authError is a rejected credential: the status and the client-facing message.
+type authError struct {
+	status  int
+	message string
+}
+
+// authenticateBearer verifies a bearer token and applies the service's claim
+// policy: signature, client (azp), issuer and expiry for notebook token
+// rotation, email verification and KYC. Every mode runs it, so the policy
+// lives in one place.
+func (app *application) authenticateBearer(r *http.Request, authHeader string) (*JWTPayload, *authError) {
+	logger := getLogger(r)
+
+	tokenString, ok := bearerTokenFromAuthorizationHeader(authHeader)
+	if !ok {
+		logger.Warn("Invalid authorization header format")
+		return nil, &authError{http.StatusUnauthorized, "Invalid authorization header format"}
+	}
+
+	formattedPublicKey := app.env.KeycloakPublicKey
+	if !strings.Contains(formattedPublicKey, "BEGIN PUBLIC KEY") {
+		formattedPublicKey = fmt.Sprintf("-----BEGIN PUBLIC KEY-----\n%s\n-----END PUBLIC KEY-----", formattedPublicKey)
+	}
+
+	publicKey, err := jwt.ParseRSAPublicKeyFromPEM([]byte(formattedPublicKey))
+	if err != nil {
+		logger.Error("Failed to parse public key", "error", err)
+		return nil, &authError{http.StatusInternalServerError, "Internal server error"}
+	}
+
+	var jwtPayload JWTPayload
+	token, err := jwt.ParseWithClaims(tokenString, &jwtPayload, func(token *jwt.Token) (interface{}, error) {
+		if token.Method != jwt.SigningMethodRS256 {
+			return nil, fmt.Errorf("unexpected signing method: %v, expected RS256", token.Header["alg"])
+		}
+		return publicKey, nil
+	}, jwt.WithValidMethods([]string{"RS256"}))
+
+	if err != nil {
+		logger.Error("Failed to validate token", "error", err)
+		return nil, &authError{http.StatusUnauthorized, "Invalid token"}
+	}
+
+	if !token.Valid {
+		logger.Warn("Invalid token")
+		return nil, &authError{http.StatusUnauthorized, "Invalid token"}
+	}
+
+	// Debug: Log detailed user information from JWT payload
+	logger.Debug("JWT token successfully parsed and validated",
+		"user_id", jwtPayload.Sub,
+		"email", jwtPayload.Email,
+		"name", jwtPayload.Name,
+		"client_id", jwtPayload.Azp,
+		"issuer", jwtPayload.Iss,
+		"token_type", jwtPayload.Typ,
+		"email_verified", jwtPayload.EmailVerified,
+		"kyc_verified", jwtPayload.KycVerified,
+		"realm_roles", jwtPayload.RealmAccess.Roles,
+		"account_roles", jwtPayload.ResourceAccess.Account.Roles,
+		"exp", jwtPayload.Exp,
+		"iat", jwtPayload.Iat,
+		"jti", jwtPayload.Jti,
+	)
+
+	expectedClientID := app.env.KeycloakClientID
+	isNotebookTokenRotation := app.isNotebookTokenRotationRequest(r)
+	if isNotebookTokenRotation {
+		expectedClientID = app.env.PlatformTokenNotebookClientID
+	}
+	if jwtPayload.Azp == "" || jwtPayload.Azp != expectedClientID {
+		logger.Warn("Authentication failed: Invalid client ID",
+			"provided_client_id", jwtPayload.Azp,
+			"expected_client_id", expectedClientID,
+			"user_id", jwtPayload.Sub,
+			"email", jwtPayload.Email,
+		)
+		return nil, &authError{http.StatusUnauthorized, "Invalid client"}
+	}
+	if isNotebookTokenRotation && jwtPayload.Iss != app.platformTokenIssuer() {
+		logger.Warn("Authentication failed: Invalid token issuer",
+			"provided_issuer", jwtPayload.Iss,
+			"expected_issuer", app.platformTokenIssuer(),
+			"user_id", jwtPayload.Sub,
+		)
+		return nil, &authError{http.StatusUnauthorized, "Invalid token issuer"}
+	}
+
+	currentTime := time.Now().Unix()
+	exp, _ := jwtPayload.GetExpirationTime()
+	if isNotebookTokenRotation && exp == nil {
+		logger.Warn("Authentication failed: Missing token expiry", "user_id", jwtPayload.Sub)
+		return nil, &authError{http.StatusUnauthorized, "Invalid token expiry"}
+	}
+	if exp != nil && exp.Unix() < currentTime {
+		logger.Warn("Authentication failed: Token expired",
+			"exp", exp.Unix(),
+			"current_time", currentTime,
+			"expired_seconds_ago", currentTime-exp.Unix(),
+			"user_id", jwtPayload.Sub,
+			"email", jwtPayload.Email,
+		)
+		return nil, &authError{http.StatusUnauthorized, "Token expired"}
+	}
+
+	// Check email verification
+	if !jwtPayload.EmailVerified {
+		logger.Warn("Authentication failed: Email not verified",
+			"user_id", jwtPayload.Sub,
+			"email", jwtPayload.Email,
+			"name", jwtPayload.Name,
+			"email_verified", jwtPayload.EmailVerified,
+			"kyc_verified", jwtPayload.KycVerified,
+		)
+		return nil, &authError{http.StatusUnauthorized, "Your email is not verified"}
+	}
+
+	// Check KYC verification
+	if app.kycRequired(r) && !jwtPayload.KycVerified {
+		logger.Warn("Authentication failed: KYC not verified",
+			"user_id", jwtPayload.Sub,
+			"email", jwtPayload.Email,
+			"name", jwtPayload.Name,
+			"email_verified", jwtPayload.EmailVerified,
+			"kyc_verified", jwtPayload.KycVerified,
+		)
+		return nil, &authError{http.StatusUnauthorized, "KYC is not verified"}
+	}
+
+	return &jwtPayload, nil
+}
+
+// kycRequired reports whether KYC applies to this request. Profile creation
+// and JupyterLite are exempt: they are how an unverified user gets started.
+func (app *application) kycRequired(r *http.Request) bool {
+	if r.URL.Path == "/v1/profile/create" ||
+		r.URL.Path == "/v1/jupyterlite/session" ||
+		app.isJupyterLiteRequestPath(r.URL.Path) {
+		return false
+	}
+	return app.env.KYCEnabled
+}
+
+func userInfoFromPayload(p *JWTPayload) UserInfo {
+	return UserInfo{
+		Sub:      p.Sub,
+		Email:    p.Email,
+		Roles:    p.RealmAccess.Roles,
+		ClientID: p.Azp,
+	}
 }
 
 // getClientIP extracts the real client IP address from the request,

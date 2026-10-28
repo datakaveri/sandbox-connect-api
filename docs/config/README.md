@@ -25,7 +25,7 @@ Because the template asks for one document per service, there is one file per de
 
 | Service | Doc | Config struct | Deployed config |
 |---|---|---|---|
-| API server | [api.md](api.md) | `cmd/api/types.go` → `ApiEnv` | `infra/api/configmap.yaml`, `infra/api/secret.yaml` |
+| API server | [api.md](api.md) · deployment modes: [gateway.md](gateway.md) | `cmd/api/types.go` → `ApiEnv` | `infra/api/configmap.yaml`, `infra/api/secret.yaml` |
 | Worker | [worker.md](worker.md) | `cmd/worker/types.go` → `Env` | `infra/worker/deployment.yaml`, `infra/worker/configmap.yaml` |
 | Slot lifecycle controller | [slot-lifecycle.md](slot-lifecycle.md) | `cmd/cron/slot-lifecycle/types.go` | `infra/cron/slot-lifecycle/configmap.yaml` |
 | Profile credit sync CronJob | [profile-credit-sync.md](profile-credit-sync.md) | `cmd/cron/profile-credit-sync/types.go` | `infra/cron/profile-credit-sync/configmap.yaml`, `secret.yaml` |

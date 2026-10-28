@@ -7,6 +7,7 @@ A backend service for managing Jupyter notebooks in Kubernetes with a RESTful AP
 - [Overview](#overview)
 - [Documentation](#documentation)
 - [System Architecture](#system-architecture)
+- [Deployment Modes (standalone / behind dx-gateway-go)](#deployment-modes)
 - [Installation](#installation)
 - [API Documentation](#api-documentation)
   - [Notebook Endpoints](#notebook-endpoints)
@@ -30,6 +31,8 @@ host the notebook workloads.
 - [Operations guide](docs/operations.md)
 - [Configuration reference](docs/config/README.md)
 - [Generated OpenAPI specification](docs/swagger.yaml)
+- [OpenAPI 3 operation manifest (gateway)](openapi/openapi.yaml)
+- [Deployment modes and gateway integration](docs/config/gateway.md)
 - [Mode-specific Postman collections](postman/README.md)
 
 ## System Architecture
@@ -42,11 +45,33 @@ combines database events with live Kubernetes state when reporting notebook stat
 See [docs/architecture.md](docs/architecture.md) for component boundaries, lifecycle diagrams,
 storage ownership, token sessions, and concurrency behavior.
 
+## Deployment Modes
+
+The API runs **standalone** (the default — reached directly, verifies each bearer itself) or
+**behind `dx-gateway-go`**, with the Go fleet's authentication and authorization: JWT validated at
+the edge, a per-operation manifest enforced by the gateway, a verified workload credential on
+every hop and the projected `X-Subject-*` identity. The choice is configuration only:
+
+| `API_AUTH_MODE` | Behaviour |
+|---|---|
+| `standalone` (default) | unchanged behaviour |
+| `gateway` | accepted only through the gateway (`WORKLOAD_VERIFIER_*` required); the local email/KYC/client checks still run on the forwarded bearer |
+| `hybrid` | gateway hop when a workload credential is present, otherwise standalone — for migration |
+
+The gateway loads [`openapi/openapi.yaml`](openapi/openapi.yaml) as this service's operation
+manifest: every operation declares its `x-dx-authz` policy, and an undeclared operation is denied.
+It is generated from the swag annotations by `./scripts/generate-openapi.sh`, and a conformance
+test keeps it identical to the router. Full guide: [docs/config/gateway.md](docs/config/gateway.md).
+
+Building needs `dx-common-go` beside this repo (`replace => ../dx-common-go`), as for every Go
+fleet service. The Dockerfiles clone it in a `common` stage (`DX_COMMON_REF`, default `dev`).
+
 ## Installation
 
 ### Prerequisites
 
-- Go 1.24.2 or a compatible newer version
+- Go 1.26.5 or a compatible newer version
+- `dx-common-go` cloned beside this repo (the orchestrator's `make dev-clone` does this)
 - PostgreSQL database
 - Kubernetes cluster (or access to one)
 - Docker (for containerized deployment)
@@ -92,7 +117,8 @@ The service exposes generated ReDoc API reference at:
 /v1/apis/
 ```
 
-Regenerate OpenAPI artifacts after changing Swag annotations or API response types:
+Regenerate OpenAPI artifacts after changing Swag annotations or API response types. Every
+operation needs `@ID` and `@x-dx-authz`; the script also rebuilds `openapi/openapi.yaml`:
 
 ```bash
 ./scripts/generate-openapi.sh

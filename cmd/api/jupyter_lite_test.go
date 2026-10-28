@@ -331,3 +331,24 @@ func TestJWTPayloadAudienceAcceptsStringAndArray(t *testing.T) {
 		})
 	}
 }
+
+func TestJupyterLiteServePathDecouplesPublicURL(t *testing.T) {
+	app := testJupyterLiteApp(t.TempDir())
+	app.env.JupyterLiteBaseURL = "/sandbox/jupyterlite"
+	if got := app.jupyterLiteBasePath(); got != "/sandbox/jupyterlite" {
+		t.Fatalf("derived serve path = %q", got)
+	}
+
+	// An ingress that strips /sandbox: the pod sees /jupyterlite, the browser
+	// is sent to /sandbox/jupyterlite.
+	app.env.JupyterLiteServePath = "/jupyterlite/"
+	if got := app.jupyterLiteBasePath(); got != "/jupyterlite" {
+		t.Fatalf("serve path = %q, want /jupyterlite", got)
+	}
+	if got := app.jupyterLiteLaunchURL(); got != "/sandbox/jupyterlite/lab/index.html" {
+		t.Fatalf("launch URL = %q", got)
+	}
+	if !app.isJupyterLiteRequestPath("/jupyterlite/lab/index.html") || app.isJupyterLiteRequestPath("/sandbox/jupyterlite/lab/index.html") {
+		t.Fatal("requests must match the serve path, not the public URL")
+	}
+}

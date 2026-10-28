@@ -33,6 +33,7 @@ const docTemplate = `{
                     "bookings"
                 ],
                 "summary": "List user bookings",
+                "operationId": "listBookings",
                 "parameters": [
                     {
                         "type": "string",
@@ -78,6 +79,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/main.Error500"
                         }
                     }
+                },
+                "x-dx-authz": {
+                    "authentication": "required",
+                    "authorization": "identity"
                 }
             },
             "post": {
@@ -97,6 +102,7 @@ const docTemplate = `{
                     "bookings"
                 ],
                 "summary": "Create slot booking",
+                "operationId": "createBooking",
                 "parameters": [
                     {
                         "description": "Booking request",
@@ -157,6 +163,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/main.Error500"
                         }
                     }
+                },
+                "x-dx-authz": {
+                    "authentication": "required",
+                    "authorization": "identity"
                 }
             }
         },
@@ -175,6 +185,7 @@ const docTemplate = `{
                     "bookings"
                 ],
                 "summary": "Cancel scheduled booking",
+                "operationId": "cancelBooking",
                 "parameters": [
                     {
                         "type": "integer",
@@ -221,6 +232,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/main.Error500"
                         }
                     }
+                },
+                "x-dx-authz": {
+                    "authentication": "required",
+                    "authorization": "identity"
                 }
             }
         },
@@ -239,6 +254,7 @@ const docTemplate = `{
                     "bookings"
                 ],
                 "summary": "Extend active booking by one slot",
+                "operationId": "extendBooking",
                 "parameters": [
                     {
                         "type": "integer",
@@ -285,6 +301,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/main.Error500"
                         }
                     }
+                },
+                "x-dx-authz": {
+                    "authentication": "required",
+                    "authorization": "identity"
                 }
             }
         },
@@ -306,6 +326,7 @@ const docTemplate = `{
                     "bookings"
                 ],
                 "summary": "Persist notebook refresh-token rotation",
+                "operationId": "rotateBookingNotebookTokenSession",
                 "parameters": [
                     {
                         "type": "integer",
@@ -367,6 +388,9 @@ const docTemplate = `{
                             "$ref": "#/definitions/main.Error500"
                         }
                     }
+                },
+                "x-dx-authz": {
+                    "authentication": "none"
                 }
             },
             "post": {
@@ -383,6 +407,7 @@ const docTemplate = `{
                     "bookings"
                 ],
                 "summary": "Create notebook token session",
+                "operationId": "createBookingNotebookTokenSession",
                 "parameters": [
                     {
                         "type": "integer",
@@ -435,6 +460,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/main.Error503"
                         }
                     }
+                },
+                "x-dx-authz": {
+                    "authentication": "required",
+                    "authorization": "identity"
                 }
             }
         },
@@ -453,6 +482,7 @@ const docTemplate = `{
                     "bookings"
                 ],
                 "summary": "Reset stuck booking",
+                "operationId": "resetBooking",
                 "parameters": [
                     {
                         "type": "integer",
@@ -493,6 +523,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/main.Error500"
                         }
                     }
+                },
+                "x-dx-authz": {
+                    "authentication": "required",
+                    "authorization": "identity"
                 }
             }
         },
@@ -511,6 +545,7 @@ const docTemplate = `{
                     "bookings"
                 ],
                 "summary": "End booking session early",
+                "operationId": "terminateBooking",
                 "parameters": [
                     {
                         "type": "integer",
@@ -551,6 +586,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/main.Error500"
                         }
                     }
+                },
+                "x-dx-authz": {
+                    "authentication": "required",
+                    "authorization": "identity"
                 }
             }
         },
@@ -569,6 +608,7 @@ const docTemplate = `{
                     "bookings"
                 ],
                 "summary": "List booking categories and slot templates",
+                "operationId": "listCategories",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -594,6 +634,35 @@ const docTemplate = `{
                             "$ref": "#/definitions/main.Error500"
                         }
                     }
+                },
+                "x-dx-authz": {
+                    "authentication": "required",
+                    "authorization": "identity"
+                }
+            }
+        },
+        "/v1/health": {
+            "get": {
+                "description": "Liveness/readiness probe. Unauthenticated.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "health"
+                ],
+                "summary": "Health check",
+                "operationId": "healthCheck",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                },
+                "x-dx-authz": {
+                    "authentication": "none"
                 }
             }
         },
@@ -612,6 +681,7 @@ const docTemplate = `{
                     "jupyterlite"
                 ],
                 "summary": "Create JupyterLite launch session",
+                "operationId": "createJupyterLiteSession",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -637,6 +707,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/main.Error500"
                         }
                     }
+                },
+                "x-dx-authz": {
+                    "authentication": "required",
+                    "authorization": "identity"
                 }
             }
         },
@@ -655,6 +729,7 @@ const docTemplate = `{
                     "notebook"
                 ],
                 "summary": "Check if notebook exists",
+                "operationId": "checkNotebookExists",
                 "parameters": [
                     {
                         "type": "string",
@@ -695,6 +770,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/main.Error500"
                         }
                     }
+                },
+                "x-dx-authz": {
+                    "authentication": "required",
+                    "authorization": "identity"
                 }
             }
         },
@@ -716,6 +795,7 @@ const docTemplate = `{
                     "notebook"
                 ],
                 "summary": "Create notebook directly",
+                "operationId": "createNotebook",
                 "parameters": [
                     {
                         "description": "Notebook request",
@@ -776,6 +856,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/main.Error500"
                         }
                     }
+                },
+                "x-dx-authz": {
+                    "authentication": "required",
+                    "authorization": "identity"
                 }
             }
         },
@@ -797,6 +881,7 @@ const docTemplate = `{
                     "notebook"
                 ],
                 "summary": "Delete notebook",
+                "operationId": "deleteNotebook",
                 "parameters": [
                     {
                         "description": "Notebook delete request",
@@ -857,6 +942,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/main.Error500"
                         }
                     }
+                },
+                "x-dx-authz": {
+                    "authentication": "required",
+                    "authorization": "identity"
                 }
             }
         },
@@ -875,6 +964,7 @@ const docTemplate = `{
                     "bookings"
                 ],
                 "summary": "List instance types for GPU bookings",
+                "operationId": "listInstanceTypes",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -900,6 +990,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/main.Error500"
                         }
                     }
+                },
+                "x-dx-authz": {
+                    "authentication": "required",
+                    "authorization": "identity"
                 }
             }
         },
@@ -918,6 +1012,7 @@ const docTemplate = `{
                     "notebook"
                 ],
                 "summary": "List notebooks",
+                "operationId": "listNotebooks",
                 "parameters": [
                     {
                         "type": "integer",
@@ -975,6 +1070,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/main.Error500"
                         }
                     }
+                },
+                "x-dx-authz": {
+                    "authentication": "required",
+                    "authorization": "identity"
                 }
             }
         },
@@ -996,6 +1095,7 @@ const docTemplate = `{
                     "notebook"
                 ],
                 "summary": "Start notebook",
+                "operationId": "startNotebook",
                 "parameters": [
                     {
                         "description": "Notebook start request",
@@ -1056,6 +1156,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/main.Error500"
                         }
                     }
+                },
+                "x-dx-authz": {
+                    "authentication": "required",
+                    "authorization": "identity"
                 }
             }
         },
@@ -1074,6 +1178,7 @@ const docTemplate = `{
                     "notebook"
                 ],
                 "summary": "Get notebook status",
+                "operationId": "getNotebookStatus",
                 "parameters": [
                     {
                         "type": "string",
@@ -1114,6 +1219,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/main.Error500"
                         }
                     }
+                },
+                "x-dx-authz": {
+                    "authentication": "required",
+                    "authorization": "identity"
                 }
             }
         },
@@ -1135,6 +1244,7 @@ const docTemplate = `{
                     "notebook"
                 ],
                 "summary": "Stop notebook",
+                "operationId": "stopNotebook",
                 "parameters": [
                     {
                         "description": "Notebook stop request",
@@ -1189,6 +1299,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/main.Error500"
                         }
                     }
+                },
+                "x-dx-authz": {
+                    "authentication": "required",
+                    "authorization": "identity"
                 }
             }
         },
@@ -1210,6 +1324,7 @@ const docTemplate = `{
                     "notebook"
                 ],
                 "summary": "Persist direct notebook refresh-token rotation",
+                "operationId": "rotateNotebookTokenSession",
                 "parameters": [
                     {
                         "type": "string",
@@ -1271,6 +1386,9 @@ const docTemplate = `{
                             "$ref": "#/definitions/main.Error500"
                         }
                     }
+                },
+                "x-dx-authz": {
+                    "authentication": "none"
                 }
             },
             "post": {
@@ -1287,6 +1405,7 @@ const docTemplate = `{
                     "notebook"
                 ],
                 "summary": "Create direct notebook token session",
+                "operationId": "createNotebookTokenSession",
                 "parameters": [
                     {
                         "type": "string",
@@ -1339,6 +1458,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/main.Error503"
                         }
                     }
+                },
+                "x-dx-authz": {
+                    "authentication": "required",
+                    "authorization": "identity"
                 }
             }
         },
@@ -1360,6 +1483,7 @@ const docTemplate = `{
                     "profile"
                 ],
                 "summary": "Create Kubeflow profile",
+                "operationId": "createProfile",
                 "responses": {
                     "201": {
                         "description": "Created",
@@ -1391,6 +1515,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/main.Error500"
                         }
                     }
+                },
+                "x-dx-authz": {
+                    "authentication": "required",
+                    "authorization": "identity"
                 }
             }
         },
@@ -1409,6 +1537,7 @@ const docTemplate = `{
                     "bookings"
                 ],
                 "summary": "List available slots for date/category",
+                "operationId": "listAvailableSlots",
                 "parameters": [
                     {
                         "type": "string",
@@ -1456,6 +1585,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/main.Error500"
                         }
                     }
+                },
+                "x-dx-authz": {
+                    "authentication": "required",
+                    "authorization": "identity"
                 }
             }
         },
@@ -1474,6 +1607,7 @@ const docTemplate = `{
                     "bookings"
                 ],
                 "summary": "List monthly availability summary",
+                "operationId": "listCalendarSlots",
                 "parameters": [
                     {
                         "type": "string",
@@ -1521,6 +1655,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/main.Error500"
                         }
                     }
+                },
+                "x-dx-authz": {
+                    "authentication": "required",
+                    "authorization": "identity"
                 }
             }
         }

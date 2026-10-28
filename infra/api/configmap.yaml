@@ -37,6 +37,9 @@ data:
   API_TIMEOUT_SECS: "60"
   API_IDLE_TIMEOUT_SECS: "120"
   API_BOOKINGS_ENABLED: "true"
+  # standalone | gateway | hybrid — see docs/config/gateway.md. Gateway mode
+  # also needs WORKLOAD_VERIFIER_* (fleet names).
+  API_AUTH_MODE: "standalone"
   WORKSPACE_ENABLED: "true"
   API_MAX_BODY_SIZE_IN_MB: "5"
   API_WRITE_TIMEOUT_SECS: "60"

@@ -12,10 +12,14 @@ import (
 )
 
 type ApiEnv struct {
-	Address                           string `env:"API_ADDRESS,required"`
-	KubeConfigPath                    string `env:"API_KUBE_CONFIG_PATH" envDefault:""`
-	KubeConfigMode                    string `env:"API_KUBE_CONFIG_MODE" envDefault:"cluster"`
-	JupyterLiteBaseURL                string `env:"API_JUPYTERLITE_BASE_URL" envDefault:"/jupyterlite"`
+	Address            string `env:"API_ADDRESS,required"`
+	KubeConfigPath     string `env:"API_KUBE_CONFIG_PATH" envDefault:""`
+	KubeConfigMode     string `env:"API_KUBE_CONFIG_MODE" envDefault:"cluster"`
+	JupyterLiteBaseURL string `env:"API_JUPYTERLITE_BASE_URL" envDefault:"/jupyterlite"`
+	// JupyterLiteServePath is the path the assets are served under when it
+	// differs from the public URL — e.g. an ingress that strips /sandbox
+	// before the request reaches the pod. Empty derives it from the base URL.
+	JupyterLiteServePath              string `env:"API_JUPYTERLITE_SERVE_PATH" envDefault:""`
 	JupyterLiteStaticDir              string `env:"API_JUPYTERLITE_STATIC_DIR" envDefault:"jupyterlite"`
 	POSTGRES_URL                      string `env:"API_POSTGRES_URL,required"`
 	KeycloakURL                       string `env:"API_KEYCLOAK_URL,required"`
@@ -45,6 +49,34 @@ type ApiEnv struct {
 	NotebookConfig                    NotebookConfig
 	RegistrySecretConfig              RegistrySecretConfig
 	RabbitMQConfig                    RabbitMQConfig
+	Gateway                           GatewayConfig
+}
+
+// GatewayConfig selects how callers are authenticated. The default,
+// standalone, is the service's original behaviour; gateway and hybrid put it
+// behind dx-gateway-go with the Go fleet's identity model. See
+// docs/config/gateway.md.
+type GatewayConfig struct {
+	// AuthMode is standalone | gateway | hybrid.
+	AuthMode string `env:"API_AUTH_MODE" envDefault:"standalone"`
+	// RequireBearer makes the gateway forward the user's bearer
+	// (keep_authorization on the route). The bearer carries the claims the
+	// gateway does not project (email_verified, kyc_verified, azp) and is the
+	// subject_token for the notebook token exchange.
+	RequireBearer bool `env:"API_GATEWAY_REQUIRE_BEARER" envDefault:"true"`
+	Workload      WorkloadVerifierConfig
+}
+
+// WorkloadVerifierConfig uses the fleet's WORKLOAD_VERIFIER_* names so one
+// set of deployment values reads the same across every service.
+type WorkloadVerifierConfig struct {
+	Enforcement      string   `env:"WORKLOAD_VERIFIER_ENFORCEMENT" envDefault:""`
+	JwksURL          string   `env:"WORKLOAD_VERIFIER_JWKS_URL"`
+	Issuer           string   `env:"WORKLOAD_VERIFIER_ISSUER"`
+	Service          string   `env:"WORKLOAD_VERIFIER_SERVICE" envDefault:"sandbox-connect-api"`
+	LeewaySeconds    int      `env:"WORKLOAD_VERIFIER_LEEWAY_SECONDS" envDefault:"30"`
+	AllowedCallers   []string `env:"WORKLOAD_VERIFIER_ALLOWED_CALLERS" envSeparator:","`
+	SubjectAsserters []string `env:"WORKLOAD_VERIFIER_SUBJECT_ASSERTERS" envSeparator:"," envDefault:"dx-gateway-go"`
 }
 
 // RabbitMQConfig holds the RabbitMQ connection configuration for audit message publishing.
@@ -94,6 +126,8 @@ type application struct {
 	ecrClient      *ECRClient // non-nil only when SecretType == "ecr"
 	registrySecret RegistrySecretConfig
 	auditService   *AuditService // nil if auditing is disabled
+	authMode       authMode
+	workload       workloadVerifier // nil in standalone mode
 }
 type Resource struct {
 	Request float64 `json:"request" validate:"required,gt=0.1"`

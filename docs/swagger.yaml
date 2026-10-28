@@ -662,6 +662,7 @@ paths:
         Lists CPU and GPU slot bookings for the current user with optional status filter and pagination.
         The `status` filter accepts comma-separated lifecycle states: `scheduled`, `ready`, `active`, `shutting_down`, `completed`, `cancelled`, `expired`, or `all` to disable filtering.
         `notebookUrl` is returned only when the booking is `active` and the linked notebook resource has been applied.
+      operationId: listBookings
       parameters:
       - description: Comma-separated status filter, or 'all' to omit filtering
         in: query
@@ -699,6 +700,9 @@ paths:
       summary: List user bookings
       tags:
       - bookings
+      x-dx-authz:
+        authentication: required
+        authorization: identity
     post:
       consumes:
       - application/json
@@ -712,6 +716,7 @@ paths:
         MaxBookingsPerWeek counts scheduled, ready, active, shutting_down, and completed bookings for the same user, category, and selected week. When reached, the API returns 400 with "Weekly booking limit exceeded".
         Cancelled bookings do not count toward either limit. Expired bookings do not count toward weekly quota because expired can mean either no-show expiry after the booking became ready, or reset/cleanup of a stuck ready booking. Scheduled bookings reset before resources are ready become cancelled, not expired.
         The previous "You already have an upcoming booking" restriction has been removed. Users may create multiple future bookings within MaxActiveBookings, MaxBookingsPerWeek, slot availability, and duplicate booking rules.
+      operationId: createBooking
       parameters:
       - description: Booking request
         in: body
@@ -759,11 +764,15 @@ paths:
       summary: Create slot booking
       tags:
       - bookings
+      x-dx-authz:
+        authentication: required
+        authorization: identity
   /v1/bookings/{id}/cancel:
     patch:
       description: |-
         Cancels a `scheduled` booking for the current user before resources are ready.
         Cancel changes `scheduled` to `cancelled`. It does not operate on `ready`, `active`, or `shutting_down`; use terminate for those states.
+      operationId: cancelBooking
       parameters:
       - description: Booking ID
         in: path
@@ -802,11 +811,15 @@ paths:
       summary: Cancel scheduled booking
       tags:
       - bookings
+      x-dx-authz:
+        authentication: required
+        authorization: identity
   /v1/bookings/{id}/extend:
     patch:
       description: |-
         Extends an `active` booking to the next contiguous slot if that slot has capacity, the category has not reached its contiguous-slot limit, and the booking has not already been extended.
         The booking remains `active`; `slot_keys`, `slot_end`, `shutdown_warning_sent_at`, and `extension_used` are updated so lifecycle timing follows the new end time.
+      operationId: extendBooking
       parameters:
       - description: Booking ID
         in: path
@@ -845,11 +858,15 @@ paths:
       summary: Extend active booking by one slot
       tags:
       - bookings
+      x-dx-authz:
+        authentication: required
+        authorization: identity
   /v1/bookings/{id}/notebook-token-session:
     post:
       description: Exchanges the caller access token for notebook-specific delegated
         tokens and returns 200 only after the access token is usable inside the notebook
         container. Browser refresh tokens are never accepted or stored.
+      operationId: createBookingNotebookTokenSession
       parameters:
       - description: Booking ID
         in: path
@@ -892,12 +909,16 @@ paths:
       summary: Create notebook token session
       tags:
       - bookings
+      x-dx-authz:
+        authentication: required
+        authorization: identity
     put:
       consumes:
       - application/json
       description: Replaces the notebook refresh token after Keycloak rotation. This
         route accepts only a delegated notebook-client access token belonging to the
         booking owner.
+      operationId: rotateBookingNotebookTokenSession
       parameters:
       - description: Booking ID
         in: path
@@ -946,12 +967,15 @@ paths:
       summary: Persist notebook refresh-token rotation
       tags:
       - bookings
+      x-dx-authz:
+        authentication: none
   /v1/bookings/{id}/reset:
     patch:
       description: |-
         Resets only `scheduled` or `ready` bookings that are stuck or need cleanup.
         `scheduled` resets become `cancelled` and unlink any notebook id. `ready` resets become `expired`, set session and cleanup timestamps, unlink the notebook, and best-effort delete the linked Notebook/PVC.
         Reset does not apply to `active`, `shutting_down`, `completed`, `cancelled`, or already `expired` bookings.
+      operationId: resetBooking
       parameters:
       - description: Booking ID
         in: path
@@ -986,12 +1010,16 @@ paths:
       summary: Reset stuck booking
       tags:
       - bookings
+      x-dx-authz:
+        authentication: required
+        authorization: identity
   /v1/bookings/{id}/terminate:
     patch:
       description: |-
         Ends a `ready`, `active`, or `shutting_down` booking early and marks it `completed`.
         Terminate sets session and cleanup timestamps, unlinks the notebook, and best-effort deletes the linked Notebook/PVC. If the booking is already `completed`, the endpoint returns success without changing it.
         Use cancel or reset for `scheduled` bookings; terminate does not apply to `cancelled` or `expired` bookings.
+      operationId: terminateBooking
       parameters:
       - description: Booking ID
         in: path
@@ -1026,10 +1054,14 @@ paths:
       summary: End booking session early
       tags:
       - bookings
+      x-dx-authz:
+        authentication: required
+        authorization: identity
   /v1/categories:
     get:
       description: Returns configured CPU and GPU categories and their slot templates
         from code (API_GPU_SLOT_CONFIG_PROFILE)
+      operationId: listCategories
       produces:
       - application/json
       responses:
@@ -1054,11 +1086,32 @@ paths:
       summary: List booking categories and slot templates
       tags:
       - bookings
+      x-dx-authz:
+        authentication: required
+        authorization: identity
+  /v1/health:
+    get:
+      description: Liveness/readiness probe. Unauthenticated.
+      operationId: healthCheck
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Health check
+      tags:
+      - health
+      x-dx-authz:
+        authentication: none
   /v1/jupyterlite/session:
     post:
       description: Validates the current bearer token and sets an HttpOnly cookie
         so browser navigations to JupyterLite can authenticate without putting the
         token in the URL.
+      operationId: createJupyterLiteSession
       produces:
       - application/json
       responses:
@@ -1083,11 +1136,15 @@ paths:
       summary: Create JupyterLite launch session
       tags:
       - jupyterlite
+      x-dx-authz:
+        authentication: required
+        authorization: identity
   /v1/notebook/{notebook_name}/notebook-token-session:
     post:
       description: Exchanges the caller access token for notebook-specific delegated
         tokens and returns 200 only after the access token is usable inside the notebook
         container. Available for direct notebooks when API_BOOKINGS_ENABLED=false.
+      operationId: createNotebookTokenSession
       parameters:
       - description: Notebook Name
         in: path
@@ -1130,12 +1187,16 @@ paths:
       summary: Create direct notebook token session
       tags:
       - notebook
+      x-dx-authz:
+        authentication: required
+        authorization: identity
     put:
       consumes:
       - application/json
       description: Replaces the direct notebook refresh token after Keycloak rotation.
         This route accepts only a delegated notebook-client access token belonging
         to the notebook owner. Available when API_BOOKINGS_ENABLED=false.
+      operationId: rotateNotebookTokenSession
       parameters:
       - description: Notebook Name
         in: path
@@ -1184,9 +1245,12 @@ paths:
       summary: Persist direct notebook refresh-token rotation
       tags:
       - notebook
+      x-dx-authz:
+        authentication: none
   /v1/notebook/check-exists/{notebook_name}:
     get:
       description: Checks if a notebook with the given name exists
+      operationId: checkNotebookExists
       parameters:
       - description: Notebook Name
         in: path
@@ -1221,12 +1285,16 @@ paths:
       summary: Check if notebook exists
       tags:
       - notebook
+      x-dx-authz:
+        authentication: required
+        authorization: identity
   /v1/notebook/create:
     post:
       consumes:
       - application/json
       description: Creates a CPU or GPU notebook directly when API_BOOKINGS_ENABLED=false.
         The notebook stays live until stopped or deleted.
+      operationId: createNotebook
       parameters:
       - description: Notebook request
         in: body
@@ -1274,12 +1342,16 @@ paths:
       summary: Create notebook directly
       tags:
       - notebook
+      x-dx-authz:
+        authentication: required
+        authorization: identity
   /v1/notebook/delete:
     delete:
       consumes:
       - application/json
       description: Deletes a directly managed notebook and its PVC. Available when
         API_BOOKINGS_ENABLED=false.
+      operationId: deleteNotebook
       parameters:
       - description: Notebook delete request
         in: body
@@ -1327,11 +1399,15 @@ paths:
       summary: Delete notebook
       tags:
       - notebook
+      x-dx-authz:
+        authentication: required
+        authorization: identity
   /v1/notebook/instance-types:
     get:
       description: Returns instance types from API_GPU_NODE_INSTANCE_TYPES with display
         metadata (for GPU-backed booking categories). Legacy path GET /v1/notebook/gpu-instance-types
         is also served.
+      operationId: listInstanceTypes
       produces:
       - application/json
       responses:
@@ -1356,9 +1432,13 @@ paths:
       summary: List instance types for GPU bookings
       tags:
       - bookings
+      x-dx-authz:
+        authentication: required
+        authorization: identity
   /v1/notebook/list:
     get:
       description: Lists all notebooks for the user
+      operationId: listNotebooks
       parameters:
       - description: Maximum number of notebooks to return (max 50)
         in: query
@@ -1404,12 +1484,16 @@ paths:
       summary: List notebooks
       tags:
       - notebook
+      x-dx-authz:
+        authentication: required
+        authorization: identity
   /v1/notebook/start:
     patch:
       consumes:
       - application/json
       description: Starts a directly managed stopped notebook by removing the Kubeflow
         stopped annotation. Available when API_BOOKINGS_ENABLED=false.
+      operationId: startNotebook
       parameters:
       - description: Notebook start request
         in: body
@@ -1457,9 +1541,13 @@ paths:
       summary: Start notebook
       tags:
       - notebook
+      x-dx-authz:
+        authentication: required
+        authorization: identity
   /v1/notebook/status/{notebook_name}:
     get:
       description: Gets the status of a notebook
+      operationId: getNotebookStatus
       parameters:
       - description: Notebook Name
         in: path
@@ -1494,12 +1582,16 @@ paths:
       summary: Get notebook status
       tags:
       - notebook
+      x-dx-authz:
+        authentication: required
+        authorization: identity
   /v1/notebook/stop:
     patch:
       consumes:
       - application/json
       description: Stops a directly managed notebook by adding the Kubeflow stopped
         annotation. Available when API_BOOKINGS_ENABLED=false.
+      operationId: stopNotebook
       parameters:
       - description: Notebook stop request
         in: body
@@ -1543,11 +1635,15 @@ paths:
       summary: Stop notebook
       tags:
       - notebook
+      x-dx-authz:
+        authentication: required
+        authorization: identity
   /v1/profile/create:
     post:
       consumes:
       - application/json
       description: Creates a Kubeflow Profile CRD for the user
+      operationId: createProfile
       produces:
       - application/json
       responses:
@@ -1576,9 +1672,13 @@ paths:
       summary: Create Kubeflow profile
       tags:
       - profile
+      x-dx-authz:
+        authentication: required
+        authorization: identity
   /v1/slots/available:
     get:
       description: Returns slot-level availability for a category on a given date
+      operationId: listAvailableSlots
       parameters:
       - description: Category name (CPU or GPU)
         in: query
@@ -1618,9 +1718,13 @@ paths:
       summary: List available slots for date/category
       tags:
       - bookings
+      x-dx-authz:
+        authentication: required
+        authorization: identity
   /v1/slots/calendar:
     get:
       description: Returns day-level availability totals for a category/month
+      operationId: listCalendarSlots
       parameters:
       - description: Category name (CPU or GPU)
         in: query
@@ -1660,6 +1764,9 @@ paths:
       summary: List monthly availability summary
       tags:
       - bookings
+      x-dx-authz:
+        authentication: required
+        authorization: identity
 produces:
 - application/json
 schemes:

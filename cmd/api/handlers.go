@@ -31,6 +31,8 @@ import (
 // @Failure      401  {object}  Error401
 // @Failure      500  {object}  Error500
 // @Security     BearerAuth
+// @ID           checkNotebookExists
+// @x-dx-authz   {"authentication":"required","authorization":"identity"}
 // @Router       /v1/notebook/check-exists/{notebook_name} [get]
 func (app *application) checkNotebookExists(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
@@ -76,6 +78,8 @@ func (app *application) checkNotebookExists(w http.ResponseWriter, r *http.Reque
 // @Failure      429  {object}  Error429
 // @Failure      500  {object}  Error500
 // @Security     BearerAuth
+// @ID           createNotebook
+// @x-dx-authz   {"authentication":"required","authorization":"identity"}
 // @Router       /v1/notebook/create [post]
 func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
@@ -407,6 +411,8 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 // @Failure      429  {object}  Error429
 // @Failure      500  {object}  Error500
 // @Security     BearerAuth
+// @ID           stopNotebook
+// @x-dx-authz   {"authentication":"required","authorization":"identity"}
 // @Router       /v1/notebook/stop [patch]
 func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
@@ -481,6 +487,8 @@ func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
 // @Failure      429  {object}  Error429
 // @Failure      500  {object}  Error500
 // @Security     BearerAuth
+// @ID           startNotebook
+// @x-dx-authz   {"authentication":"required","authorization":"identity"}
 // @Router       /v1/notebook/start [patch]
 func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
@@ -664,6 +672,8 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 // @Failure      429  {object}  Error429
 // @Failure      500  {object}  Error500
 // @Security     BearerAuth
+// @ID           deleteNotebook
+// @x-dx-authz   {"authentication":"required","authorization":"identity"}
 // @Router       /v1/notebook/delete [delete]
 func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
@@ -863,6 +873,8 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 // @Failure      400  {object}  Error400
 // @Failure      500  {object}  Error500
 // @Security     BearerAuth
+// @ID           listNotebooks
+// @x-dx-authz   {"authentication":"required","authorization":"identity"}
 // @Router       /v1/notebook/list [get]
 func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
@@ -1261,6 +1273,8 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 // @Failure      404  {object}  Error404
 // @Failure      500  {object}  Error500
 // @Security     BearerAuth
+// @ID           getNotebookStatus
+// @x-dx-authz   {"authentication":"required","authorization":"identity"}
 // @Router       /v1/notebook/status/{notebook_name} [get]
 func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
@@ -1397,6 +1411,8 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 // @Failure      422  {object}  Error422
 // @Failure      500  {object}  Error500
 // @Security     BearerAuth
+// @ID           createProfile
+// @x-dx-authz   {"authentication":"required","authorization":"identity"}
 // @Router       /v1/profile/create [post]
 func (app *application) createProfile(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
@@ -1469,6 +1485,8 @@ func (app *application) createProfile(w http.ResponseWriter, r *http.Request) {
 // @Failure      429  {object}  Error429
 // @Failure      500  {object}  Error500
 // @Security     BearerAuth
+// @ID           listInstanceTypes
+// @x-dx-authz   {"authentication":"required","authorization":"identity"}
 // @Router       /v1/notebook/instance-types [get]
 func (app *application) listGPUInstanceTypes(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
@@ -1504,6 +1522,8 @@ func (app *application) listGPUInstanceTypes(w http.ResponseWriter, r *http.Requ
 // @Failure      429  {object}  Error429
 // @Failure      500  {object}  Error500
 // @Security     BearerAuth
+// @ID           listCategories
+// @x-dx-authz   {"authentication":"required","authorization":"identity"}
 // @Router       /v1/categories [get]
 func (app *application) listGPUCategories(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)

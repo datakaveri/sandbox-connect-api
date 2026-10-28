@@ -110,6 +110,16 @@ func main() {
 		slog.Info("Audit system initialized successfully")
 	}
 
+	mode, err := parseAuthMode(config.Gateway.AuthMode)
+	if err != nil {
+		utils.LogErrorAndExit(logger, "invalid authentication mode", "error", err)
+	}
+	verifier, err := newWorkloadVerifier(mode, config.Gateway.Workload)
+	if err != nil {
+		utils.LogErrorAndExit(logger, "failed to create workload verifier", "error", err)
+	}
+	slog.Info("authentication mode", "mode", mode, "require_bearer", config.Gateway.RequireBearer)
+
 	app := application{
 		pgPool:         pool,
 		k8sClient:      k8sClient,
@@ -118,6 +128,13 @@ func main() {
 		ecrClient:      ecrClient,
 		registrySecret: config.RegistrySecretConfig,
 		auditService:   auditService,
+		authMode:       mode,
+	}
+	// Assigned only when non-nil: a nil *workload.Verifier stored in the
+	// interface would compare non-nil.
+	if verifier != nil {
+		app.workload = verifier
+		defer verifier.Close() //nolint:errcheck // shutdown
 	}
 
 	server := http.Server{

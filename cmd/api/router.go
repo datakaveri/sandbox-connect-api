@@ -30,43 +30,9 @@ func (app *application) router() http.Handler {
 	rootMux.HandleFunc("GET /v1/health", app.healthCheck)
 
 	apiMux := http.NewServeMux()
-
-	// Standard notebook read/status routes (non-permission protected)
-	apiMux.HandleFunc("GET /v1/notebook/list", app.listNotebooks)
-	apiMux.HandleFunc("GET /v1/notebook/check-exists/{notebook_name}", app.checkNotebookExists)
-	apiMux.HandleFunc("GET /v1/notebook/status/{notebook_name}", app.checkNotebookStatus)
-	apiMux.HandleFunc("GET /v1/notebook/instance-types", app.listGPUInstanceTypes)
-	apiMux.HandleFunc("GET /v1/notebook/gpu-instance-types", app.listGPUInstanceTypes)
-	if app.env.BookingsEnabled {
-		apiMux.HandleFunc("GET /v1/categories", app.listGPUCategories)
-		apiMux.HandleFunc("POST /v1/bookings", app.createGPUBooking)
-		apiMux.HandleFunc("GET /v1/bookings", app.listGPUBookings)
-		apiMux.HandleFunc("PATCH /v1/bookings/{id}/cancel", app.cancelGPUBooking)
-		apiMux.HandleFunc("PATCH /v1/bookings/{id}/extend", app.extendGPUBooking)
-		apiMux.HandleFunc("PATCH /v1/bookings/{id}/reset", app.resetGPUBooking)
-		apiMux.HandleFunc("PATCH /v1/bookings/{id}/terminate", app.terminateGPUBooking)
-		apiMux.HandleFunc("POST /v1/bookings/{id}/notebook-token-session", app.createNotebookTokenSession)
-		apiMux.HandleFunc("PUT /v1/bookings/{id}/notebook-token-session", app.rotateNotebookTokenSession)
-		apiMux.HandleFunc("GET /v1/slots/available", app.listGPUAvailableSlots)
-		apiMux.HandleFunc("GET /v1/slots/calendar", app.listGPUCalendarSlots)
-	} else {
-		apiMux.HandleFunc("POST /v1/notebook/create", app.createNotebook)
-		apiMux.HandleFunc("PATCH /v1/notebook/start", app.startNotebook)
-		apiMux.HandleFunc("PATCH /v1/notebook/stop", app.stopNotebook)
-		apiMux.HandleFunc("DELETE /v1/notebook/delete", app.deleteNotebook)
-		apiMux.HandleFunc("POST /v1/notebook/{notebook_name}/notebook-token-session", app.createDirectNotebookTokenSession)
-		apiMux.HandleFunc("PUT /v1/notebook/{notebook_name}/notebook-token-session", app.rotateDirectNotebookTokenSession)
-		apiMux.HandleFunc("POST /v1/bookings/{id}/notebook-token-session", app.createNotebookTokenSession)
-		apiMux.HandleFunc("PUT /v1/bookings/{id}/notebook-token-session", app.rotateNotebookTokenSession)
-		apiMux.HandleFunc("/v1/bookings", app.bookingsDisabled)
-		apiMux.HandleFunc("/v1/bookings/", app.bookingsDisabled)
-		apiMux.HandleFunc("/v1/slots/", app.bookingsDisabled)
-		apiMux.HandleFunc("/v1/categories", app.bookingsDisabled)
+	for _, rt := range app.apiRoutes() {
+		apiMux.HandleFunc(rt.pattern, rt.handler)
 	}
-	apiMux.HandleFunc("POST /v1/jupyterlite/session", app.createJupyterLiteSession)
-
-	// Profile routes
-	apiMux.HandleFunc("POST /v1/profile/create", app.createProfile)
 
 	// Apply audit middleware (after auth, before handlers)
 	// Auth runs first → sets UserInfo in context → Audit wraps handlers to capture status code
@@ -85,12 +51,72 @@ func (app *application) router() http.Handler {
 	return http.MaxBytesHandler(handler, int64(app.env.MaxBodySizeInMB)<<20)
 }
 
+// apiRoute is one authenticated API route. Patterns with a method are
+// operations and must be declared in openapi/openapi.yaml (the conformance
+// test checks it); method-less patterns are the 404 responders for the
+// booking surface when bookings are disabled.
+type apiRoute struct {
+	pattern string
+	handler http.HandlerFunc
+}
+
+// apiRoutes is the authenticated route table for the configured booking mode.
+func (app *application) apiRoutes() []apiRoute {
+	// Standard notebook read/status routes (non-permission protected)
+	routes := []apiRoute{
+		{"GET /v1/notebook/list", app.listNotebooks},
+		{"GET /v1/notebook/check-exists/{notebook_name}", app.checkNotebookExists},
+		{"GET /v1/notebook/status/{notebook_name}", app.checkNotebookStatus},
+		{"GET /v1/notebook/instance-types", app.listGPUInstanceTypes},
+		{"GET /v1/notebook/gpu-instance-types", app.listGPUInstanceTypes},
+	}
+	if app.env.BookingsEnabled {
+		routes = append(routes,
+			apiRoute{"GET /v1/categories", app.listGPUCategories},
+			apiRoute{"POST /v1/bookings", app.createGPUBooking},
+			apiRoute{"GET /v1/bookings", app.listGPUBookings},
+			apiRoute{"PATCH /v1/bookings/{id}/cancel", app.cancelGPUBooking},
+			apiRoute{"PATCH /v1/bookings/{id}/extend", app.extendGPUBooking},
+			apiRoute{"PATCH /v1/bookings/{id}/reset", app.resetGPUBooking},
+			apiRoute{"PATCH /v1/bookings/{id}/terminate", app.terminateGPUBooking},
+			apiRoute{"POST /v1/bookings/{id}/notebook-token-session", app.createNotebookTokenSession},
+			apiRoute{"PUT /v1/bookings/{id}/notebook-token-session", app.rotateNotebookTokenSession},
+			apiRoute{"GET /v1/slots/available", app.listGPUAvailableSlots},
+			apiRoute{"GET /v1/slots/calendar", app.listGPUCalendarSlots},
+		)
+	} else {
+		routes = append(routes,
+			apiRoute{"POST /v1/notebook/create", app.createNotebook},
+			apiRoute{"PATCH /v1/notebook/start", app.startNotebook},
+			apiRoute{"PATCH /v1/notebook/stop", app.stopNotebook},
+			apiRoute{"DELETE /v1/notebook/delete", app.deleteNotebook},
+			apiRoute{"POST /v1/notebook/{notebook_name}/notebook-token-session", app.createDirectNotebookTokenSession},
+			apiRoute{"PUT /v1/notebook/{notebook_name}/notebook-token-session", app.rotateDirectNotebookTokenSession},
+			apiRoute{"POST /v1/bookings/{id}/notebook-token-session", app.createNotebookTokenSession},
+			apiRoute{"PUT /v1/bookings/{id}/notebook-token-session", app.rotateNotebookTokenSession},
+			apiRoute{"/v1/bookings", app.bookingsDisabled},
+			apiRoute{"/v1/bookings/", app.bookingsDisabled},
+			apiRoute{"/v1/slots/", app.bookingsDisabled},
+			apiRoute{"/v1/categories", app.bookingsDisabled},
+		)
+	}
+	routes = append(routes,
+		apiRoute{"POST /v1/jupyterlite/session", app.createJupyterLiteSession},
+		// Profile routes
+		apiRoute{"POST /v1/profile/create", app.createProfile},
+	)
+	return routes
+}
+
 func (app *application) bookingsDisabled(w http.ResponseWriter, r *http.Request) {
 	sendError(w, getLogger(r), http.StatusNotFound, "Bookings and scheduling are disabled")
 }
 
 func (app *application) jupyterLiteBasePath() string {
-	base := strings.TrimSpace(app.env.JupyterLiteBaseURL)
+	base := strings.TrimSpace(app.env.JupyterLiteServePath)
+	if base == "" {
+		base = strings.TrimSpace(app.env.JupyterLiteBaseURL)
+	}
 	if base == "" {
 		base = "/jupyterlite"
 	}
@@ -138,6 +164,8 @@ func requestIsHTTPS(r *http.Request) bool {
 // @Failure      429  {object}  Error429
 // @Failure      500  {object}  Error500
 // @Security     BearerAuth
+// @ID           createJupyterLiteSession
+// @x-dx-authz   {"authentication":"required","authorization":"identity"}
 // @Router       /v1/jupyterlite/session [post]
 func (app *application) createJupyterLiteSession(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
@@ -278,11 +306,17 @@ func (app *application) serveReDoc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if path == "swagger.json" || path == "swagger.yaml" {
-		filePath := filepath.Join("/app/docs", path)
+	if path == "swagger.json" || path == "swagger.yaml" || path == "openapi.yaml" {
+		// openapi.yaml is the OpenAPI 3 operation manifest the gateway
+		// enforces; the swagger files are the human-facing reference.
+		dir := "docs"
+		if path == "openapi.yaml" {
+			dir = "openapi"
+		}
+		filePath := filepath.Join("/app", dir, path)
 
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
-			filePath = filepath.Join("docs", path)
+			filePath = filepath.Join(dir, path)
 			if _, err := os.Stat(filePath); os.IsNotExist(err) {
 				logger.Warn("swagger file not found", "path", filePath)
 				sendError(w, logger, http.StatusNotFound, "Not Found")
@@ -304,6 +338,14 @@ func (app *application) serveReDoc(w http.ResponseWriter, r *http.Request) {
 	sendError(w, logger, http.StatusNotFound, "Not Found")
 }
 
+// @Summary      Health check
+// @Description  Liveness/readiness probe. Unauthenticated.
+// @Tags         health
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @ID           healthCheck
+// @x-dx-authz   {"authentication":"none"}
+// @Router       /v1/health [get]
 func (app *application) healthCheck(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
 	sendResponseJson(w, logger, http.StatusOK, map[string]interface{}{

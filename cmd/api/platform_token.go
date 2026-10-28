@@ -452,6 +452,8 @@ func parseNotebookTokenBookingID(r *http.Request) (int64, error) {
 // @Failure      500  {object}  Error500
 // @Failure      503  {object}  Error503
 // @Security     BearerAuth
+// @ID           createBookingNotebookTokenSession
+// @x-dx-authz   {"authentication":"required","authorization":"identity"}
 // @Router       /v1/bookings/{id}/notebook-token-session [post]
 func (app *application) createNotebookTokenSession(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
@@ -532,6 +534,8 @@ func (app *application) createNotebookTokenSession(w http.ResponseWriter, r *htt
 // @Failure      500  {object}  Error500
 // @Failure      503  {object}  Error503
 // @Security     BearerAuth
+// @ID           createNotebookTokenSession
+// @x-dx-authz   {"authentication":"required","authorization":"identity"}
 // @Router       /v1/notebook/{notebook_name}/notebook-token-session [post]
 func (app *application) createDirectNotebookTokenSession(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
@@ -608,6 +612,8 @@ func (app *application) createDirectNotebookTokenSession(w http.ResponseWriter, 
 // @Failure      429  {object}  Error429
 // @Failure      500  {object}  Error500
 // @Security     BearerAuth
+// @ID           rotateNotebookTokenSession
+// @x-dx-authz   {"authentication":"none"}
 // @Router       /v1/notebook/{notebook_name}/notebook-token-session [put]
 func (app *application) rotateDirectNotebookTokenSession(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)
@@ -670,6 +676,8 @@ func (app *application) rotateDirectNotebookTokenSession(w http.ResponseWriter, 
 // @Failure      429  {object}  Error429
 // @Failure      500  {object}  Error500
 // @Security     BearerAuth
+// @ID           rotateBookingNotebookTokenSession
+// @x-dx-authz   {"authentication":"none"}
 // @Router       /v1/bookings/{id}/notebook-token-session [put]
 func (app *application) rotateNotebookTokenSession(w http.ResponseWriter, r *http.Request) {
 	logger := getLogger(r)

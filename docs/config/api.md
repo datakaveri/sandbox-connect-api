@@ -7,7 +7,7 @@
 | **Service** | `sandbox-api` (`cmd/api`) |
 | **Code repo / branch** | `github.com/datakaveri/sandbox-connect-api`, `stable/v2.3` |
 | **Config source** | `infra/api/configmap.yaml` (`api-config`), `infra/api/secret.yaml` (`api-creds`), plus `database-creds` |
-| **Config schema** | `cmd/api/types.go` — `ApiEnv`, `NotebookConfig`, `RegistrySecretConfig`, `RabbitMQConfig` |
+| **Config schema** | `cmd/api/types.go` — `ApiEnv`, `NotebookConfig`, `RegistrySecretConfig`, `RabbitMQConfig`, `GatewayConfig` |
 | **Maintainer / point of contact** | Sandbox Connect backend team |
 | **Last updated** | 2026-07-29 |
 
@@ -22,6 +22,7 @@ startup-failure mode that every `,required` field shares.
 | `ApiEnv.NotebookConfig` | `API_DEFAULT_*`, `API_MAX_*`, `API_KUBEFLOW_URL`, `SLOT_CONFIG_PROFILE` | Default notebook resources, per-user quotas, notebook URL construction | `cmd/api/handlers.go` |
 | `ApiEnv.RegistrySecretConfig` | `API_REGISTRY_` | Which image-pull secret the API provisions into user namespaces | `cmd/api/registry*.go` |
 | `ApiEnv.RabbitMQConfig` | `RABBITMQ_` | Audit event publishing; entirely optional | `cmd/api/audit*.go` |
+| `ApiEnv.Gateway` | `API_AUTH_MODE`, `API_GATEWAY_*`, `WORKLOAD_VERIFIER_*` | Standalone vs behind `dx-gateway-go` — documented in [gateway.md](gateway.md) | `cmd/api/gateway_auth.go` |
 
 Env wiring in `infra/api/manifest.yaml`: `envFrom` pulls **all** of `api-config` and `api-creds`;
 `API_POSTGRES_URL` is the single exception, projected individually from Secret `database-creds`
