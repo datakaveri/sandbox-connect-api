@@ -9,7 +9,13 @@ Import both files:
 - `sandbox-connect-api.bookings-enabled-notebook-apis.postman_collection.json`
 - `sandbox-connect-api.bookings-enabled-notebook-apis.example.postman_environment.json`
 
-Select **Sandbox Connect API - Bookings Enabled - Example** as the active environment. Set `base_url` to the Sandbox Connect API origin without a trailing slash.
+Select **Sandbox Connect API - Bookings Enabled - Example** as the active environment. Set
+`base_url` to the API base URL, including any ingress prefix, without a trailing slash:
+
+- Local API: `http://localhost:3000` (the example default).
+- Live dev API: `https://v2.dev.sandbox.iudx.io/api`.
+
+Requests already append `/v1/...`; do not include `/v1` in `base_url`.
 
 ## Obtain an access token
 
@@ -80,6 +86,52 @@ To filter notebooks by date, set `date_filter` to a JSON array such as `["2026-0
 - Normal authenticated requests and token-session `POST` requests use `access_token`.
 - Token-session `PUT` requests are intended for the notebook sidecar. They require `notebook_access_token` and `rotated_refresh_token` and are not normally sent manually.
 - **JupyterLite / Create JupyterLite Session** sets an HttpOnly cookie and returns a launch URL. Postman can validate the response, but a real browser launch must call the endpoint from the browser context so the browser receives the cookie.
+
+## COS admin CPU/GPU dashboard
+
+The **COS Admin Dashboard** folder contains four read-only requests. They use the same
+`access_token` variable as the rest of the collection. Authenticate as a user with realm role
+`cos_admin`, or paste a fresh token into that variable locally. The token's `azp` must match the
+configured frontend client (currently `angular-client` in dev). The API checks its signature,
+issuer and expiry; it does not require the frontend client in `aud`.
+
+| Request | Endpoint | View |
+|---|---|---|
+| Get Dashboard Summary | `GET /v1/platform/sandbox-dashboard/summary` | Current sandbox counts/resource requests and recorded booking session hours |
+| Get Dashboard Trends | `GET /v1/platform/sandbox-dashboard/trends` | Daily CPU/GPU recorded session hours in IST |
+| List Dashboard Users | `GET /v1/platform/sandbox-dashboard/users` | Paginated user usage with search and sorting |
+| List Dashboard Sandboxes | `GET /v1/platform/sandbox-dashboard/sandboxes` | Current sandbox inventory, optionally filtered by owner and state |
+
+All four requests include an enabled `resourceType` parameter. Set `dashboard_resource_type`
+to `all` (default), `cpu` or `gpu`.
+
+| Environment variable | Default | Use |
+|---|---|---|
+| `dashboard_from`, `dashboard_to` | empty | Optional history window for summary, trends and users. Enable both query parameters together and supply RFC3339 timestamps with an offset, such as `2026-10-07T00:00:00+05:30`. The window must be positive, no longer than 30 days, and end no later than now. |
+| `dashboard_page`, `dashboard_size` | `1`, `20` | Users/sandboxes pagination; page starts at 1 and size is 1–100. |
+| `dashboard_user_query` | empty | Enable `q` on users to search email or user ID; maximum 100 characters. |
+| `dashboard_user_sort` | `bookedSessionHours:desc` | Users sort: `bookedSessionHours:desc`, `runningSandboxes:desc` or `email:asc`. |
+| `dashboard_user_id` | empty | Enable `userId` on sandboxes and set an owner UUID from the users response. |
+| `dashboard_state` | empty | Enable `state` on sandboxes: `opening`, `running`, `stopped`, `failed`, `orphaned` or `unknown`. |
+
+Optional blank filters are disabled in the collection because sending an empty query value
+returns `400`. With `from`/`to` disabled, history defaults to the last 7 IST calendar days.
+Sandboxes always describe the current inventory and do not accept date parameters.
+
+Current resource figures are **requests from running Notebook containers**. Historical hours
+are **recorded booking session hours**; direct notebooks and browser sessions are excluded.
+Neither value measures actual CPU/GPU utilization. Inspect `meta.partial`, `meta.sources`,
+`meta.warnings` and nullable fields when a source is unavailable. An `orphaned` sandbox has a
+retained database record but a confirmed missing Kubernetes Notebook object.
+
+The requests include checks for `200`, metadata, private/no-store response headers and endpoint
+response shapes. Saved `200` examples contain synthetic empty data. Authentication failures
+return `401`; a valid token without `cos_admin` returns `403`.
+
+The collection also includes the other API routes active in booking mode: health/docs,
+category/slot discovery, booking lifecycle, notebook token sessions, notebook discovery,
+JupyterLite sessions and profile creation. Direct-mode notebook mutation routes belong to the
+separate [direct-mode collection](../direct-notebook-apis/README.md).
 
 ## Manual maintenance
 

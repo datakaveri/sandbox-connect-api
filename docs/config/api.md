@@ -213,8 +213,8 @@ Client-level requirements are in §3. The fields:
 
 - **Type / format:** string, Keycloak client ID.
 - **Required:** yes
-- **Purpose:** the public client whose tokens the API expects; used for audience and authorized-party
-  checks on incoming user tokens.
+- **Purpose:** the public client whose tokens the API expects; used for the `azp` (authorized-party)
+  check on incoming user tokens.
 - **Expected value:** the client the **frontend** authenticates with — not a service account.
 - **Example value:** `angular-tgdex-client`
 - **Default if omitted:** none — startup fails.
@@ -620,6 +620,33 @@ the same thing for each — the distinction is the point of this subsection.
 - **Example for the existing EFS claim:** `efs-csi-storage-class` and `10Gi`. Set both values in
   `infra/api/configmap.yaml` (or the deployed API environment), then deploy a new API image.
   The worker needs only `WORKSPACE_ENABLED=true`; it mounts claim `workspace` by name.
+
+### COS admin CPU/GPU dashboard
+
+The dashboard routes are `/v1/platform/sandbox-dashboard/{summary,trends,users,sandboxes}`.
+They are read-only and require realm role `cos_admin`. See the
+[generated API reference](../swagger.yaml) for the endpoint contract.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `API_DASHBOARD_EVENT_TIMEZONE` | empty in code; `UTC` in the verified deployment/example | How to read timezone-less session timestamps. The configured database stores them as UTC. Slots and chart days use IST. |
+
+The API uses its existing Kubernetes connection and returns built-in cluster labels:
+`sandbox-primary` / `Primary sandbox cluster`. No cluster identity configuration is needed.
+Use `API_DASHBOARD_EVENT_TIMEZONE=UTC` for the database verified in this workspace. Both API
+and lifecycle connections reported `Etc/UTC`, and existing session starts matched the UTC
+readiness anchors. Restart the API after changing its environment; ConfigMap changes require
+redeployment/restarting API pods. This reads existing values correctly without rewriting them.
+For another deployment, verify its historical timestamp convention before selecting a zone.
+Empty leaves session totals/chart points null with `LEGACY_TIMESTAMP_UNRESOLVED`; an invalid
+timezone fails startup. No new database tables or node/metrics permissions are required;
+the runtime collector uses the existing cluster-wide Notebook list grant.
+
+Dashboard bearer tokens must have the configured realm issuer, an expiry, `azp` equal to
+`API_KEYCLOAK_CLIENT_ID`, as well as the realm role `cos_admin`. Client validation follows the
+existing APIs: `azp` identifies the requesting app, and `aud` is not validated. No additional
+audience mapper is needed for the dashboard. Token signatures and existing email, blocked-domain
+and KYC requirements remain in force. Notebook-delegated tokens are denied.
 
 ### Notebook defaults and quotas
 

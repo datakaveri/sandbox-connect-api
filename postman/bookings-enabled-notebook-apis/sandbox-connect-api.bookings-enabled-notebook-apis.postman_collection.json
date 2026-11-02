@@ -2,7 +2,7 @@
     "info":  {
                  "name":  "Sandbox Connect API - Bookings Enabled Notebook APIs",
                  "_postman_id":  "ae20db81-fcce-48e0-82a8-8af61a1e2101",
-                 "description":  "Postman collection for the API surface active when API_BOOKINGS_ENABLED=true (the server default). Direct notebook create/start/stop/delete routes are intentionally excluded because the router does not register them in this mode.",
+                 "description":  "Postman collection for the API surface active when API_BOOKINGS_ENABLED=true (the server default). Direct notebook create/start/stop/delete routes are intentionally excluded because the router does not register them in this mode. Includes the COS admin platform dashboard for CPU/GPU summary, daily recorded-session trends, user usage and sandbox drill-down.",
                  "schema":  "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
              },
     "auth":  {
@@ -1005,6 +1005,635 @@
                                                 ]
                                   }
                               ]
+                 },
+                 {
+                   "name": "COS Admin Dashboard",
+                   "description": "Read-only platform CPU/GPU dashboard, available in both booking and direct modes. Uses the collection bearer token {{access_token}}: supply a signed, unexpired frontend token with realm role cos_admin and azp matching API_KEYCLOAK_CLIENT_ID. aud is not enforced. Ordinary users receive 403; invalid tokens receive 401. Optional blank filters are disabled by default; from and to must be enabled together. Responses can contain partial=true, warnings and null metrics. All saved response examples are synthetic, not live snapshots.",
+                   "item": [
+                     {
+                       "name": "Get Dashboard Summary",
+                       "request": {
+                         "method": "GET",
+                         "header": [
+                           {
+                             "key": "Accept",
+                             "value": "application/json"
+                           }
+                         ],
+                         "url": {
+                           "raw": "{{base_url}}/v1/platform/sandbox-dashboard/summary?resourceType={{dashboard_resource_type}}",
+                           "host": [
+                             "{{base_url}}"
+                           ],
+                           "path": [
+                             "v1",
+                             "platform",
+                             "sandbox-dashboard",
+                             "summary"
+                           ],
+                           "query": [
+                             {
+                               "key": "resourceType",
+                               "value": "{{dashboard_resource_type}}",
+                               "description": "all, cpu or gpu. Applies to this endpoint only.",
+                               "disabled": false
+                             },
+                             {
+                               "key": "from",
+                               "value": "{{dashboard_from}}",
+                               "description": "Optional inclusive RFC3339 instant. Enable and populate both from and to.",
+                               "disabled": true
+                             },
+                             {
+                               "key": "to",
+                               "value": "{{dashboard_to}}",
+                               "description": "Optional exclusive RFC3339 instant, no later than now. Window must be positive and at most 30 days.",
+                               "disabled": true
+                             }
+                           ]
+                         },
+                         "description": "Overview cards: current CPU/GPU sandbox counts, running resource requests, and recorded booking session hours. History defaults to the last 7 IST calendar days; direct notebooks and browser sessions have no recorded booking history."
+                       },
+                       "event": [
+                         {
+                           "listen": "test",
+                           "script": {
+                             "type": "text/javascript",
+                             "exec": [
+                               "pm.test(\"Dashboard returns 200\", function () { pm.response.to.have.status(200); });",
+                               "if (pm.response.code === 200) {",
+                               "  const body = pm.response.json();",
+                               "  pm.test(\"Dashboard metadata is present\", function () {",
+                               "    pm.expect(body.meta.clusterId).to.eql(\"sandbox-primary\");",
+                               "    pm.expect(body.meta.resourceType).to.eql(pm.variables.get(\"dashboard_resource_type\"));",
+                               "    pm.expect(body.meta.partial).to.be.a(\"boolean\");",
+                               "    pm.expect(body.meta.sources).to.be.an(\"array\");",
+                               "    pm.expect(body.meta.warnings).to.be.an(\"array\");",
+                               "  });",
+                               "  pm.test(\"Dashboard response is private and not cached\", function () {",
+                               "    pm.expect(pm.response.headers.get(\"Cache-Control\")).to.eql(\"private, no-store\");",
+                               "  });",
+                               "  pm.test(\"Current and historical stats have separate scopes\", function () {",
+                               "    pm.expect(body.result.cluster.clusterId).to.eql(body.meta.clusterId);",
+                               "    pm.expect(body.result.current).to.be.an(\"object\");",
+                               "    pm.expect(body.result).to.have.property(\"period\");",
+                               "    const counts = body.result.current.sandboxes;",
+                               "    pm.expect(counts.total).to.eql(counts.cpu + counts.gpu);",
+                               "  });",
+                               "}"
+                             ]
+                           }
+                         }
+                       ],
+                       "response": [
+                         {
+                           "name": "200 OK - Synthetic empty dashboard",
+                           "originalRequest": {
+                             "method": "GET",
+                             "header": [
+                               {
+                                 "key": "Accept",
+                                 "value": "application/json"
+                               }
+                             ],
+                             "url": {
+                               "raw": "{{base_url}}/v1/platform/sandbox-dashboard/summary?resourceType={{dashboard_resource_type}}",
+                               "host": [
+                                 "{{base_url}}"
+                               ],
+                               "path": [
+                                 "v1",
+                                 "platform",
+                                 "sandbox-dashboard",
+                                 "summary"
+                               ],
+                               "query": [
+                                 {
+                                   "key": "resourceType",
+                                   "value": "{{dashboard_resource_type}}",
+                                   "description": "all, cpu or gpu. Applies to this endpoint only.",
+                                   "disabled": false
+                                 },
+                                 {
+                                   "key": "from",
+                                   "value": "{{dashboard_from}}",
+                                   "description": "Optional inclusive RFC3339 instant. Enable and populate both from and to.",
+                                   "disabled": true
+                                 },
+                                 {
+                                   "key": "to",
+                                   "value": "{{dashboard_to}}",
+                                   "description": "Optional exclusive RFC3339 instant, no later than now. Window must be positive and at most 30 days.",
+                                   "disabled": true
+                                 }
+                               ]
+                             },
+                             "description": "Overview cards: current CPU/GPU sandbox counts, running resource requests, and recorded booking session hours. History defaults to the last 7 IST calendar days; direct notebooks and browser sessions have no recorded booking history."
+                           },
+                           "status": "OK",
+                           "code": 200,
+                           "_postman_previewlanguage": "json",
+                           "header": [
+                             {
+                               "key": "Content-Type",
+                               "value": "application/json"
+                             },
+                             {
+                               "key": "Cache-Control",
+                               "value": "private, no-store"
+                             }
+                           ],
+                           "cookie": [],
+                           "body": "{\n  \"meta\": {\n    \"generatedAt\": \"2026-10-14T10:00:00+05:30\",\n    \"clusterId\": \"sandbox-primary\",\n    \"resourceType\": \"all\",\n    \"window\": {\n      \"from\": \"2026-10-08T00:00:00+05:30\",\n      \"to\": \"2026-10-14T10:00:00+05:30\",\n      \"timezone\": \"Asia/Kolkata\"\n    },\n    \"sources\": [\n      {\n        \"source\": \"postgres\",\n        \"status\": \"ok\",\n        \"observedAt\": \"2026-10-14T10:00:00+05:30\"\n      },\n      {\n        \"source\": \"kubernetes\",\n        \"status\": \"ok\",\n        \"observedAt\": \"2026-10-14T10:00:00+05:30\"\n      }\n    ],\n    \"partial\": false,\n    \"warnings\": []\n  },\n  \"result\": {\n    \"cluster\": {\n      \"clusterId\": \"sandbox-primary\",\n      \"name\": \"Primary sandbox cluster\"\n    },\n    \"current\": {\n      \"runningUsers\": 0,\n      \"sandboxes\": {\n        \"total\": 0,\n        \"cpu\": 0,\n        \"gpu\": 0,\n        \"byState\": {\n          \"opening\": 0,\n          \"running\": 0,\n          \"stopped\": 0,\n          \"failed\": 0,\n          \"orphaned\": 0,\n          \"unknown\": 0\n        },\n        \"runningCpu\": 0,\n        \"runningGpu\": 0\n      },\n      \"runningRequests\": {\n        \"cpuCores\": 0,\n        \"memoryBytes\": 0,\n        \"gpuResources\": []\n      }\n    },\n    \"period\": {\n      \"usersWithSessions\": 0,\n      \"bookedSessionHours\": {\n        \"total\": 0,\n        \"cpu\": 0,\n        \"gpu\": 0\n      },\n      \"excludedSessionRows\": 0,\n      \"sessionHoursBasis\": \"recorded_booking_interval\"\n    }\n  }\n}"
+                         }
+                       ]
+                     },
+                     {
+                       "name": "Get Dashboard Trends",
+                       "request": {
+                         "method": "GET",
+                         "header": [
+                           {
+                             "key": "Accept",
+                             "value": "application/json"
+                           }
+                         ],
+                         "url": {
+                           "raw": "{{base_url}}/v1/platform/sandbox-dashboard/trends?resourceType={{dashboard_resource_type}}",
+                           "host": [
+                             "{{base_url}}"
+                           ],
+                           "path": [
+                             "v1",
+                             "platform",
+                             "sandbox-dashboard",
+                             "trends"
+                           ],
+                           "query": [
+                             {
+                               "key": "resourceType",
+                               "value": "{{dashboard_resource_type}}",
+                               "description": "all, cpu or gpu. Applies to this endpoint only.",
+                               "disabled": false
+                             },
+                             {
+                               "key": "from",
+                               "value": "{{dashboard_from}}",
+                               "description": "Optional inclusive RFC3339 instant. Enable and populate both from and to.",
+                               "disabled": true
+                             },
+                             {
+                               "key": "to",
+                               "value": "{{dashboard_to}}",
+                               "description": "Optional exclusive RFC3339 instant, no later than now. Window must be positive and at most 30 days.",
+                               "disabled": true
+                             }
+                           ]
+                         },
+                         "description": "Daily CPU/GPU recorded booking session hours, bucketed by IST. points can be null when historical timestamps cannot be interpreted. No Kubernetes runtime sample is needed for this endpoint."
+                       },
+                       "event": [
+                         {
+                           "listen": "test",
+                           "script": {
+                             "type": "text/javascript",
+                             "exec": [
+                               "pm.test(\"Dashboard returns 200\", function () { pm.response.to.have.status(200); });",
+                               "if (pm.response.code === 200) {",
+                               "  const body = pm.response.json();",
+                               "  pm.test(\"Dashboard metadata is present\", function () {",
+                               "    pm.expect(body.meta.clusterId).to.eql(\"sandbox-primary\");",
+                               "    pm.expect(body.meta.resourceType).to.eql(pm.variables.get(\"dashboard_resource_type\"));",
+                               "    pm.expect(body.meta.partial).to.be.a(\"boolean\");",
+                               "    pm.expect(body.meta.sources).to.be.an(\"array\");",
+                               "    pm.expect(body.meta.warnings).to.be.an(\"array\");",
+                               "  });",
+                               "  pm.test(\"Dashboard response is private and not cached\", function () {",
+                               "    pm.expect(pm.response.headers.get(\"Cache-Control\")).to.eql(\"private, no-store\");",
+                               "  });",
+                               "  pm.test(\"Trend buckets are daily and may be unavailable\", function () {",
+                               "    pm.expect(body.result.interval).to.eql(\"day\");",
+                               "    pm.expect(body.result.sessionHoursBasis).to.eql(\"recorded_booking_interval\");",
+                               "    pm.expect(body.meta.window.timezone).to.eql(\"Asia/Kolkata\");",
+                               "    if (body.result.points !== null) { pm.expect(body.result.points).to.be.an(\"array\"); }",
+                               "  });",
+                               "}"
+                             ]
+                           }
+                         }
+                       ],
+                       "response": [
+                         {
+                           "name": "200 OK - Synthetic empty dashboard",
+                           "originalRequest": {
+                             "method": "GET",
+                             "header": [
+                               {
+                                 "key": "Accept",
+                                 "value": "application/json"
+                               }
+                             ],
+                             "url": {
+                               "raw": "{{base_url}}/v1/platform/sandbox-dashboard/trends?resourceType={{dashboard_resource_type}}",
+                               "host": [
+                                 "{{base_url}}"
+                               ],
+                               "path": [
+                                 "v1",
+                                 "platform",
+                                 "sandbox-dashboard",
+                                 "trends"
+                               ],
+                               "query": [
+                                 {
+                                   "key": "resourceType",
+                                   "value": "{{dashboard_resource_type}}",
+                                   "description": "all, cpu or gpu. Applies to this endpoint only.",
+                                   "disabled": false
+                                 },
+                                 {
+                                   "key": "from",
+                                   "value": "{{dashboard_from}}",
+                                   "description": "Optional inclusive RFC3339 instant. Enable and populate both from and to.",
+                                   "disabled": true
+                                 },
+                                 {
+                                   "key": "to",
+                                   "value": "{{dashboard_to}}",
+                                   "description": "Optional exclusive RFC3339 instant, no later than now. Window must be positive and at most 30 days.",
+                                   "disabled": true
+                                 }
+                               ]
+                             },
+                             "description": "Daily CPU/GPU recorded booking session hours, bucketed by IST. points can be null when historical timestamps cannot be interpreted. No Kubernetes runtime sample is needed for this endpoint."
+                           },
+                           "status": "OK",
+                           "code": 200,
+                           "_postman_previewlanguage": "json",
+                           "header": [
+                             {
+                               "key": "Content-Type",
+                               "value": "application/json"
+                             },
+                             {
+                               "key": "Cache-Control",
+                               "value": "private, no-store"
+                             }
+                           ],
+                           "cookie": [],
+                           "body": "{\n  \"meta\": {\n    \"generatedAt\": \"2026-10-14T10:00:00+05:30\",\n    \"clusterId\": \"sandbox-primary\",\n    \"resourceType\": \"all\",\n    \"window\": {\n      \"from\": \"2026-10-08T00:00:00+05:30\",\n      \"to\": \"2026-10-14T10:00:00+05:30\",\n      \"timezone\": \"Asia/Kolkata\"\n    },\n    \"sources\": [\n      {\n        \"source\": \"postgres\",\n        \"status\": \"ok\",\n        \"observedAt\": \"2026-10-14T10:00:00+05:30\"\n      }\n    ],\n    \"partial\": false,\n    \"warnings\": []\n  },\n  \"result\": {\n    \"interval\": \"day\",\n    \"sessionHoursBasis\": \"recorded_booking_interval\",\n    \"points\": [\n      {\n        \"start\": \"2026-10-08T00:00:00+05:30\",\n        \"end\": \"2026-10-09T00:00:00+05:30\",\n        \"bookedSessionHours\": {\n          \"total\": 0,\n          \"cpu\": 0,\n          \"gpu\": 0\n        }\n      },\n      {\n        \"start\": \"2026-10-09T00:00:00+05:30\",\n        \"end\": \"2026-10-10T00:00:00+05:30\",\n        \"bookedSessionHours\": {\n          \"total\": 0,\n          \"cpu\": 0,\n          \"gpu\": 0\n        }\n      },\n      {\n        \"start\": \"2026-10-10T00:00:00+05:30\",\n        \"end\": \"2026-10-11T00:00:00+05:30\",\n        \"bookedSessionHours\": {\n          \"total\": 0,\n          \"cpu\": 0,\n          \"gpu\": 0\n        }\n      },\n      {\n        \"start\": \"2026-10-11T00:00:00+05:30\",\n        \"end\": \"2026-10-12T00:00:00+05:30\",\n        \"bookedSessionHours\": {\n          \"total\": 0,\n          \"cpu\": 0,\n          \"gpu\": 0\n        }\n      },\n      {\n        \"start\": \"2026-10-12T00:00:00+05:30\",\n        \"end\": \"2026-10-13T00:00:00+05:30\",\n        \"bookedSessionHours\": {\n          \"total\": 0,\n          \"cpu\": 0,\n          \"gpu\": 0\n        }\n      },\n      {\n        \"start\": \"2026-10-13T00:00:00+05:30\",\n        \"end\": \"2026-10-14T00:00:00+05:30\",\n        \"bookedSessionHours\": {\n          \"total\": 0,\n          \"cpu\": 0,\n          \"gpu\": 0\n        }\n      },\n      {\n        \"start\": \"2026-10-14T00:00:00+05:30\",\n        \"end\": \"2026-10-14T10:00:00+05:30\",\n        \"bookedSessionHours\": {\n          \"total\": 0,\n          \"cpu\": 0,\n          \"gpu\": 0\n        }\n      }\n    ],\n    \"excludedSessionRows\": 0\n  }\n}"
+                         }
+                       ]
+                     },
+                     {
+                       "name": "List Dashboard Users",
+                       "request": {
+                         "method": "GET",
+                         "header": [
+                           {
+                             "key": "Accept",
+                             "value": "application/json"
+                           }
+                         ],
+                         "url": {
+                           "raw": "{{base_url}}/v1/platform/sandbox-dashboard/users?resourceType={{dashboard_resource_type}}&sort={{dashboard_user_sort}}&page={{dashboard_page}}&size={{dashboard_size}}",
+                           "host": [
+                             "{{base_url}}"
+                           ],
+                           "path": [
+                             "v1",
+                             "platform",
+                             "sandbox-dashboard",
+                             "users"
+                           ],
+                           "query": [
+                             {
+                               "key": "resourceType",
+                               "value": "{{dashboard_resource_type}}",
+                               "description": "all, cpu or gpu. Applies to this endpoint only.",
+                               "disabled": false
+                             },
+                             {
+                               "key": "from",
+                               "value": "{{dashboard_from}}",
+                               "description": "Optional inclusive RFC3339 instant. Enable and populate both from and to.",
+                               "disabled": true
+                             },
+                             {
+                               "key": "to",
+                               "value": "{{dashboard_to}}",
+                               "description": "Optional exclusive RFC3339 instant, no later than now. Window must be positive and at most 30 days.",
+                               "disabled": true
+                             },
+                             {
+                               "key": "q",
+                               "value": "{{dashboard_user_query}}",
+                               "description": "Optional literal email or user ID substring, max 100 characters.",
+                               "disabled": true
+                             },
+                             {
+                               "key": "sort",
+                               "value": "{{dashboard_user_sort}}",
+                               "description": "bookedSessionHours:desc, runningSandboxes:desc or email:asc.",
+                               "disabled": false
+                             },
+                             {
+                               "key": "page",
+                               "value": "{{dashboard_page}}",
+                               "description": "One-based page number, minimum 1.",
+                               "disabled": false
+                             },
+                             {
+                               "key": "size",
+                               "value": "{{dashboard_size}}",
+                               "description": "Page size from 1 to 100; default 20.",
+                               "disabled": false
+                             }
+                           ]
+                         },
+                         "description": "Paginated usage across retained notebook and booking owners. Optional q searches email/user ID (case-insensitive, max 100 characters); sort controls only this table."
+                       },
+                       "event": [
+                         {
+                           "listen": "test",
+                           "script": {
+                             "type": "text/javascript",
+                             "exec": [
+                               "pm.test(\"Dashboard returns 200\", function () { pm.response.to.have.status(200); });",
+                               "if (pm.response.code === 200) {",
+                               "  const body = pm.response.json();",
+                               "  pm.test(\"Dashboard metadata is present\", function () {",
+                               "    pm.expect(body.meta.clusterId).to.eql(\"sandbox-primary\");",
+                               "    pm.expect(body.meta.resourceType).to.eql(pm.variables.get(\"dashboard_resource_type\"));",
+                               "    pm.expect(body.meta.partial).to.be.a(\"boolean\");",
+                               "    pm.expect(body.meta.sources).to.be.an(\"array\");",
+                               "    pm.expect(body.meta.warnings).to.be.an(\"array\");",
+                               "  });",
+                               "  pm.test(\"Dashboard response is private and not cached\", function () {",
+                               "    pm.expect(pm.response.headers.get(\"Cache-Control\")).to.eql(\"private, no-store\");",
+                               "  });",
+                               "  pm.test(\"Rows and pagination are returned\", function () {",
+                               "    pm.expect(body.result).to.be.an(\"array\");",
+                               "    pm.expect(body.paginationInfo.page).to.eql(Number(pm.variables.get(\"dashboard_page\")));",
+                               "    pm.expect(body.paginationInfo.size).to.eql(Number(pm.variables.get(\"dashboard_size\")));",
+                               "  });",
+                               "}"
+                             ]
+                           }
+                         }
+                       ],
+                       "response": [
+                         {
+                           "name": "200 OK - Synthetic empty dashboard",
+                           "originalRequest": {
+                             "method": "GET",
+                             "header": [
+                               {
+                                 "key": "Accept",
+                                 "value": "application/json"
+                               }
+                             ],
+                             "url": {
+                               "raw": "{{base_url}}/v1/platform/sandbox-dashboard/users?resourceType={{dashboard_resource_type}}&sort={{dashboard_user_sort}}&page={{dashboard_page}}&size={{dashboard_size}}",
+                               "host": [
+                                 "{{base_url}}"
+                               ],
+                               "path": [
+                                 "v1",
+                                 "platform",
+                                 "sandbox-dashboard",
+                                 "users"
+                               ],
+                               "query": [
+                                 {
+                                   "key": "resourceType",
+                                   "value": "{{dashboard_resource_type}}",
+                                   "description": "all, cpu or gpu. Applies to this endpoint only.",
+                                   "disabled": false
+                                 },
+                                 {
+                                   "key": "from",
+                                   "value": "{{dashboard_from}}",
+                                   "description": "Optional inclusive RFC3339 instant. Enable and populate both from and to.",
+                                   "disabled": true
+                                 },
+                                 {
+                                   "key": "to",
+                                   "value": "{{dashboard_to}}",
+                                   "description": "Optional exclusive RFC3339 instant, no later than now. Window must be positive and at most 30 days.",
+                                   "disabled": true
+                                 },
+                                 {
+                                   "key": "q",
+                                   "value": "{{dashboard_user_query}}",
+                                   "description": "Optional literal email or user ID substring, max 100 characters.",
+                                   "disabled": true
+                                 },
+                                 {
+                                   "key": "sort",
+                                   "value": "{{dashboard_user_sort}}",
+                                   "description": "bookedSessionHours:desc, runningSandboxes:desc or email:asc.",
+                                   "disabled": false
+                                 },
+                                 {
+                                   "key": "page",
+                                   "value": "{{dashboard_page}}",
+                                   "description": "One-based page number, minimum 1.",
+                                   "disabled": false
+                                 },
+                                 {
+                                   "key": "size",
+                                   "value": "{{dashboard_size}}",
+                                   "description": "Page size from 1 to 100; default 20.",
+                                   "disabled": false
+                                 }
+                               ]
+                             },
+                             "description": "Paginated usage across retained notebook and booking owners. Optional q searches email/user ID (case-insensitive, max 100 characters); sort controls only this table."
+                           },
+                           "status": "OK",
+                           "code": 200,
+                           "_postman_previewlanguage": "json",
+                           "header": [
+                             {
+                               "key": "Content-Type",
+                               "value": "application/json"
+                             },
+                             {
+                               "key": "Cache-Control",
+                               "value": "private, no-store"
+                             }
+                           ],
+                           "cookie": [],
+                           "body": "{\n  \"meta\": {\n    \"generatedAt\": \"2026-10-14T10:00:00+05:30\",\n    \"clusterId\": \"sandbox-primary\",\n    \"resourceType\": \"all\",\n    \"window\": {\n      \"from\": \"2026-10-08T00:00:00+05:30\",\n      \"to\": \"2026-10-14T10:00:00+05:30\",\n      \"timezone\": \"Asia/Kolkata\"\n    },\n    \"sources\": [\n      {\n        \"source\": \"postgres\",\n        \"status\": \"ok\",\n        \"observedAt\": \"2026-10-14T10:00:00+05:30\"\n      },\n      {\n        \"source\": \"kubernetes\",\n        \"status\": \"ok\",\n        \"observedAt\": \"2026-10-14T10:00:00+05:30\"\n      }\n    ],\n    \"partial\": false,\n    \"warnings\": []\n  },\n  \"result\": [],\n  \"paginationInfo\": {\n    \"page\": 1,\n    \"size\": 20,\n    \"totalCount\": 0,\n    \"totalPages\": 0,\n    \"hasNext\": false,\n    \"hasPrevious\": false\n  }\n}"
+                         }
+                       ]
+                     },
+                     {
+                       "name": "List Dashboard Sandboxes",
+                       "request": {
+                         "method": "GET",
+                         "header": [
+                           {
+                             "key": "Accept",
+                             "value": "application/json"
+                           }
+                         ],
+                         "url": {
+                           "raw": "{{base_url}}/v1/platform/sandbox-dashboard/sandboxes?resourceType={{dashboard_resource_type}}&page={{dashboard_page}}&size={{dashboard_size}}",
+                           "host": [
+                             "{{base_url}}"
+                           ],
+                           "path": [
+                             "v1",
+                             "platform",
+                             "sandbox-dashboard",
+                             "sandboxes"
+                           ],
+                           "query": [
+                             {
+                               "key": "resourceType",
+                               "value": "{{dashboard_resource_type}}",
+                               "description": "all, cpu or gpu. Applies to this endpoint only.",
+                               "disabled": false
+                             },
+                             {
+                               "key": "userId",
+                               "value": "{{dashboard_user_id}}",
+                               "description": "Optional exact owner UUID. Set locally to drill down into one user.",
+                               "disabled": true
+                             },
+                             {
+                               "key": "state",
+                               "value": "{{dashboard_state}}",
+                               "description": "opening, running, stopped, failed, orphaned or unknown.",
+                               "disabled": true
+                             },
+                             {
+                               "key": "page",
+                               "value": "{{dashboard_page}}",
+                               "description": "One-based page number, minimum 1.",
+                               "disabled": false
+                             },
+                             {
+                               "key": "size",
+                               "value": "{{dashboard_size}}",
+                               "description": "Page size from 1 to 100; default 20.",
+                               "disabled": false
+                             }
+                           ]
+                         },
+                         "description": "Paginated current managed sandbox inventory. Optional userId selects an owner UUID and state filters runtime status. No historical window is accepted. orphaned means the DB record remains but its Kubernetes Notebook is confirmed missing."
+                       },
+                       "event": [
+                         {
+                           "listen": "test",
+                           "script": {
+                             "type": "text/javascript",
+                             "exec": [
+                               "pm.test(\"Dashboard returns 200\", function () { pm.response.to.have.status(200); });",
+                               "if (pm.response.code === 200) {",
+                               "  const body = pm.response.json();",
+                               "  pm.test(\"Dashboard metadata is present\", function () {",
+                               "    pm.expect(body.meta.clusterId).to.eql(\"sandbox-primary\");",
+                               "    pm.expect(body.meta.resourceType).to.eql(pm.variables.get(\"dashboard_resource_type\"));",
+                               "    pm.expect(body.meta.partial).to.be.a(\"boolean\");",
+                               "    pm.expect(body.meta.sources).to.be.an(\"array\");",
+                               "    pm.expect(body.meta.warnings).to.be.an(\"array\");",
+                               "  });",
+                               "  pm.test(\"Dashboard response is private and not cached\", function () {",
+                               "    pm.expect(pm.response.headers.get(\"Cache-Control\")).to.eql(\"private, no-store\");",
+                               "  });",
+                               "  pm.test(\"Rows and pagination are returned\", function () {",
+                               "    pm.expect(body.result).to.be.an(\"array\");",
+                               "    pm.expect(body.paginationInfo.page).to.eql(Number(pm.variables.get(\"dashboard_page\")));",
+                               "    pm.expect(body.paginationInfo.size).to.eql(Number(pm.variables.get(\"dashboard_size\")));",
+                               "  });",
+                               "  pm.test(\"Requested sandbox filters are respected\", function () {",
+                               "    const scope = pm.variables.get(\"dashboard_resource_type\");",
+                               "    if (scope !== \"all\") { body.result.forEach(function (row) { pm.expect(row.resourceType).to.eql(scope); }); }",
+                               "  });",
+                               "}"
+                             ]
+                           }
+                         }
+                       ],
+                       "response": [
+                         {
+                           "name": "200 OK - Synthetic empty dashboard",
+                           "originalRequest": {
+                             "method": "GET",
+                             "header": [
+                               {
+                                 "key": "Accept",
+                                 "value": "application/json"
+                               }
+                             ],
+                             "url": {
+                               "raw": "{{base_url}}/v1/platform/sandbox-dashboard/sandboxes?resourceType={{dashboard_resource_type}}&page={{dashboard_page}}&size={{dashboard_size}}",
+                               "host": [
+                                 "{{base_url}}"
+                               ],
+                               "path": [
+                                 "v1",
+                                 "platform",
+                                 "sandbox-dashboard",
+                                 "sandboxes"
+                               ],
+                               "query": [
+                                 {
+                                   "key": "resourceType",
+                                   "value": "{{dashboard_resource_type}}",
+                                   "description": "all, cpu or gpu. Applies to this endpoint only.",
+                                   "disabled": false
+                                 },
+                                 {
+                                   "key": "userId",
+                                   "value": "{{dashboard_user_id}}",
+                                   "description": "Optional exact owner UUID. Set locally to drill down into one user.",
+                                   "disabled": true
+                                 },
+                                 {
+                                   "key": "state",
+                                   "value": "{{dashboard_state}}",
+                                   "description": "opening, running, stopped, failed, orphaned or unknown.",
+                                   "disabled": true
+                                 },
+                                 {
+                                   "key": "page",
+                                   "value": "{{dashboard_page}}",
+                                   "description": "One-based page number, minimum 1.",
+                                   "disabled": false
+                                 },
+                                 {
+                                   "key": "size",
+                                   "value": "{{dashboard_size}}",
+                                   "description": "Page size from 1 to 100; default 20.",
+                                   "disabled": false
+                                 }
+                               ]
+                             },
+                             "description": "Paginated current managed sandbox inventory. Optional userId selects an owner UUID and state filters runtime status. No historical window is accepted. orphaned means the DB record remains but its Kubernetes Notebook is confirmed missing."
+                           },
+                           "status": "OK",
+                           "code": 200,
+                           "_postman_previewlanguage": "json",
+                           "header": [
+                             {
+                               "key": "Content-Type",
+                               "value": "application/json"
+                             },
+                             {
+                               "key": "Cache-Control",
+                               "value": "private, no-store"
+                             }
+                           ],
+                           "cookie": [],
+                           "body": "{\n  \"meta\": {\n    \"generatedAt\": \"2026-10-14T10:00:00+05:30\",\n    \"clusterId\": \"sandbox-primary\",\n    \"resourceType\": \"all\",\n    \"window\": null,\n    \"sources\": [\n      {\n        \"source\": \"postgres\",\n        \"status\": \"ok\",\n        \"observedAt\": \"2026-10-14T10:00:00+05:30\"\n      },\n      {\n        \"source\": \"kubernetes\",\n        \"status\": \"ok\",\n        \"observedAt\": \"2026-10-14T10:00:00+05:30\"\n      }\n    ],\n    \"partial\": false,\n    \"warnings\": []\n  },\n  \"result\": [],\n  \"paginationInfo\": {\n    \"page\": 1,\n    \"size\": 20,\n    \"totalCount\": 0,\n    \"totalPages\": 0,\n    \"hasNext\": false,\n    \"hasPrevious\": false\n  }\n}"
+                         }
+                       ]
+                     }
+                   ]
                  }
              ],
     "event":  [

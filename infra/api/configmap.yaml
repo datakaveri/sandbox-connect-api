@@ -42,6 +42,8 @@ data:
   # For an existing 10Gi EFS workspace claim, use efs-csi-storage-class and 10Gi.
   API_WORKSPACE_STORAGE_CLASS: "ceph-filesystem"
   API_WORKSPACE_STORAGE_SIZE: "50Gi"
+  # Verified API/lifecycle database sessions use UTC; chart days still use IST.
+  API_DASHBOARD_EVENT_TIMEZONE: "UTC"
   API_MAX_BODY_SIZE_IN_MB: "5"
   API_WRITE_TIMEOUT_SECS: "60"
   API_READ_TIMEOUT_SECS: "30"

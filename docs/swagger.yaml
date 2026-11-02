@@ -250,6 +250,253 @@ definitions:
       status:
         type: string
     type: object
+  main.DashboardCluster:
+    properties:
+      clusterId:
+        type: string
+      name:
+        type: string
+    type: object
+  main.DashboardCurrent:
+    properties:
+      runningRequests:
+        allOf:
+        - $ref: '#/definitions/main.DashboardRequests'
+        x-nullable: true
+      runningUsers:
+        type: integer
+        x-nullable: true
+      sandboxes:
+        $ref: '#/definitions/main.DashboardSandboxCounts'
+    type: object
+  main.DashboardGPUUnits:
+    properties:
+      resourceName:
+        type: string
+      units:
+        type: integer
+    type: object
+  main.DashboardHours:
+    properties:
+      cpu:
+        type: number
+      gpu:
+        type: number
+      total:
+        type: number
+    type: object
+  main.DashboardMeta:
+    properties:
+      clusterId:
+        type: string
+      generatedAt:
+        type: string
+      partial:
+        type: boolean
+      resourceType:
+        type: string
+      sources:
+        items:
+          $ref: '#/definitions/main.DashboardSource'
+        type: array
+      warnings:
+        items:
+          $ref: '#/definitions/main.DashboardWarning'
+        type: array
+      window:
+        allOf:
+        - $ref: '#/definitions/main.DashboardWindow'
+        x-nullable: true
+    type: object
+  main.DashboardPeriod:
+    properties:
+      bookedSessionHours:
+        $ref: '#/definitions/main.DashboardHours'
+      excludedSessionRows:
+        type: integer
+      sessionHoursBasis:
+        type: string
+      usersWithSessions:
+        type: integer
+    type: object
+  main.DashboardRequests:
+    properties:
+      cpuCores:
+        type: number
+      gpuResources:
+        items:
+          $ref: '#/definitions/main.DashboardGPUUnits'
+        type: array
+      memoryBytes:
+        type: integer
+    type: object
+  main.DashboardSandbox:
+    properties:
+      clusterId:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      namespace:
+        type: string
+      resourceType:
+        type: string
+      resources:
+        allOf:
+        - $ref: '#/definitions/main.DashboardSandboxResources'
+        x-nullable: true
+      state:
+        type: string
+      userId:
+        type: string
+    type: object
+  main.DashboardSandboxCounts:
+    properties:
+      byState:
+        additionalProperties:
+          type: integer
+        type: object
+      cpu:
+        type: integer
+      gpu:
+        type: integer
+      runningCpu:
+        type: integer
+        x-nullable: true
+      runningGpu:
+        type: integer
+        x-nullable: true
+      total:
+        type: integer
+    type: object
+  main.DashboardSandboxResources:
+    properties:
+      cpuRequestCores:
+        type: number
+      gpuResources:
+        items:
+          $ref: '#/definitions/main.DashboardGPUUnits'
+        type: array
+      memoryRequestBytes:
+        type: integer
+    type: object
+  main.DashboardSandboxesResponse:
+    properties:
+      meta:
+        $ref: '#/definitions/main.DashboardMeta'
+      paginationInfo:
+        $ref: '#/definitions/main.PaginationInfo'
+      result:
+        items:
+          $ref: '#/definitions/main.DashboardSandbox'
+        type: array
+    type: object
+  main.DashboardSource:
+    properties:
+      observedAt:
+        type: string
+        x-nullable: true
+      source:
+        type: string
+      status:
+        type: string
+    type: object
+  main.DashboardStats:
+    properties:
+      current:
+        $ref: '#/definitions/main.DashboardCurrent'
+      period:
+        allOf:
+        - $ref: '#/definitions/main.DashboardPeriod'
+        x-nullable: true
+    type: object
+  main.DashboardSummaryResponse:
+    properties:
+      meta:
+        $ref: '#/definitions/main.DashboardMeta'
+      result:
+        $ref: '#/definitions/main.DashboardSummaryResult'
+    type: object
+  main.DashboardSummaryResult:
+    properties:
+      cluster:
+        $ref: '#/definitions/main.DashboardCluster'
+      current:
+        $ref: '#/definitions/main.DashboardCurrent'
+      period:
+        allOf:
+        - $ref: '#/definitions/main.DashboardPeriod'
+        x-nullable: true
+    type: object
+  main.DashboardTrendPoint:
+    properties:
+      bookedSessionHours:
+        $ref: '#/definitions/main.DashboardHours'
+      end:
+        type: string
+      start:
+        type: string
+    type: object
+  main.DashboardTrendsResponse:
+    properties:
+      meta:
+        $ref: '#/definitions/main.DashboardMeta'
+      result:
+        $ref: '#/definitions/main.DashboardTrendsResult'
+    type: object
+  main.DashboardTrendsResult:
+    properties:
+      excludedSessionRows:
+        type: integer
+        x-nullable: true
+      interval:
+        type: string
+      points:
+        items:
+          $ref: '#/definitions/main.DashboardTrendPoint'
+        type: array
+        x-nullable: true
+      sessionHoursBasis:
+        type: string
+    type: object
+  main.DashboardUser:
+    properties:
+      email:
+        type: string
+        x-nullable: true
+      stats:
+        $ref: '#/definitions/main.DashboardStats'
+      userId:
+        type: string
+    type: object
+  main.DashboardUsersResponse:
+    properties:
+      meta:
+        $ref: '#/definitions/main.DashboardMeta'
+      paginationInfo:
+        $ref: '#/definitions/main.PaginationInfo'
+      result:
+        items:
+          $ref: '#/definitions/main.DashboardUser'
+        type: array
+    type: object
+  main.DashboardWarning:
+    properties:
+      code:
+        type: string
+      detail:
+        type: string
+    type: object
+  main.DashboardWindow:
+    properties:
+      from:
+        type: string
+      timezone:
+        type: string
+      to:
+        type: string
+    type: object
   main.DeleteNotebookRequest:
     properties:
       name:
@@ -1086,13 +1333,13 @@ paths:
   /v1/notebook/{notebook_name}/notebook-token-session:
     post:
       description: Exchanges the caller access token for notebook-specific delegated
-        tokens and returns 200 only after the access token is usable inside the
-        notebook container. Available for direct notebooks when
-        API_BOOKINGS_ENABLED=false. When API_BOOKINGS_ENABLED=true, this route is not
-        registered for security reasons. Authenticated requests that pass shared
-        middleware receive 404 Not Found with a text/plain body (404 page not found),
-        without JSON title, detail, or type fields. The success and validation
-        responses documented here apply only when API_BOOKINGS_ENABLED=false.
+        tokens and returns 200 only after the access token is usable inside the notebook
+        container. Available for direct notebooks when API_BOOKINGS_ENABLED=false.
+        When API_BOOKINGS_ENABLED=true, this route is not registered for security
+        reasons. Authenticated requests that pass shared middleware receive 404 Not
+        Found with a text/plain body (404 page not found), without JSON title, detail,
+        or type fields. The success and validation responses documented here apply
+        only when API_BOOKINGS_ENABLED=false.
       parameters:
       - description: Notebook Name
         in: path
@@ -1116,9 +1363,8 @@ paths:
             $ref: '#/definitions/main.Error401'
         "404":
           description: Route not registered when API_BOOKINGS_ENABLED=true. Returns
-            plain-text 404 page not found without JSON error fields. When
-            API_BOOKINGS_ENABLED=false, a missing notebook returns the documented JSON
-            Error404 response.
+            plain-text 404 page not found without JSON error fields. When API_BOOKINGS_ENABLED=false,
+            a missing notebook returns the documented JSON Error404 response.
           schema:
             $ref: '#/definitions/main.Error404'
         "429":
@@ -1142,13 +1388,12 @@ paths:
       consumes:
       - application/json
       description: Replaces the direct notebook refresh token after Keycloak rotation.
-        This route accepts only a delegated notebook-client access token belonging to
-        the notebook owner. Available when API_BOOKINGS_ENABLED=false. When
-        API_BOOKINGS_ENABLED=true, this route is not registered for security reasons.
-        Authenticated requests that pass shared middleware receive 404 Not Found with
-        a text/plain body (404 page not found), without JSON title, detail, or type
-        fields. The success and validation responses documented here apply only when
-        API_BOOKINGS_ENABLED=false.
+        This route accepts only a delegated notebook-client access token belonging
+        to the notebook owner. Available when API_BOOKINGS_ENABLED=false. When API_BOOKINGS_ENABLED=true,
+        this route is not registered for security reasons. Authenticated requests
+        that pass shared middleware receive 404 Not Found with a text/plain body (404
+        page not found), without JSON title, detail, or type fields. The success and
+        validation responses documented here apply only when API_BOOKINGS_ENABLED=false.
       parameters:
       - description: Notebook Name
         in: path
@@ -1178,9 +1423,8 @@ paths:
             $ref: '#/definitions/main.Error401'
         "404":
           description: Route not registered when API_BOOKINGS_ENABLED=true. Returns
-            plain-text 404 page not found without JSON error fields. When
-            API_BOOKINGS_ENABLED=false, a missing notebook returns the documented JSON
-            Error404 response.
+            plain-text 404 page not found without JSON error fields. When API_BOOKINGS_ENABLED=false,
+            a missing notebook returns the documented JSON Error404 response.
           schema:
             $ref: '#/definitions/main.Error404'
         "422":
@@ -1241,13 +1485,12 @@ paths:
     post:
       consumes:
       - application/json
-      description: Creates a CPU or GPU notebook directly when
-        API_BOOKINGS_ENABLED=false. The notebook stays live until stopped or deleted.
-        When API_BOOKINGS_ENABLED=true, this route is not registered for security
-        reasons. Authenticated requests that pass shared middleware receive 404 Not
-        Found with a text/plain body (404 page not found), without JSON title, detail,
-        or type fields. The success and validation responses documented here apply
-        only when API_BOOKINGS_ENABLED=false.
+      description: Creates a CPU or GPU notebook directly when API_BOOKINGS_ENABLED=false.
+        The notebook stays live until stopped or deleted. When API_BOOKINGS_ENABLED=true,
+        this route is not registered for security reasons. Authenticated requests
+        that pass shared middleware receive 404 Not Found with a text/plain body (404
+        page not found), without JSON title, detail, or type fields. The success and
+        validation responses documented here apply only when API_BOOKINGS_ENABLED=false.
       parameters:
       - description: Notebook request
         in: body
@@ -1275,7 +1518,8 @@ paths:
           schema:
             $ref: '#/definitions/main.Error403'
         "404":
-          description: Route not registered when API_BOOKINGS_ENABLED=true. Returns plain-text 404 page not found without JSON error fields.
+          description: Route not registered when API_BOOKINGS_ENABLED=true. Returns
+            plain-text 404 page not found without JSON error fields.
           schema:
             type: string
         "409":
@@ -1304,11 +1548,11 @@ paths:
       consumes:
       - application/json
       description: Deletes a directly managed notebook and its PVC. Available when
-        API_BOOKINGS_ENABLED=false. When API_BOOKINGS_ENABLED=true, this route is not
-        registered for security reasons. Authenticated requests that pass shared
+        API_BOOKINGS_ENABLED=false. When API_BOOKINGS_ENABLED=true, this route is
+        not registered for security reasons. Authenticated requests that pass shared
         middleware receive 404 Not Found with a text/plain body (404 page not found),
-        without JSON title, detail, or type fields. The success and validation
-        responses documented here apply only when API_BOOKINGS_ENABLED=false.
+        without JSON title, detail, or type fields. The success and validation responses
+        documented here apply only when API_BOOKINGS_ENABLED=false.
       parameters:
       - description: Notebook delete request
         in: body
@@ -1333,9 +1577,8 @@ paths:
             $ref: '#/definitions/main.Error401'
         "404":
           description: Route not registered when API_BOOKINGS_ENABLED=true. Returns
-            plain-text 404 page not found without JSON error fields. When
-            API_BOOKINGS_ENABLED=false, a missing notebook returns the documented JSON
-            Error404 response.
+            plain-text 404 page not found without JSON error fields. When API_BOOKINGS_ENABLED=false,
+            a missing notebook returns the documented JSON Error404 response.
           schema:
             $ref: '#/definitions/main.Error404'
         "409":
@@ -1441,12 +1684,11 @@ paths:
       consumes:
       - application/json
       description: Starts a directly managed stopped notebook by removing the Kubeflow
-        stopped annotation. Available when API_BOOKINGS_ENABLED=false. When
-        API_BOOKINGS_ENABLED=true, this route is not registered for security reasons.
-        Authenticated requests that pass shared middleware receive 404 Not Found with
-        a text/plain body (404 page not found), without JSON title, detail, or type
-        fields. The success and validation responses documented here apply only when
-        API_BOOKINGS_ENABLED=false.
+        stopped annotation. Available when API_BOOKINGS_ENABLED=false. When API_BOOKINGS_ENABLED=true,
+        this route is not registered for security reasons. Authenticated requests
+        that pass shared middleware receive 404 Not Found with a text/plain body (404
+        page not found), without JSON title, detail, or type fields. The success and
+        validation responses documented here apply only when API_BOOKINGS_ENABLED=false.
       parameters:
       - description: Notebook start request
         in: body
@@ -1475,9 +1717,8 @@ paths:
             $ref: '#/definitions/main.Error403'
         "404":
           description: Route not registered when API_BOOKINGS_ENABLED=true. Returns
-            plain-text 404 page not found without JSON error fields. When
-            API_BOOKINGS_ENABLED=false, a missing notebook returns the documented JSON
-            Error404 response.
+            plain-text 404 page not found without JSON error fields. When API_BOOKINGS_ENABLED=false,
+            a missing notebook returns the documented JSON Error404 response.
           schema:
             $ref: '#/definitions/main.Error404'
         "422":
@@ -1539,12 +1780,11 @@ paths:
       consumes:
       - application/json
       description: Stops a directly managed notebook by adding the Kubeflow stopped
-        annotation. Available when API_BOOKINGS_ENABLED=false. When
-        API_BOOKINGS_ENABLED=true, this route is not registered for security reasons.
-        Authenticated requests that pass shared middleware receive 404 Not Found with
-        a text/plain body (404 page not found), without JSON title, detail, or type
-        fields. The success and validation responses documented here apply only when
-        API_BOOKINGS_ENABLED=false.
+        annotation. Available when API_BOOKINGS_ENABLED=false. When API_BOOKINGS_ENABLED=true,
+        this route is not registered for security reasons. Authenticated requests
+        that pass shared middleware receive 404 Not Found with a text/plain body (404
+        page not found), without JSON title, detail, or type fields. The success and
+        validation responses documented here apply only when API_BOOKINGS_ENABLED=false.
       parameters:
       - description: Notebook stop request
         in: body
@@ -1569,9 +1809,8 @@ paths:
             $ref: '#/definitions/main.Error401'
         "404":
           description: Route not registered when API_BOOKINGS_ENABLED=true. Returns
-            plain-text 404 page not found without JSON error fields. When
-            API_BOOKINGS_ENABLED=false, a missing notebook returns the documented JSON
-            Error404 response.
+            plain-text 404 page not found without JSON error fields. When API_BOOKINGS_ENABLED=false,
+            a missing notebook returns the documented JSON Error404 response.
           schema:
             $ref: '#/definitions/main.Error404'
         "422":
@@ -1591,6 +1830,292 @@ paths:
       summary: Stop notebook
       tags:
       - notebook
+  /v1/platform/sandbox-dashboard/sandboxes:
+    get:
+      description: Requires cos_admin. Non-deleted managed notebooks, numeric ID descending.
+        No historical window. New identities missing from the cache force a refresh;
+        only confirmed absence is orphaned. Live failures or unconfirmed absence yield
+        unknown state. Read-only requests; no launch URLs or secrets.
+      parameters:
+      - default: all
+        description: Resource type
+        enum:
+        - all
+        - cpu
+        - gpu
+        in: query
+        name: resourceType
+        type: string
+      - description: Exact owner UUID
+        in: query
+        name: userId
+        type: string
+      - description: Runtime state
+        enum:
+        - opening
+        - running
+        - stopped
+        - failed
+        - orphaned
+        - unknown
+        in: query
+        name: state
+        type: string
+      - default: 1
+        description: One-based page
+        in: query
+        minimum: 1
+        name: page
+        type: integer
+      - default: 20
+        description: Page size
+        in: query
+        maximum: 100
+        minimum: 1
+        name: size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.DashboardSandboxesResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/main.Error400'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/main.Error401'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/main.Error403'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/main.Error429'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/main.Error500'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/main.Error503'
+      security:
+      - BearerAuth: []
+      summary: Current sandbox inventory and user drill-down
+      tags:
+      - platform-dashboard
+  /v1/platform/sandbox-dashboard/summary:
+    get:
+      description: Requires cos_admin realm role and the configured API client. Current
+        counts/requests describe now; period hours cover recorded booking intervals
+        only. Partial-source warnings and null values indicate unavailable data.
+      parameters:
+      - default: all
+        description: Resource type
+        enum:
+        - all
+        - cpu
+        - gpu
+        in: query
+        name: resourceType
+        type: string
+      - description: Inclusive RFC3339 instant; supply with to. Default last 7 IST
+          calendar days.
+        in: query
+        name: from
+        type: string
+      - description: Exclusive RFC3339 instant; no later than now, maximum 30-day
+          window.
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.DashboardSummaryResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/main.Error400'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/main.Error401'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/main.Error403'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/main.Error429'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/main.Error500'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/main.Error503'
+      security:
+      - BearerAuth: []
+      summary: CPU/GPU dashboard overview
+      tags:
+      - platform-dashboard
+  /v1/platform/sandbox-dashboard/trends:
+    get:
+      description: Requires cos_admin. Daily IST buckets; hours are split across boundaries.
+        Direct/browser session history is excluded. Unverified event timezone yields
+        points=null with a warning.
+      parameters:
+      - default: all
+        description: Resource type
+        enum:
+        - all
+        - cpu
+        - gpu
+        in: query
+        name: resourceType
+        type: string
+      - description: Inclusive RFC3339 instant; supply with to.
+        in: query
+        name: from
+        type: string
+      - description: Exclusive RFC3339 instant; maximum 30-day window.
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.DashboardTrendsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/main.Error400'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/main.Error401'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/main.Error403'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/main.Error429'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/main.Error500'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/main.Error503'
+      security:
+      - BearerAuth: []
+      summary: Daily CPU/GPU recorded session hours
+      tags:
+      - platform-dashboard
+  /v1/platform/sandbox-dashboard/users:
+    get:
+      description: Requires cos_admin. Includes retained notebook/booking owners,
+        excluding unused profiles. No credit fields. Current stats and period hours
+        have separate scopes; q only filters the users table.
+      parameters:
+      - default: all
+        description: Resource type
+        enum:
+        - all
+        - cpu
+        - gpu
+        in: query
+        name: resourceType
+        type: string
+      - description: Inclusive RFC3339 instant; supply with to.
+        in: query
+        name: from
+        type: string
+      - description: Exclusive RFC3339 instant; maximum 30-day window.
+        in: query
+        name: to
+        type: string
+      - description: Literal case-insensitive email or user ID substring, max 100
+          characters
+        in: query
+        name: q
+        type: string
+      - default: bookedSessionHours:desc
+        description: Sort (nulls last, user ID tie breaker)
+        enum:
+        - bookedSessionHours:desc
+        - runningSandboxes:desc
+        - email:asc
+        in: query
+        name: sort
+        type: string
+      - default: 1
+        description: One-based page
+        in: query
+        minimum: 1
+        name: page
+        type: integer
+      - default: 20
+        description: Page size
+        in: query
+        maximum: 100
+        minimum: 1
+        name: size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.DashboardUsersResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/main.Error400'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/main.Error401'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/main.Error403'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/main.Error429'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/main.Error500'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/main.Error503'
+      security:
+      - BearerAuth: []
+      summary: CPU/GPU sandbox usage by user
+      tags:
+      - platform-dashboard
   /v1/profile/create:
     post:
       consumes:

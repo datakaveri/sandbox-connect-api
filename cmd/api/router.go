@@ -30,6 +30,7 @@ func (app *application) router() http.Handler {
 	rootMux.HandleFunc("GET /v1/health", app.healthCheck)
 
 	apiMux := http.NewServeMux()
+	app.registerDashboardRoutes(apiMux)
 
 	// Standard notebook read/status routes (non-permission protected)
 	apiMux.HandleFunc("GET /v1/notebook/list", app.listNotebooks)
@@ -247,8 +248,9 @@ const redocTemplate = `<!DOCTYPE html>
         <h1>{{.Title}}</h1>
         <span class="api-version">v{{.Version}}</span>
     </div>
-    <redoc spec-url="swagger.json" hide-hostname="true" expand-responses="200,201"></redoc>
-    <script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
+    <redoc spec-url="swagger.json"></redoc>
+    <!-- Pin the Redoc version to avoid unexpected renderer upgrades. -->
+    <script type="module" src="https://cdn.redoc.ly/redoc/v3.0.1/bundles/redoc.standalone.js"></script>
 </body>
 </html>`
 
