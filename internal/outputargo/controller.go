@@ -38,6 +38,14 @@ type Publisher interface {
 	Publish(context.Context, output.ApprovalWork) (output.PublicationResult, error)
 }
 
+// NamespaceProvisioner ensures namespace-local workflow prerequisites exist.
+// Implementations return an error wrapping a permanent sentinel (see
+// PermanentProvisioningError) when retrying cannot succeed.
+type NamespaceProvisioner interface {
+	EnsureNamespace(ctx context.Context, namespace string) error
+	PermanentProvisioningError(err error) bool
+}
+
 type ControllerConfig struct {
 	WorkerID         string
 	PollInterval     time.Duration
@@ -56,7 +64,12 @@ type Controller struct {
 	kube      dynamic.Interface
 	config    ControllerConfig
 	logger    *slog.Logger
+
+	provisioner NamespaceProvisioner
 }
+
+// SetProvisioner enables just-in-time namespace provisioning before workflow creation.
+func (c *Controller) SetProvisioner(provisioner NamespaceProvisioner) { c.provisioner = provisioner }
 
 func NewController(queue Queue, publisher Publisher, kube dynamic.Interface, config ControllerConfig, logger *slog.Logger) (*Controller, error) {
 	if queue == nil || publisher == nil || kube == nil || logger == nil {
@@ -107,6 +120,15 @@ func (c *Controller) reconcileOutput(ctx context.Context, record output.Record) 
 		if err != nil {
 			return c.failOutput(ctx, record.ID, "pvc_release_timeout",
 				"The notebook storage was not released before the output timeout", err)
+		}
+		if c.provisioner != nil {
+			if err := c.provisioner.EnsureNamespace(ctx, record.Namespace); err != nil {
+				if c.provisioner.PermanentProvisioningError(err) {
+					return c.failOutput(ctx, record.ID, "namespace_provisioning_failed",
+						"The output environment could not be prepared", err)
+				}
+				return fmt.Errorf("provision output namespace: %w", err)
+			}
 		}
 		workflow, err := BuildWorkflow(record, c.config.Workflow)
 		if err != nil {

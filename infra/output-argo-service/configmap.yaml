@@ -26,3 +26,13 @@ data:
   OUTPUT_FILES_CONNECT_TIMEOUT_SECONDS: "30"
   OUTPUT_WORKFLOW_DEADLINE_SECONDS: "1800"
   OUTPUT_WORKFLOW_TTL_SECONDS: "3600"
+  # Automatic participant-namespace provisioning: off | dry-run | apply.
+  # Start with dry-run and review the logged drift before switching to apply.
+  OUTPUT_PROVISION_MODE: "dry-run"
+  OUTPUT_PROVISION_INTERVAL_SECONDS: "600"
+  OUTPUT_PROVISION_PROFILE_LABEL: "app.kubernetes.io/part-of=kubeflow-profile"
+  OUTPUT_PROVISION_ALLOWED_NAMESPACES: ""
+  OUTPUT_PROVISION_RUNNER_CLUSTER_ROLE: "output-runner-executor"
+  OUTPUT_PROVISION_REGISTRY_SECRET_NAME: "nha-registry-cred"
+  OUTPUT_PROVISION_MTLS_SOURCE_NAMESPACE: "omop-auth"
+  OUTPUT_PROVISION_MTLS_SOURCE_SECRET: "output-data-access-mtls-issued"

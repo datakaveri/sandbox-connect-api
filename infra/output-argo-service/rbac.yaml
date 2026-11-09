@@ -15,6 +15,45 @@ rules:
   - apiGroups: ["argoproj.io"]
     resources: ["workflows"]
     verbs: ["get", "list", "watch", "create"]
+  # --- Automatic namespace provisioning (OUTPUT_PROVISION_MODE) ---
+  # Eligibility check and periodic discovery of profile namespaces.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list"]
+  # create cannot be limited by resourceNames; reads/updates are limited to
+  # the provisioned object names. No list/watch on Secrets anywhere.
+  - apiGroups: [""]
+    resources: ["secrets", "configmaps", "serviceaccounts"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames:
+      - nha-registry-cred
+      - output-file-service
+      - output-data-access-mtls
+      - output-production-env
+      - output-runner.service-account-token
+    verbs: ["get", "update"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["output-replacements-v1"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    resourceNames: ["output-runner"]
+    verbs: ["get", "update"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["rolebindings"]
+    verbs: ["create"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["rolebindings"]
+    resourceNames: ["output-runner"]
+    verbs: ["get", "update"]
+  # May only bind the runner ClusterRole; it cannot grant anything else.
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles"]
+    resourceNames: ["output-runner-executor"]
+    verbs: ["bind"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -28,3 +67,39 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: output-argo-service
+---
+# Bound per participant namespace to that namespace's output-runner account.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: output-runner-executor
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflowtaskresults"]
+    verbs: ["create", "patch"]
+---
+# Read only the issued mTLS client leaf; never the CA signing Secret.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: output-argo-service-mtls-source
+  namespace: omop-auth
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["output-data-access-mtls-issued"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: output-argo-service-mtls-source
+  namespace: omop-auth
+subjects:
+  - kind: ServiceAccount
+    name: output-argo-service
+    namespace: sandbox
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: output-argo-service-mtls-source

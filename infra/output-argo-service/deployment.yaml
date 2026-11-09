@@ -38,6 +38,14 @@ spec:
           envFrom:
             - configMapRef:
                 name: output-argo-service-config
+          volumeMounts:
+            # Source credentials copied into participant namespaces by the provisioner.
+            - name: provision-registry
+              mountPath: /var/run/output-provision/registry
+              readOnly: true
+            - name: provision-file-service
+              mountPath: /var/run/output-provision/file-service
+              readOnly: true
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -50,3 +58,10 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+      volumes:
+        - name: provision-registry
+          secret:
+            secretName: nha-registry-cred
+        - name: provision-file-service
+          secret:
+            secretName: output-file-service

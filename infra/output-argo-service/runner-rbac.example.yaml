@@ -1,5 +1,7 @@
-# Apply this namespace-scoped bundle through the profile/user namespace
-# reconciler. Replace the namespace before applying; do not grant cluster-wide
+# Reference only. With OUTPUT_PROVISION_MODE=apply, output-argo-service creates
+# these objects (plus credentials and execution configuration) in every profile
+# namespace automatically; the RoleBinding then targets the shared
+# output-runner-executor ClusterRole from rbac.yaml. Do not grant cluster-wide
 # permissions to Workflow pods.
 apiVersion: v1
 kind: ServiceAccount

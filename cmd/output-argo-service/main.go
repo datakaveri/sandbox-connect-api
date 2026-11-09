@@ -2,15 +2,18 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"sandbox-backend-service/internal/filesconnect"
 	"sandbox-backend-service/internal/output"
 	"sandbox-backend-service/internal/outputargo"
+	"sandbox-backend-service/internal/outputprovision"
 	"sandbox-backend-service/pkg/db"
 	"sandbox-backend-service/pkg/k8s"
 
@@ -54,6 +57,18 @@ type serviceConfig struct {
 	FilesConnectTimeoutSecs        int    `env:"OUTPUT_FILES_CONNECT_TIMEOUT_SECONDS" envDefault:"30"`
 	WorkflowDeadlineSeconds        int64  `env:"OUTPUT_WORKFLOW_DEADLINE_SECONDS" envDefault:"1800"`
 	WorkflowTTLSeconds             int64  `env:"OUTPUT_WORKFLOW_TTL_SECONDS" envDefault:"3600"`
+
+	// Automatic namespace provisioning: off (default), dry-run, or apply.
+	ProvisionMode                  string   `env:"OUTPUT_PROVISION_MODE" envDefault:"off"`
+	ProvisionIntervalSeconds       int      `env:"OUTPUT_PROVISION_INTERVAL_SECONDS" envDefault:"600"`
+	ProvisionProfileLabel          string   `env:"OUTPUT_PROVISION_PROFILE_LABEL" envDefault:"app.kubernetes.io/part-of=kubeflow-profile"`
+	ProvisionAllowedNamespaces     []string `env:"OUTPUT_PROVISION_ALLOWED_NAMESPACES" envSeparator:","`
+	ProvisionRunnerClusterRole     string   `env:"OUTPUT_PROVISION_RUNNER_CLUSTER_ROLE" envDefault:"output-runner-executor"`
+	ProvisionRegistrySecretName    string   `env:"OUTPUT_PROVISION_REGISTRY_SECRET_NAME" envDefault:"nha-registry-cred"`
+	ProvisionRegistrySecretDir     string   `env:"OUTPUT_PROVISION_REGISTRY_SECRET_DIR" envDefault:"/var/run/output-provision/registry"`
+	ProvisionFileServiceSecretDir  string   `env:"OUTPUT_PROVISION_FILE_SERVICE_SECRET_DIR" envDefault:"/var/run/output-provision/file-service"`
+	ProvisionMTLSSourceNamespace   string   `env:"OUTPUT_PROVISION_MTLS_SOURCE_NAMESPACE" envDefault:"omop-auth"`
+	ProvisionMTLSSourceSecret      string   `env:"OUTPUT_PROVISION_MTLS_SOURCE_SECRET" envDefault:"output-data-access-mtls-issued"`
 }
 
 func main() {
@@ -131,6 +146,17 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+
+	provisioner, err := newProvisioner(config, kube, logger)
+	if err != nil {
+		logger.Error("initialize namespace provisioner", "error", err)
+		os.Exit(1)
+	}
+	if provisioner != nil {
+		controller.SetProvisioner(outputprovision.Workflow{P: provisioner})
+		go provisioner.Run(ctx, time.Duration(config.ProvisionIntervalSeconds)*time.Second)
+		logger.Info("namespace provisioner started", "mode", string(provisioner.Mode()))
+	}
 	logger.Info("controller started", "worker_id", config.WorkerID)
 	for ctx.Err() == nil {
 		if err := controller.RunOnce(ctx); err != nil && ctx.Err() == nil {
@@ -144,4 +170,38 @@ func main() {
 		}
 	}
 	logger.Info("controller stopped")
+}
+
+func newProvisioner(config serviceConfig, kube *k8s.K8sClient, logger *slog.Logger) (*outputprovision.Provisioner, error) {
+	labelKey, labelValue, ok := strings.Cut(config.ProvisionProfileLabel, "=")
+	if !ok {
+		return nil, fmt.Errorf("OUTPUT_PROVISION_PROFILE_LABEL must be key=value")
+	}
+	if config.ProvisionMode != string(outputprovision.ModeOff) && config.ProvisionIntervalSeconds < 60 {
+		return nil, fmt.Errorf("OUTPUT_PROVISION_INTERVAL_SECONDS must be at least 60")
+	}
+	var allowed []string
+	for _, name := range config.ProvisionAllowedNamespaces {
+		if name = strings.TrimSpace(name); name != "" {
+			allowed = append(allowed, name)
+		}
+	}
+	return outputprovision.New(kube.Dynamic, outputprovision.Config{
+		Mode:                     outputprovision.Mode(config.ProvisionMode),
+		ProfileLabelKey:          labelKey,
+		ProfileLabelValue:        labelValue,
+		AllowedNamespaces:        allowed,
+		RunnerServiceAccount:     config.WorkflowServiceAccount,
+		RunnerClusterRole:        config.ProvisionRunnerClusterRole,
+		RegistrySecretName:       config.ProvisionRegistrySecretName,
+		RegistrySecretDir:        config.ProvisionRegistrySecretDir,
+		FileServiceSecretName:    config.FileServiceSecretName,
+		FileServiceSecretDir:     config.ProvisionFileServiceSecretDir,
+		ReplacementConfigMapName: config.ReplacementConfigMapName,
+		ProductionEnvSecretName:  config.ProductionEnvSecretName,
+		MTLSEnabled:              config.DataAccessEnabled,
+		MTLSSecretName:           config.DataAccessMTLSSecretName,
+		MTLSSourceNamespace:      config.ProvisionMTLSSourceNamespace,
+		MTLSSourceSecret:         config.ProvisionMTLSSourceSecret,
+	}, logger)
 }

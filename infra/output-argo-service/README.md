@@ -38,6 +38,36 @@ notebook PVC.
    SLOT_LIFECYCLE_OUTPUTS_ENABLED; direct mode does not use that lifecycle
    flag.
 
+## Automatic namespace provisioning
+
+Each participant namespace needs the `output-runner` ServiceAccount, its
+executor-only token Secret, a RoleBinding to the shared
+`output-runner-executor` ClusterRole, the registry (`nha-registry-cred`) and
+upload (`output-file-service`) Secrets, the mTLS client Secret
+(`output-data-access-mtls`), and create-only `output-replacements-v1` /
+`output-production-env` defaults. The controller reconciles these itself,
+replacing the manual `prepare-output-namespace.py` procedure:
+
+- before creating each output Workflow (just in time); permanent problems fail
+  the output with `namespace_provisioning_failed`, transient API errors retry;
+- every `OUTPUT_PROVISION_INTERVAL_SECONDS` for every namespace labelled
+  `OUTPUT_PROVISION_PROFILE_LABEL` plus `OUTPUT_PROVISION_ALLOWED_NAMESPACES`.
+  This pass also publishes renewed mTLS client certificates, so new namespaces
+  no longer need `output-mtls-sync` CronJob targets.
+
+Registry and upload credentials come from `sandbox` Secrets mounted read-only
+into the controller; the mTLS leaf is read from `omop-auth` through a Role
+limited to that one Secret. Existing replacement maps and production
+environments are never modified. A legacy RoleBinding to the namespace Role
+`output-runner` is accepted unchanged. Credential values are never logged.
+
+`OUTPUT_PROVISION_MODE` is `off` by default. Roll out with `dry-run` (drift is
+logged, nothing is written, workflows are never blocked), then switch to
+`apply`. The controller can create Secrets cluster-wide (create cannot be
+name-scoped); add a ValidatingAdmissionPolicy restricting it to profile
+namespaces and the provisioned object names before enabling `apply` in
+production.
+
 ## Required decisions and external work
 
 - final notebook path, replacement map, and production environment values;
