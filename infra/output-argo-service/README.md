@@ -64,9 +64,11 @@ environments are never modified. A legacy RoleBinding to the namespace Role
 `OUTPUT_PROVISION_MODE` is `off` by default. Roll out with `dry-run` (drift is
 logged, nothing is written, workflows are never blocked), then switch to
 `apply`. The controller can create Secrets cluster-wide (create cannot be
-name-scoped); add a ValidatingAdmissionPolicy restricting it to profile
-namespaces and the provisioned object names before enabling `apply` in
-production.
+name-scoped), so apply `admission-policy.yaml` with it: three
+ValidatingAdmissionPolicies, matched only to the controller's ServiceAccount,
+limit its writes to profile namespaces (or `sandbox`), the provisioned object
+names, `output-runner` tokens, and the `output-runner-executor` binding. Roll
+out with `validationActions: [Warn, Audit]`, then `[Deny]`.
 
 ## Required decisions and external work
 
