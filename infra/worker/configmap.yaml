@@ -1,9 +1,360 @@
+# Deployment example: replace environment-specific values before applying.
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: sandbox-worker-config
+  name: sandbox-worker-notebook-templates
   namespace: sandbox
 data:
-  WORKER_CPU_NOTEBOOK_IMAGE: "108779579607.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:latest"
-  WORKER_GPU_NOTEBOOK_IMAGE: "108779579607.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-gpu-notebook:latest"
-  WORKER_INIT_CONTAINER_IMAGE: "108779579607.dkr.ecr.ap-south-1.amazonaws.com/tgdex/demo-notebook-file:latest" 
+  cpu-notebook-template.yaml: |
+    apiVersion: sandbox-connect/v1alpha1
+    kind: SandboxNotebookTemplate
+    metadata:
+      name: cpu
+    spec:
+      lifecycle:
+        externalPVCWaitTimeout: 120s
+        workspaceVolumeName: user-data
+        volumePolicies:
+          - name: user-data
+            managed:
+              retentionPolicy: DeleteWithNotebook
+          - name: shared-workspace
+            existing:
+              expected:
+                accessModes: [ReadWriteMany]
+                volumeMode: Filesystem
+        runtimeInjection:
+          image: alpine/git:2.45.2
+        demoFiles:
+          enabled: true
+          initImage: registry.example.com/sandbox/demo-files:replace-with-immutable-tag
+        platformToken:
+          sessionAPIBaseURL: https://api.example.com
+      notebook:
+        apiVersion: kubeflow.org/v1beta1
+        kind: Notebook
+        metadata: {}
+        spec:
+          template:
+            spec:
+              serviceAccountName: default-editor
+              automountServiceAccountToken: false
+              imagePullSecrets:
+                - name: registry-cred
+              affinity:
+                nodeAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    nodeSelectorTerms:
+                      - matchExpressions:
+                          - key: node.kubernetes.io/instance-type
+                            operator: In
+                            values: [cpu]
+              tolerations: []
+              securityContext:
+                runAsUser: 1000
+                runAsGroup: 100
+                runAsNonRoot: true
+                fsGroup: 100
+                supplementalGroups: [4001]
+              volumes:
+                - name: user-data
+                  persistentVolumeClaim:
+                    claimName: "{pvcName}"
+                - name: shared-dataset-a
+                  nfs:
+                    server: nfs.example.com
+                    path: /exports/dataset-a
+                    readOnly: true
+                - name: shared-dataset-b
+                  nfs:
+                    server: nfs.example.com
+                    path: /exports/dataset-b
+                    readOnly: true
+                - name: shared-workspace
+                  persistentVolumeClaim:
+                    claimName: workspace
+                    readOnly: true
+                - name: platform-refresh-token
+                  secret:
+                    secretName: ""
+                    optional: true
+                    defaultMode: 256
+                - name: platform-token-cache
+                  emptyDir:
+                    medium: Memory
+              containers:
+                - name: notebook
+                  image: registry.example.com/sandbox/cpu-notebook:replace-with-immutable-tag
+                  resources:
+                    requests:
+                      ephemeral-storage: 1Gi
+                    limits:
+                      ephemeral-storage: 10Gi
+                  securityContext:
+                    privileged: false
+                    procMount: Default
+                    allowPrivilegeEscalation: false
+                  env:
+                    - name: MAHAAGX_TOKEN_FILE
+                      value: /var/run/sandbox-connect/platform/token
+                    - name: MAHAAGX_FILE_API_BASE_URL
+                      value: https://files.example.com
+                  volumeMounts:
+                    - name: user-data
+                      mountPath: /home/jovyan
+                    - name: shared-dataset-a
+                      mountPath: /mnt/datasets/a
+                      readOnly: true
+                    - name: shared-dataset-b
+                      mountPath: /mnt/datasets/b
+                      readOnly: true
+                    - name: shared-workspace
+                      mountPath: /home/jovyan/workspace
+                      readOnly: true
+                    - name: platform-token-cache
+                      mountPath: /var/run/sandbox-connect/platform
+                      readOnly: true
+                - name: platform-token-sidecar
+                  image: ghcr.io/datakaveri/platform-token-sidecar:1.0.1-e07b220
+                  resources:
+                    requests:
+                      cpu: 10m
+                      memory: 32Mi
+                    limits:
+                      cpu: 100m
+                      memory: 128Mi
+                  env:
+                    - name: KEYCLOAK_TOKEN_URL
+                      value: https://idp.example.com/auth/realms/replace-with-realm/protocol/openid-connect/token
+                    - name: KEYCLOAK_CLIENT_ID
+                      value: sandbox-notebook
+                    - name: KEYCLOAK_CLIENT_SECRET_FILE
+                      value: /var/run/sandbox-connect/refresh/client_secret
+                    - name: REFRESH_TOKEN_FILE
+                      value: /var/run/sandbox-connect/refresh/refresh_token
+                    - name: BOOTSTRAP_TOKEN_FILE
+                      value: /var/run/sandbox-connect/refresh/bootstrap.json
+                    - name: ACCESS_TOKEN_FILE
+                      value: /var/run/sandbox-connect/platform/token
+                    - name: READY_ADDRESS
+                      value: 0.0.0.0:8081
+                    - name: TOKEN_SESSION_URL
+                      value: ""
+                    - name: EXPECTED_USER_ID
+                      value: ""
+                    - name: EXPECTED_CLIENT_ID
+                      value: sandbox-notebook
+                    - name: REFRESH_SKEW_SECONDS
+                      value: "60"
+                    - name: CHECK_INTERVAL_SECONDS
+                      value: "30"
+                    - name: SECRET_WAIT_INTERVAL_SECONDS
+                      value: "1"
+                    - name: REFRESH_RETRY_INTERVAL_SECONDS
+                      value: "5"
+                  ports:
+                    - name: token-ready
+                      containerPort: 8081
+                  securityContext:
+                    privileged: false
+                    procMount: Default
+                    allowPrivilegeEscalation: false
+                    readOnlyRootFilesystem: true
+                    capabilities:
+                      drop: [ALL]
+                  volumeMounts:
+                    - name: platform-refresh-token
+                      mountPath: /var/run/sandbox-connect/refresh
+                      readOnly: true
+                    - name: platform-token-cache
+                      mountPath: /var/run/sandbox-connect/platform
+    ---
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: user-data
+    spec:
+      storageClassName: ceph-block
+      accessModes: [ReadWriteOnce]
+      volumeMode: Filesystem
+      resources:
+        requests:
+          storage: "{storageSize}"
+  gpu-notebook-template.yaml: |
+    apiVersion: sandbox-connect/v1alpha1
+    kind: SandboxNotebookTemplate
+    metadata:
+      name: gpu
+    spec:
+      lifecycle:
+        externalPVCWaitTimeout: 120s
+        workspaceVolumeName: user-data
+        volumePolicies:
+          - name: user-data
+            managed:
+              retentionPolicy: DeleteWithNotebook
+          - name: shared-workspace
+            existing:
+              expected:
+                accessModes: [ReadWriteMany]
+                volumeMode: Filesystem
+        instanceTypeOverride:
+          selectorKey: node.kubernetes.io/instance-type
+          required: false
+        runtimeInjection:
+          image: alpine/git:2.45.2
+        demoFiles:
+          enabled: true
+          initImage: registry.example.com/sandbox/demo-files:replace-with-immutable-tag
+        platformToken:
+          sessionAPIBaseURL: https://api.example.com
+      notebook:
+        apiVersion: kubeflow.org/v1beta1
+        kind: Notebook
+        metadata: {}
+        spec:
+          template:
+            spec:
+              serviceAccountName: default-editor
+              automountServiceAccountToken: false
+              imagePullSecrets:
+                - name: registry-cred
+              affinity:
+                nodeAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    nodeSelectorTerms:
+                      - matchExpressions:
+                          - key: node.kubernetes.io/instance-type
+                            operator: In
+                            values: [gpu, aic]
+              tolerations: []
+              securityContext:
+                runAsUser: 1000
+                runAsGroup: 100
+                runAsNonRoot: true
+                fsGroup: 100
+                supplementalGroups: [4001]
+              volumes:
+                - name: user-data
+                  persistentVolumeClaim:
+                    claimName: "{pvcName}"
+                - name: shared-dataset-a
+                  nfs:
+                    server: nfs.example.com
+                    path: /exports/dataset-a
+                    readOnly: true
+                - name: shared-dataset-b
+                  nfs:
+                    server: nfs.example.com
+                    path: /exports/dataset-b
+                    readOnly: true
+                - name: shared-workspace
+                  persistentVolumeClaim:
+                    claimName: workspace
+                    readOnly: true
+                - name: platform-refresh-token
+                  secret:
+                    secretName: ""
+                    optional: true
+                    defaultMode: 256
+                - name: platform-token-cache
+                  emptyDir:
+                    medium: Memory
+              containers:
+                - name: notebook
+                  image: registry.example.com/sandbox/gpu-notebook:replace-with-immutable-tag
+                  resources:
+                    requests:
+                      ephemeral-storage: 1Gi
+                    limits:
+                      ephemeral-storage: 10Gi
+                  securityContext:
+                    privileged: false
+                    procMount: Default
+                    allowPrivilegeEscalation: false
+                  env:
+                    - name: MAHAAGX_TOKEN_FILE
+                      value: /var/run/sandbox-connect/platform/token
+                    - name: MAHAAGX_FILE_API_BASE_URL
+                      value: https://files.example.com
+                  volumeMounts:
+                    - name: user-data
+                      mountPath: /home/jovyan
+                    - name: shared-dataset-a
+                      mountPath: /mnt/datasets/a
+                      readOnly: true
+                    - name: shared-dataset-b
+                      mountPath: /mnt/datasets/b
+                      readOnly: true
+                    - name: shared-workspace
+                      mountPath: /home/jovyan/workspace
+                      readOnly: true
+                    - name: platform-token-cache
+                      mountPath: /var/run/sandbox-connect/platform
+                      readOnly: true
+                - name: platform-token-sidecar
+                  image: ghcr.io/datakaveri/platform-token-sidecar:1.0.1-e07b220
+                  resources:
+                    requests:
+                      cpu: 10m
+                      memory: 32Mi
+                    limits:
+                      cpu: 100m
+                      memory: 128Mi
+                  env:
+                    - name: KEYCLOAK_TOKEN_URL
+                      value: https://idp.example.com/auth/realms/replace-with-realm/protocol/openid-connect/token
+                    - name: KEYCLOAK_CLIENT_ID
+                      value: sandbox-notebook
+                    - name: KEYCLOAK_CLIENT_SECRET_FILE
+                      value: /var/run/sandbox-connect/refresh/client_secret
+                    - name: REFRESH_TOKEN_FILE
+                      value: /var/run/sandbox-connect/refresh/refresh_token
+                    - name: BOOTSTRAP_TOKEN_FILE
+                      value: /var/run/sandbox-connect/refresh/bootstrap.json
+                    - name: ACCESS_TOKEN_FILE
+                      value: /var/run/sandbox-connect/platform/token
+                    - name: READY_ADDRESS
+                      value: 0.0.0.0:8081
+                    - name: TOKEN_SESSION_URL
+                      value: ""
+                    - name: EXPECTED_USER_ID
+                      value: ""
+                    - name: EXPECTED_CLIENT_ID
+                      value: sandbox-notebook
+                    - name: REFRESH_SKEW_SECONDS
+                      value: "60"
+                    - name: CHECK_INTERVAL_SECONDS
+                      value: "30"
+                    - name: SECRET_WAIT_INTERVAL_SECONDS
+                      value: "1"
+                    - name: REFRESH_RETRY_INTERVAL_SECONDS
+                      value: "5"
+                  ports:
+                    - name: token-ready
+                      containerPort: 8081
+                  securityContext:
+                    privileged: false
+                    procMount: Default
+                    allowPrivilegeEscalation: false
+                    readOnlyRootFilesystem: true
+                    capabilities:
+                      drop: [ALL]
+                  volumeMounts:
+                    - name: platform-refresh-token
+                      mountPath: /var/run/sandbox-connect/refresh
+                      readOnly: true
+                    - name: platform-token-cache
+                      mountPath: /var/run/sandbox-connect/platform
+    ---
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: user-data
+    spec:
+      storageClassName: ceph-block
+      accessModes: [ReadWriteOnce]
+      volumeMode: Filesystem
+      resources:
+        requests:
+          storage: "{storageSize}"

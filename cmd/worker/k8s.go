@@ -4,61 +4,140 @@ import (
 	"context"
 	"fmt"
 	"sandbox-backend-service/pkg/constants"
-	"sandbox-backend-service/pkg/utils"
+	"strings"
 
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-func (w *worker) CreatePVC() error {
-	namespace := w.notebook.Namespace
-	pvcName := w.notebook.PVCname
-	storageSize := w.notebook.StorageSize
-	logger := w.logger.With("operation", "CreatePVC")
-
-	ctx, cancel := WithTimeoutContext(context.Background(), K8sCreationTimeout)
-	defer cancel()
-
-	pvc := &unstructured.Unstructured{
-		Object: map[string]any{
-			"apiVersion": "v1",
-			"kind":       "PersistentVolumeClaim",
-			"metadata": map[string]any{
-				"name":      pvcName,
-				"namespace": namespace,
-			},
-			"spec": map[string]any{
-				"accessModes": []any{
-					"ReadWriteOnce",
-				},
-				"storageClassName": w.app.env.STORAGE_CLASS_NAME,
-				"resources": map[string]any{
-					"requests": map[string]any{
-						"storage": storageSize,
-					},
-				},
-			},
-		},
+// notebookImageProjectNotebookDir maps project-specific notebook images to the
+// folder they bake into the image. NHA images keep ps1/ps2/ps3 material in
+// separate folders, so the worker must copy the matching folder into the PVC.
+func notebookImageProjectNotebookDir(imageName string) string {
+	lowerImageName := strings.ToLower(imageName)
+	switch {
+	case strings.Contains(lowerImageName, "nha-ps1"):
+		return "ps1_notebooks"
+	case strings.Contains(lowerImageName, "nha-ps2"):
+		return "ps2_notebooks"
+	case strings.Contains(lowerImageName, "nha-ps3"):
+		return "ps3_notebooks"
+	default:
+		return ""
 	}
-	pvcGVR := schema.GroupVersionResource{
-		Group:    "",
-		Version:  "v1",
-		Resource: "persistentvolumeclaims",
-	}
+}
 
-	err := WithK8sRetry(ctx, logger, func() (constants.ShouldContinue, error) {
-		_, err := w.app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Create(ctx, pvc, metav1.CreateOptions{})
-		//it can happen that our notebook is in deletion phase and it is still showing it exists so we better throw error
-		if k8serrors.IsAlreadyExists(err) {
-			logger.Warn("PVC already exists, will not retry creation", "error", err)
-			return constants.RetryStop, err
-		}
-		return constants.RetryContinue, err
-	})
+func buildInitImageDemoCopyScript(notebookFlavor string) string {
+	return fmt.Sprintf(`set -eu
+copy_demo_files() {
+  src_dir="$1"
+  dest_dir="$2"
+  if [ ! -d "$src_dir" ]; then
+    return 1
+  fi
 
-	return err
+  copied_any=1
+  for f in "$src_dir"/*; do
+    if [ -f "$f" ]; then
+      copied_any=0
+      filename=$(basename "$f")
+      if [ ! -f "$dest_dir/$filename" ]; then
+        cp "$f" "$dest_dir/$filename"
+        chown 1000:1000 "$dest_dir/$filename"
+        chmod 644 "$dest_dir/$filename"
+        echo "[init] Copied $filename"
+      else
+        echo "[init] $filename already exists, skipping."
+      fi
+    fi
+  done
+  return "$copied_any"
+}
+
+# Init/demo image layouts:
+# - mahaagx-style images: /tmp/demo_notebooks/cpu or /tmp/demo_notebooks/gpu
+# - alternate flavor split: /tmp/cpu or /tmp/gpu
+# - cbr-style flat copy: demo_notebooks/* baked directly into /tmp
+SOURCE_DIR="/tmp/demo_notebooks/%s"
+FLAVOR_DIR="/tmp/%s"
+copy_demo_files "$SOURCE_DIR" /home/jovyan || true
+copy_demo_files "$FLAVOR_DIR" /home/jovyan || true
+copy_demo_files /tmp /home/jovyan || true
+`, notebookFlavor, notebookFlavor)
+}
+
+func buildNotebookImageDemoCopyScript(notebookFlavor, projectNotebookDir string) string {
+	return fmt.Sprintf(`set -eu
+copy_demo_files() {
+  src_dir="$1"
+  dest_dir="$2"
+  if [ ! -d "$src_dir" ]; then
+    return 1
+  fi
+
+  copied_any=1
+  for f in "$src_dir"/*; do
+    if [ -f "$f" ]; then
+      copied_any=0
+      filename=$(basename "$f")
+      if [ ! -f "$dest_dir/$filename" ]; then
+        cp "$f" "$dest_dir/$filename"
+        chown 1000:1000 "$dest_dir/$filename"
+        chmod 644 "$dest_dir/$filename"
+        echo "[init] Copied $filename"
+      else
+        echo "[init] $filename already exists, skipping."
+      fi
+    fi
+  done
+  return "$copied_any"
+}
+
+# The main container will mount the PVC at /home/jovyan, which shadows any files baked into the image.
+# This init container uses the SAME notebook image, mounts the PVC elsewhere, and copies demo files into the persistent volume.
+
+# 1. Legacy NHA images baked notebooks directly into /home/jovyan.
+if ls /home/jovyan/*.ipynb 1> /dev/null 2>&1; then
+  echo '[init] Extracting compiled .ipynb files from /home/jovyan to PVC...'
+  for f in /home/jovyan/*.ipynb; do
+    filename=$(basename "$f")
+    if [ ! -f "/mnt/data/$filename" ]; then
+      cp "$f" "/mnt/data/$filename"
+      chown 1000:1000 "/mnt/data/$filename"
+      chmod 644 "/mnt/data/$filename"
+    fi
+  done
+fi
+
+# Legacy NHA helper module, used by the skeletal notebooks.
+if [ -f "/home/jovyan/nha_client.py" ]; then
+  echo '[init] Extracting nha_client.py to PVC...'
+  if [ ! -f "/mnt/data/nha_client.py" ]; then
+    cp "/home/jovyan/nha_client.py" "/mnt/data/nha_client.py"
+    chown 1000:1000 "/mnt/data/nha_client.py"
+    chmod 644 "/mnt/data/nha_client.py"
+  fi
+fi
+
+# 2. Current NHA images keep each problem statement in ps1/ps2/ps3 folders.
+# The Go helper chooses one of ps1_notebooks, ps2_notebooks, or ps3_notebooks
+# from the image tag, then this script copies that folder from either common bake location.
+PROJECT_NOTEBOOK_DIR="%s"
+if [ -n "$PROJECT_NOTEBOOK_DIR" ]; then
+  copy_demo_files "/home/jovyan/$PROJECT_NOTEBOOK_DIR" /mnt/data || true
+  copy_demo_files "/tmp/$PROJECT_NOTEBOOK_DIR" /mnt/data || true
+fi
+
+# 3. MahaAGX/multikernel images may split demo files by CPU/GPU flavor.
+SOURCE_DIR="/tmp/demo_notebooks/%s"
+FLAVOR_DIR="/tmp/%s"
+copy_demo_files "$SOURCE_DIR" /mnt/data || true
+copy_demo_files "$FLAVOR_DIR" /mnt/data || true
+
+# 4. CBR/multikernel Dockerfiles can also copy demo_notebooks/* directly into /tmp.
+copy_demo_files /tmp /mnt/data || true
+`, projectNotebookDir, notebookFlavor, notebookFlavor)
 }
 
 /*
@@ -306,175 +385,20 @@ func (w *worker) CreateNotebook() error {
 	nb := w.notebook
 	logger := w.logger.With("operation", "CreateNotebook")
 
+	notebookObj, err := w.BuildNotebook()
+	if err != nil {
+		return fmt.Errorf("build notebook manifest: %w", err)
+	}
+
 	ctx, cancel := WithTimeoutContext(context.Background(), NotebookCreationTimeout)
 	defer cancel()
-
-	var limit map[string]any
-	var imageName string
-	var request map[string]any
-	if utils.CheckGPUResource(nb.GPUType, nb.GPURequest, nb.GPULimit) {
-		imageName = w.app.env.GPU_NOTEBOOK_IMAGE
-		limit = map[string]any{
-			"cpu":       fmt.Sprintf("%.6f", nb.CPULimit),
-			"memory":    nb.MemoryLimit,
-			*nb.GPUType: *nb.GPULimit,
-		}
-		request = map[string]any{
-			"cpu":       fmt.Sprintf("%.6f", nb.CPURequest),
-			"memory":    nb.MemoryRequest,
-			*nb.GPUType: *nb.GPURequest,
-		}
-	} else {
-		imageName = w.app.env.CPU_NOTEBOOK_IMAGE
-		limit = map[string]any{
-			"cpu":    fmt.Sprintf("%.6f", nb.CPULimit),
-			"memory": nb.MemoryLimit,
-		}
-		request = map[string]any{
-			"cpu":    fmt.Sprintf("%.6f", nb.CPURequest),
-			"memory": nb.MemoryRequest,
-		}
-	}
-
-	// Build the notebook spec
-	specTemplateSpec := map[string]any{
-		"initContainers": []any{
-			map[string]any{
-				"name":  "init-demo-ipynb",
-				"image": w.app.env.INIT_CONTAINER_IMAGE,
-				"command": []any{"/bin/sh", "-c", `
-if [ -f /home/jovyan/demo.ipynb ]; then
-  echo '[init] /home/jovyan/demo.ipynb already exists, skipping copy.'
-else
-  echo '[init] /home/jovyan/demo.ipynb not found, attempting to move from /tmp/demo.ipynb...'
-  if mv /tmp/demo.ipynb /home/jovyan/demo.ipynb; then
-    echo '[init] Successfully moved /tmp/demo.ipynb to /home/jovyan/demo.ipynb.'
-    chown 1000:1000 /home/jovyan/demo.ipynb
-    chmod 644 /home/jovyan/demo.ipynb
-  else
-    echo '[init] Failed to move /tmp/demo.ipynb to /home/jovyan/demo.ipynb.'
-    exit 1
-  fi
-fi
-
-if [ -f /home/jovyan/requirements.txt ]; then
-  echo '[init] /home/jovyan/requirements.txt already exists, skipping copy.'
-else
-  echo '[init] /home/jovyan/requirements.txt not found, attempting to move from /tmp/requirements.txt...'
-  if mv /tmp/requirements.txt /home/jovyan/requirements.txt; then
-    echo '[init] Successfully moved /tmp/requirements.txt to /home/jovyan/requirements.txt.'
-    chown 1000:1000 /home/jovyan/requirements.txt
-    chmod 644 /home/jovyan/requirements.txt
-  else
-    echo '[init] Failed to move /tmp/requirements.txt to /home/jovyan/requirements.txt.'
-    exit 1
-  fi
-fi
-
-if [ -f /home/jovyan/Python_Packages_Installation_Demo.ipynb ]; then
-  echo '[init] /home/jovyan/Python_Packages_Installation_Demo.ipynb already exists, skipping copy.'
-else
-  echo '[init] /home/jovyan/Python_Packages_Installation_Demo.ipynb not found, attempting to move from /tmp/Python_Packages_Installation_Demo.ipynb...'
-  if mv /tmp/Python_Packages_Installation_Demo.ipynb /home/jovyan/Python_Packages_Installation_Demo.ipynb; then
-    echo '[init] Successfully moved /tmp/Python_Packages_Installation_Demo.ipynb to /home/jovyan/Python_Packages_Installation_Demo.ipynb.'
-    chown 1000:1000 /home/jovyan/Python_Packages_Installation_Demo.ipynb
-    chmod 644 /home/jovyan/Python_Packages_Installation_Demo.ipynb
-  else
-    echo '[init] Failed to move /tmp/Python_Packages_Installation_Demo.ipynb to /home/jovyan/Python_Packages_Installation_Demo.ipynb.'
-    exit 1
-  fi
-fi
-`},
-				"volumeMounts": []any{
-					map[string]any{
-						"name":      "data-volume",
-						"mountPath": "/home/jovyan",
-					},
-				},
-			},
-		},
-		"containers": []any{
-			map[string]any{
-				"name":  nb.Name,
-				"image": imageName,
-				"securityContext": map[string]any{
-					"privileged":               false,
-					"procMount":                "Default",
-					"allowPrivilegeEscalation": false,
-				},
-				"resources": map[string]any{
-					"requests": request,
-					"limits":   limit,
-				},
-				"volumeMounts": []any{
-					map[string]any{
-						"name":      "data-volume",
-						"mountPath": "/home/jovyan",
-					},
-				},
-			},
-		},
-		"volumes": []any{
-			map[string]any{
-				"name": "data-volume",
-				"persistentVolumeClaim": map[string]any{
-					"claimName": nb.PVCname,
-				},
-			},
-		},
-		"serviceAccountName": "default-editor",
-	}
-
-	// Add nodeSelector for CPU or GPU notebooks
-	if utils.CheckGPUResource(nb.GPUType, nb.GPURequest, nb.GPULimit) {
-		specTemplateSpec["nodeSelector"] = map[string]any{
-			"node.kubernetes.io/instance-type": "g4dn.xlarge",
-		}
-	} else {
-		specTemplateSpec["affinity"] = map[string]any{
-			"nodeAffinity": map[string]any{
-				"requiredDuringSchedulingIgnoredDuringExecution": map[string]any{
-					"nodeSelectorTerms": []any{
-						map[string]any{
-							"matchExpressions": []any{
-								map[string]any{
-									"key":      "node.kubernetes.io/instance-type",
-									"operator": "In",
-									"values":   []any{"t3a.2xlarge", "c5a.4xlarge"},
-								},
-							},
-						},
-					},
-				},
-			},
-		}
-	}
-
-	notebookObj := &unstructured.Unstructured{
-		Object: map[string]any{
-			"apiVersion": "kubeflow.org/v1beta1",
-			"kind":       "Notebook",
-			"metadata": map[string]any{
-				"name":      nb.Name,
-				"namespace": nb.Namespace,
-				"labels": map[string]any{
-					"app": nb.Name,
-				},
-			},
-			"spec": map[string]any{
-				"template": map[string]any{
-					"spec": specTemplateSpec,
-				},
-			},
-		},
-	}
 	notebookGVR := schema.GroupVersionResource{
 		Group:    "kubeflow.org",
 		Version:  "v1beta1",
 		Resource: "notebooks",
 	}
 
-	err := WithK8sRetry(ctx, logger, func() (constants.ShouldContinue, error) {
+	err = WithK8sRetry(ctx, logger, func() (constants.ShouldContinue, error) {
 		_, err := w.app.k8sClient.Dynamic.Resource(notebookGVR).Namespace(nb.Namespace).Create(ctx, notebookObj, metav1.CreateOptions{})
 		if k8serrors.IsAlreadyExists(err) {
 			logger.Warn("notebook already exists, will not retry creation", "error", err)
@@ -552,38 +476,6 @@ func (w *worker) DeletePod(podName string) error {
 				return constants.RetryStop, nil
 			}
 			logger.Warn("failed to delete pod, will retry", "error", err)
-			return constants.RetryContinue, err
-		}
-		return constants.RetryStop, nil
-	})
-	return err
-}
-
-func (w *worker) DeletePVC() error {
-	namespace := w.notebook.Namespace
-	pvcName := w.notebook.PVCname
-	logger := w.logger.With("operation", "DeletePVC", "namespace", namespace, "name", pvcName)
-
-	ctx, cancel := WithTimeoutContext(context.Background(), K8sDeletionTimeout)
-	defer cancel()
-
-	pvcGVR := schema.GroupVersionResource{
-		Group:    "",
-		Version:  "v1",
-		Resource: "persistentvolumeclaims",
-	}
-
-	deletePolicy := metav1.DeletePropagationBackground
-	deleteOptions := metav1.DeleteOptions{
-		PropagationPolicy: &deletePolicy,
-	}
-
-	err := WithK8sRetry(ctx, logger, func() (constants.ShouldContinue, error) {
-		err := w.app.k8sClient.Dynamic.Resource(pvcGVR).Namespace(namespace).Delete(ctx, pvcName, deleteOptions)
-		if err != nil {
-			if k8serrors.IsNotFound(err) {
-				return constants.RetryStop, nil
-			}
 			return constants.RetryContinue, err
 		}
 		return constants.RetryStop, nil

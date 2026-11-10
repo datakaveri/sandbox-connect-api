@@ -2,17 +2,176 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sandbox-backend-service/pkg/constants"
+	sandboxk8s "sandbox-backend-service/pkg/k8s"
 	"time"
 
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
+const (
+	profileWorkspacePVCName    = "workspace"
+	profileWorkspaceAccessMode = "ReadWriteMany"
+	profileWorkspaceVolumeMode = "Filesystem"
+)
+
+var profileWorkspacePVCGVR = schema.GroupVersionResource{
+	Group: "", Version: "v1", Resource: "persistentvolumeclaims",
+}
+
+// waitForNamespace polls until the given Kubernetes namespace exists.
+// Kubeflow creates the namespace asynchronously after receiving a Profile CR,
+// so we must wait before placing resources (e.g. Secrets) into it.
+// Polls every 2 seconds; times out after 60 seconds.
+func (app *application) waitForNamespace(ctx context.Context, logger *slog.Logger, namespace string) error {
+	nsGVR := schema.GroupVersionResource{
+		Group:    "",
+		Version:  "v1",
+		Resource: "namespaces",
+	}
+
+	const (
+		pollInterval = 2 * time.Second
+		pollTimeout  = 60 * time.Second
+	)
+
+	deadline := time.Now().Add(pollTimeout)
+	for {
+		_, err := app.k8sClient.Dynamic.Resource(nsGVR).Get(ctx, namespace, metav1.GetOptions{})
+		if err == nil {
+			logger.Info("namespace is ready", "namespace", namespace)
+			return nil
+		}
+		if !k8serrors.IsNotFound(err) {
+			return fmt.Errorf("error checking namespace %q: %w", namespace, err)
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out after %v waiting for namespace %q to be created by Kubeflow", pollTimeout, namespace)
+		}
+		logger.Info("waiting for namespace to be created by Kubeflow", "namespace", namespace)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(pollInterval):
+		}
+	}
+}
+
+// ensureProfileWorkspacePVC creates the profile-scoped shared claim used by
+// the no-code sharing flow. The claim remains writable for the external copy
+// pod; notebook templates mount it read-only.
+func (app *application) ensureProfileWorkspacePVC(ctx context.Context, logger *slog.Logger, namespace string) error {
+	if !app.env.WorkspaceEnabled {
+		return nil
+	}
+	if app.env.WorkspaceStorageClass == "" {
+		return fmt.Errorf("API_WORKSPACE_STORAGE_CLASS must not be empty")
+	}
+	requiredSize, err := resource.ParseQuantity(app.env.WorkspaceStorageSize)
+	if err != nil {
+		return fmt.Errorf("invalid API_WORKSPACE_STORAGE_SIZE %q: %w", app.env.WorkspaceStorageSize, err)
+	}
+	if requiredSize.Sign() <= 0 {
+		return fmt.Errorf("API_WORKSPACE_STORAGE_SIZE must be positive, got %q", app.env.WorkspaceStorageSize)
+	}
+	if err := app.waitForNamespace(ctx, logger, namespace); err != nil {
+		return err
+	}
+
+	pvc := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "v1",
+		"kind":       "PersistentVolumeClaim",
+		"metadata": map[string]any{
+			"name":      profileWorkspacePVCName,
+			"namespace": namespace,
+			"labels": map[string]any{
+				"sandbox-connect.tgdex.io/profile-workspace": "true",
+			},
+		},
+		"spec": map[string]any{
+			"storageClassName": app.env.WorkspaceStorageClass,
+			"accessModes":      []any{profileWorkspaceAccessMode},
+			"volumeMode":       profileWorkspaceVolumeMode,
+			"resources": map[string]any{
+				"requests": map[string]any{
+					"storage": app.env.WorkspaceStorageSize,
+				},
+			},
+		},
+	}}
+
+	workspaceLogger := logger.With("operation", "ensureProfileWorkspacePVC", "namespace", namespace, "pvc", profileWorkspacePVCName)
+	return WithK8sRetry(ctx, workspaceLogger, func() (constants.ShouldContinue, error) {
+		_, err := app.k8sClient.Dynamic.Resource(profileWorkspacePVCGVR).Namespace(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+		if err == nil {
+			workspaceLogger.Info("profile workspace PVC created")
+			return constants.RetryStop, nil
+		}
+		if !k8serrors.IsAlreadyExists(err) {
+			return constants.RetryContinue, err
+		}
+
+		existing, getErr := app.k8sClient.Dynamic.Resource(profileWorkspacePVCGVR).Namespace(namespace).Get(ctx, profileWorkspacePVCName, metav1.GetOptions{})
+		if getErr != nil {
+			return constants.RetryContinue, getErr
+		}
+		if validateErr := validateProfileWorkspacePVC(existing, app.env.WorkspaceStorageClass, requiredSize); validateErr != nil {
+			return constants.RetryStop, validateErr
+		}
+		workspaceLogger.Info("compatible profile workspace PVC already exists")
+		return constants.RetryStop, nil
+	})
+}
+
+func validateProfileWorkspacePVC(pvc *unstructured.Unstructured, expectedClass string, requiredSize resource.Quantity) error {
+	storageClass, _, err := unstructured.NestedString(pvc.Object, "spec", "storageClassName")
+	if err != nil || storageClass != expectedClass {
+		return fmt.Errorf("workspace PVC storageClassName is %q, expected %q", storageClass, expectedClass)
+	}
+	accessModes, _, err := unstructured.NestedStringSlice(pvc.Object, "spec", "accessModes")
+	if err != nil {
+		return fmt.Errorf("read workspace PVC accessModes: %w", err)
+	}
+	hasRWX := false
+	for _, mode := range accessModes {
+		if mode == profileWorkspaceAccessMode {
+			hasRWX = true
+			break
+		}
+	}
+	if !hasRWX {
+		return fmt.Errorf("workspace PVC must include access mode %s", profileWorkspaceAccessMode)
+	}
+	volumeMode, found, err := unstructured.NestedString(pvc.Object, "spec", "volumeMode")
+	if err != nil {
+		return fmt.Errorf("read workspace PVC volumeMode: %w", err)
+	}
+	if !found || volumeMode == "" {
+		volumeMode = "Filesystem"
+	}
+	if volumeMode != profileWorkspaceVolumeMode {
+		return fmt.Errorf("workspace PVC volumeMode is %q, expected %q", volumeMode, profileWorkspaceVolumeMode)
+	}
+	storage, _, err := unstructured.NestedString(pvc.Object, "spec", "resources", "requests", "storage")
+	if err != nil {
+		return fmt.Errorf("read workspace PVC storage request: %w", err)
+	}
+	actualSize, err := resource.ParseQuantity(storage)
+	if err != nil {
+		return fmt.Errorf("parse workspace PVC storage request %q: %w", storage, err)
+	}
+	if actualSize.Cmp(requiredSize) < 0 {
+		return fmt.Errorf("workspace PVC storage request is %s, expected at least %s", actualSize.String(), requiredSize.String())
+	}
+	return nil
+}
 func (app *application) addStoppedAnnotationToNotebook(ctx context.Context, namespace, notebookName string) error {
 	notebookGVR := schema.GroupVersionResource{
 		Group:    "kubeflow.org",
@@ -153,6 +312,10 @@ func (app *application) deletePVCFromK8s(ctx context.Context, logger *slog.Logge
 		}
 		return constants.RetryContinue, err
 	})
+}
+
+func (app *application) deleteManagedPVCsFromK8s(ctx context.Context, namespace, notebookName string) error {
+	return sandboxk8s.DeleteManagedNotebookPVCs(ctx, app.k8sClient.Dynamic, namespace, notebookName)
 }
 
 func (app *application) getNotebookJSON(ctx context.Context, logger *slog.Logger, namespace, notebookName string) (*unstructured.Unstructured, error) {

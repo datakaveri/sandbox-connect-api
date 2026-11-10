@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: userdocs-ui
+  namespace: sandbox
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: userdocs-ui
+  template:
+    metadata:
+      labels:
+        app: userdocs-ui
+    spec:
+      # nodeName: mahait-adex-vm1
+      # tolerations:
+      #   - key: "node-role.kubernetes.io/etcd"
+      #     operator: "Exists"
+      #     effect: "NoExecute"
+      containers:
+        - name: nginx
+          image: ghcr.io/datakaveri/sandbox-user-docs:v1-c28710c
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80

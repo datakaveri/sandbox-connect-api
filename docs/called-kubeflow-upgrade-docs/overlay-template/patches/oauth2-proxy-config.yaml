@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oauth2-proxy
+  namespace: oauth2-proxy
+data:
+  oauth2_proxy.cfg: |
+    provider = "oidc"
+    oidc_issuer_url = "https://REPLACE_TARGET_HOST/dex"
+    scope = "profile email offline_access openid"
+    email_domains = [ "*" ]
+    upstreams = [ "static://200" ]
+    skip_auth_routes = [ "^/dex/" ]
+    api_routes = [ "/api/", "/apis/", "^/ml_metadata" ]
+    skip_oidc_discovery = true
+    login_url = "/dex/auth"
+    redeem_url = "http://dex.auth.svc.cluster.local:5556/dex/token"
+    oidc_jwks_url = "http://dex.auth.svc.cluster.local:5556/dex/keys"
+    skip_provider_button = true
+    provider_display_name = "Dex"
+    custom_sign_in_logo = "/custom-theme/kubeflow-logo.svg"
+    banner = "-"
+    footer = "-"
+    prompt = "none"
+    set_authorization_header = true
+    set_xauthrequest = true
+    cookie_name = "oauth2_proxy_kubeflow"
+    cookie_expire = "24h"
+    cookie_refresh = 0
+    code_challenge_method = "S256"
+    redirect_url = "/oauth2/callback"
+    relative_redirect_url = true

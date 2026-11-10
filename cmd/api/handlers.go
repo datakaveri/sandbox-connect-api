@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"net/http"
 	"sandbox-backend-service/pkg/constants"
+	"sandbox-backend-service/pkg/gpuconfig"
 	"sandbox-backend-service/pkg/utils"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -47,7 +50,7 @@ func (app *application) checkNotebookExists(w http.ResponseWriter, r *http.Reque
 	}
 
 	var exists bool
-	query := `SELECT EXISTS(SELECT 1 FROM notebooks WHERE name = $1 AND namespace = $2)`
+	query := `SELECT EXISTS(SELECT 1 FROM notebooks WHERE name = $1 AND namespace = $2 AND events[array_upper(events, 1)] <> 'deleted')`
 	err := app.pgPool.Pool.QueryRow(r.Context(), query, notebookName, namespace).Scan(&exists)
 	if err != nil {
 		logger.Error("failed to check notebook existence", "error", err)
@@ -58,19 +61,21 @@ func (app *application) checkNotebookExists(w http.ResponseWriter, r *http.Reque
 }
 
 // createNotebook godoc
-// @Summary      Create notebook
-// @Description  Creates a new notebook for the user
+// @Summary      Create notebook directly
+// @Description  Creates a CPU or GPU notebook directly when API_BOOKINGS_ENABLED=false. The notebook stays live until stopped or deleted. When API_BOOKINGS_ENABLED=true, this route is not registered for security reasons. Authenticated requests that pass shared middleware receive 404 Not Found with a text/plain body (404 page not found), without JSON title, detail, or type fields. The success and validation responses documented here apply only when API_BOOKINGS_ENABLED=false.
 // @Tags         notebook
 // @Accept       json
 // @Produce      json
-// @Param        notebook  body  NotebookRequest  true  "Notebook Create Request"
+// @Param        notebook  body  NotebookRequest  true  "Notebook request"
 // @Success      201  {object}  SwaggerMessageResponse
-// @Failure      422  {object}  Error422
-// @Failure      403  {object}  Error403
-// @Failure      429  {object}  Error429
+// @Failure      400  {object}  Error400
 // @Failure      401  {object}  Error401
-// @Failure      500  {object}  Error500
+// @Failure      403  {object}  Error403
+// @Failure      404  {string}  string  "Route not registered when API_BOOKINGS_ENABLED=true. Returns plain-text 404 page not found without JSON error fields."
 // @Failure      409  {object}  Error409
+// @Failure      422  {object}  Error422
+// @Failure      429  {object}  Error429
+// @Failure      500  {object}  Error500
 // @Security     BearerAuth
 // @Router       /v1/notebook/create [post]
 func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
@@ -89,6 +94,10 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		sendError(w, logger, http.StatusUnprocessableEntity, "Invalid body")
 		return
 	}
+	if err := normalizeAndValidateNotebookRuntimeAssets(&notebookReq); err != nil {
+		sendError(w, logger, http.StatusBadRequest, err.Error())
+		return
+	}
 	if errorMessage, gotError := getErrorMessageForNotebookName(notebookReq.Name); gotError {
 		logger.Error("invalid notebook name",
 			"notebook_name", notebookReq.Name,
@@ -104,6 +113,31 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		sendError(w, logger, http.StatusUnprocessableEntity, "Invalid Notebook Type")
 		return
 	}
+
+	// Validate instanceType for GPU notebooks
+	if notebookReq.Type == "gpu" {
+		if notebookReq.InstanceType == "" {
+			logger.Error("instanceType is required for GPU notebooks")
+			sendError(w, logger, http.StatusUnprocessableEntity, "instanceType is required for GPU notebooks")
+			return
+		}
+		allowedTypes := strings.Split(app.env.NotebookConfig.GPUNodeInstanceTypes, ",")
+		for i, t := range allowedTypes {
+			allowedTypes[i] = strings.TrimSpace(t)
+		}
+		if !contains(allowedTypes, notebookReq.InstanceType) {
+			logger.Error("invalid GPU instance type",
+				"instanceType", notebookReq.InstanceType,
+				"allowed", allowedTypes)
+			sendError(w, logger, http.StatusUnprocessableEntity,
+				fmt.Sprintf("Invalid GPU instance type. Allowed types: %s", strings.Join(allowedTypes, ", ")))
+			return
+		}
+	}
+
+	// Set sandbox type for audit logging
+	SetAuditSandboxType(r, notebookReq.Type)
+
 	if notebookReq.Type == "gpu" && !contains(userInfo.Roles, "compute") {
 		sendError(w, logger, http.StatusForbidden, "Please upgrade your Role with Compute to access the GPU")
 		return
@@ -141,6 +175,52 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		}
 
 		logger.Info("profile created successfully", "user_id", userInfo.Sub, "email", userInfo.Email)
+
+		if app.registrySecret.SecretType != "none" {
+			if err := app.waitForNamespace(ctx, logger, namespace); err != nil {
+				logger.Error("namespace not ready after profile creation", "error", err, "namespace", namespace)
+				sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+				return
+			}
+		}
+	}
+
+	if err := app.ensureProfileWorkspacePVC(ctx, logger, namespace); err != nil {
+		logger.Error("failed to ensure profile workspace PVC", "error", err, "namespace", namespace)
+		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+
+	if app.registrySecret.SecretType != "none" {
+		if err := app.ensureRegistrySecret(ctx, logger, namespace); err != nil {
+			logger.Error("failed to ensure registry secret for namespace", "error", err, "namespace", namespace)
+			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+			return
+		}
+	}
+
+	if notebookReq.GitAccessToken != nil || notebookReq.GitTokenSecretName != nil {
+		if err := app.waitForNamespace(ctx, logger, namespace); err != nil {
+			logger.Error("namespace not ready for git token setup", "error", err, "namespace", namespace)
+			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+			return
+		}
+	}
+	if notebookReq.GitAccessToken != nil {
+		secretName := gitAccessTokenSecretName(notebookReq.Name)
+		if err := app.createOrUpdateGitAccessTokenSecret(ctx, namespace, secretName, *notebookReq.GitAccessToken); err != nil {
+			logger.Error("failed to create git access token secret", "error", err, "namespace", namespace, "secret", secretName)
+			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+			return
+		}
+		notebookReq.GitTokenSecretName = &secretName
+	}
+	if notebookReq.GitTokenSecretName != nil {
+		if err := app.verifyGitTokenSecret(ctx, namespace, *notebookReq.GitTokenSecretName); err != nil {
+			logger.Warn("failed to verify git token secret", "error", err, "namespace", namespace, "secret", *notebookReq.GitTokenSecretName)
+			sendError(w, logger, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 
 	tx, err := app.pgPool.Pool.BeginTx(ctx, pgx.TxOptions{})
@@ -151,19 +231,11 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(ctx)
 
-	var billingProfile BillingProfile
-	lockQuery := `SELECT id, user_id, email, total_paid_credit, last_sync_balance, 
-		       can_create_gpu_notebook, aaa_and_opencost_synced_at, pending_deduction 
-		       FROM profiles WHERE user_id = $1 FOR UPDATE NOWAIT`
-	err = tx.QueryRow(ctx, lockQuery, userInfo.Sub).Scan(
-		&billingProfile.ProfileID,
-		&billingProfile.UserID,
-		&billingProfile.Email,
-		&billingProfile.TotalPaidCredit,
-		&billingProfile.LastSyncBalance,
-		&billingProfile.CanCreateGpuNotebook,
-		&billingProfile.AaaAndOpenCostSyncedAt,
-		&billingProfile.PendingDeduction)
+	// Lock profile for concurrency control
+	var profileID int64
+	var canCreateGpuNotebook bool
+	lockQuery := `SELECT id, can_create_gpu_notebook FROM profiles WHERE user_id = $1 FOR UPDATE NOWAIT`
+	err = tx.QueryRow(ctx, lockQuery, userInfo.Sub).Scan(&profileID, &canCreateGpuNotebook)
 	if err != nil {
 		if pgErr, ok := err.(*pgconn.PgError); ok && pgErr.Code == "55P03" {
 			logger.Warn("profile is locked by another operation",
@@ -181,7 +253,13 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := tx.Query(ctx, "SELECT name, gpu_type, gpu_request, gpu_limit, events[array_upper(events, 1)] as latest_event FROM notebooks WHERE user_id = $1", userInfo.Sub)
+	if notebookReq.Type == "gpu" && !canCreateGpuNotebook {
+		logger.Warn("user credit limit exceeded for GPU notebooks", "notebook_name", notebookReq.Name)
+		sendError(w, logger, http.StatusForbidden, "Credit limit exceeded. You cannot create GPU notebooks.")
+		return
+	}
+
+	rows, err := tx.Query(ctx, "SELECT name, gpu_type, gpu_request, gpu_limit, events[array_upper(events, 1)] as latest_event FROM notebooks WHERE user_id = $1 AND events[array_upper(events, 1)] <> 'deleted'", userInfo.Sub)
 	if err != nil {
 		logger.Error("failed to fetch notebooks for user", "error", err)
 		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
@@ -254,36 +332,6 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if notebookReq.Type == "gpu" && contains(userInfo.Roles, "compute") {
-		if !billingProfile.CanCreateGpuNotebook {
-			logger.Info("user doesn't have GPU permission, checking if credit can be processed",
-				"notebook_name", notebookReq.Name,
-				"can_create_gpu_notebook", billingProfile.CanCreateGpuNotebook)
-
-			// Try to process pending credits and restore access
-			hasAccess, creditErr := app.tryRestoreGPUAccess(ctx, tx, &billingProfile, logger)
-			if creditErr != nil {
-				logger.Error("failed to process credits for GPU access", "error", creditErr)
-				sendError(w, logger, http.StatusInternalServerError, "Internal server error while processing credits")
-				return
-			}
-
-			if !hasAccess {
-				logger.Warn("user still doesn't have enough credit for GPU notebooks after credit check",
-					"notebook_name", notebookReq.Name)
-				sendError(w, logger, http.StatusForbidden, "You don't have enough credit for this operation")
-				return
-			}
-
-			logger.Info("user regained GPU access after credit processing",
-				"notebook_name", notebookReq.Name)
-		} else {
-			logger.Debug("user has permission to create GPU notebooks",
-				"notebook_name", notebookReq.Name,
-				"can_create_gpu_notebook", billingProfile.CanCreateGpuNotebook)
-		}
-	}
-
 	baseArgs := []any{
 		userInfo.Sub,
 		notebookReq.Name,
@@ -293,23 +341,27 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 
 	var query string
 	if notebookReq.Type == "gpu" {
-		baseArgs = append(baseArgs, app.env.NotebookConfig.GPUStorageSize, app.env.NotebookConfig.GPUCPURequest, app.env.NotebookConfig.GPUCPULimit, app.env.NotebookConfig.GPUMemoryRequest, app.env.NotebookConfig.GPUMemoryLimit, app.env.NotebookConfig.GPUType, app.env.NotebookConfig.GPURequest, app.env.NotebookConfig.GPULimit)
+		baseArgs = append(baseArgs, app.env.NotebookConfig.GPUStorageSize, app.env.NotebookConfig.GPUCPURequest, app.env.NotebookConfig.GPUCPULimit, app.env.NotebookConfig.GPUMemoryRequest, app.env.NotebookConfig.GPUMemoryLimit, app.env.NotebookConfig.GPUType, app.env.NotebookConfig.GPURequest, app.env.NotebookConfig.GPULimit, notebookReq.InstanceType, notebookReq.ImageName, notebookReq.FileURL, notebookReq.GitURL, notebookReq.GitTokenSecretName)
 		query = `
 			INSERT INTO notebooks (
-				user_id, name, namespace, pvc_name, storage_size, 
+				user_id, name, namespace, pvc_name, storage_size,
 				cpu_request, cpu_limit, memory_request, memory_limit,
-				gpu_type, gpu_request, gpu_limit
+				gpu_type, gpu_request, gpu_limit, instance_type, image_name,
+				file_url, git_url, git_token_secret_name
 			) VALUES (
-				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+				$15, $16, $17
 			) RETURNING id`
 	} else {
-		baseArgs = append(baseArgs, app.env.NotebookConfig.CPUStorageSize, app.env.NotebookConfig.CPURequest, app.env.NotebookConfig.CPULimit, app.env.NotebookConfig.MemoryRequest, app.env.NotebookConfig.MemoryLimit)
+		baseArgs = append(baseArgs, app.env.NotebookConfig.CPUStorageSize, app.env.NotebookConfig.CPURequest, app.env.NotebookConfig.CPULimit, app.env.NotebookConfig.MemoryRequest, app.env.NotebookConfig.MemoryLimit, notebookReq.ImageName, notebookReq.FileURL, notebookReq.GitURL, notebookReq.GitTokenSecretName)
 		query = `
 		INSERT INTO notebooks (
-			user_id, name, namespace, pvc_name, storage_size, 
-			cpu_request, cpu_limit, memory_request, memory_limit
+			user_id, name, namespace, pvc_name, storage_size,
+			cpu_request, cpu_limit, memory_request, memory_limit, image_name,
+			file_url, git_url, git_token_secret_name
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+			$11, $12, $13
 		) RETURNING id`
 	}
 	var notebookId int64
@@ -331,6 +383,9 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
 		return
 	}
+
+	app.seedDirectNotebookPlatformToken(ctx, logger, namespace, notebookReq.Name, userInfo.Sub, r.Header.Get("Authorization"))
+
 	logger.Info("notebook created successfully",
 		"notebook_id", notebookId,
 		"notebook_name", notebookReq.Name,
@@ -340,18 +395,18 @@ func (app *application) createNotebook(w http.ResponseWriter, r *http.Request) {
 
 // stopNotebook godoc
 // @Summary      Stop notebook
-// @Description  Stops a running notebook
+// @Description  Stops a directly managed notebook by adding the Kubeflow stopped annotation. Available when API_BOOKINGS_ENABLED=false. When API_BOOKINGS_ENABLED=true, this route is not registered for security reasons. Authenticated requests that pass shared middleware receive 404 Not Found with a text/plain body (404 page not found), without JSON title, detail, or type fields. The success and validation responses documented here apply only when API_BOOKINGS_ENABLED=false.
 // @Tags         notebook
 // @Accept       json
 // @Produce      json
-// @Param        notebook_name  body  StopNotebookRequest  true  "Notebook Stop Request"
+// @Param        notebook  body  StopNotebookRequest  true  "Notebook stop request"
 // @Success      200  {object}  SwaggerMessageResponse
-// @Failure      429  {object}  Error429
-// @Failure      401  {object}  Error401
-// @Failure      500  {object}  Error500
-// @Failure      422  {object}  Error422
-// @Failure      404  {object}  Error404
 // @Failure      400  {object}  Error400
+// @Failure      401  {object}  Error401
+// @Failure      404  {object}  Error404  "Route not registered when API_BOOKINGS_ENABLED=true. Returns plain-text 404 page not found without JSON error fields. When API_BOOKINGS_ENABLED=false, a missing notebook returns the documented JSON Error404 response."
+// @Failure      422  {object}  Error422
+// @Failure      429  {object}  Error429
+// @Failure      500  {object}  Error500
 // @Security     BearerAuth
 // @Router       /v1/notebook/stop [patch]
 func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
@@ -374,12 +429,14 @@ func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	var latestEvent constants.Events
+	var gpuType *string
+	var gpuRequest, gpuLimit *int
 	query := `
-		SELECT events[array_upper(events, 1)] as latest_event
+		SELECT events[array_upper(events, 1)] as latest_event, gpu_type, gpu_request, gpu_limit
 		FROM notebooks
 		WHERE name = $1 AND namespace = $2
 	`
-	err = app.pgPool.Pool.QueryRow(ctx, query, stopReq.Name, namespace).Scan(&latestEvent)
+	err = app.pgPool.Pool.QueryRow(ctx, query, stopReq.Name, namespace).Scan(&latestEvent, &gpuType, &gpuRequest, &gpuLimit)
 	if err != nil {
 		logger.Error("failed to find notebook", "error", err)
 		sendError(w, logger, http.StatusNotFound, "Notebook not found")
@@ -390,6 +447,13 @@ func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
 		logger.Error("cannot stop notebook that is not in applied state", "currentState", latestEvent)
 		sendError(w, logger, http.StatusBadRequest, "Cannot stop notebook that is not in applied state")
 		return
+	}
+
+	// Set sandbox type for audit logging
+	if utils.CheckGPUResource(gpuType, gpuRequest, gpuLimit) {
+		SetAuditSandboxType(r, "gpu")
+	} else {
+		SetAuditSandboxType(r, "cpu")
 	}
 
 	err = app.addStoppedAnnotationToNotebook(ctx, namespace, stopReq.Name)
@@ -404,17 +468,19 @@ func (app *application) stopNotebook(w http.ResponseWriter, r *http.Request) {
 
 // startNotebook godoc
 // @Summary      Start notebook
-// @Description  Starts an existing notebook
+// @Description  Starts a directly managed stopped notebook by removing the Kubeflow stopped annotation. Available when API_BOOKINGS_ENABLED=false. When API_BOOKINGS_ENABLED=true, this route is not registered for security reasons. Authenticated requests that pass shared middleware receive 404 Not Found with a text/plain body (404 page not found), without JSON title, detail, or type fields. The success and validation responses documented here apply only when API_BOOKINGS_ENABLED=false.
 // @Tags         notebook
 // @Accept       json
 // @Produce      json
-// @Param        notebook_name  body  StartNotebookRequest  true  "Notebook Start Request"
+// @Param        notebook  body  StartNotebookRequest  true  "Notebook start request"
 // @Success      200  {object}  SwaggerMessageResponse
-// @Failure      404  {object}  Error404
-// @Failure      429  {object}  Error429
+// @Failure      400  {object}  Error400
 // @Failure      401  {object}  Error401
-// @Failure      500  {object}  Error500
+// @Failure      403  {object}  Error403
+// @Failure      404  {object}  Error404  "Route not registered when API_BOOKINGS_ENABLED=true. Returns plain-text 404 page not found without JSON error fields. When API_BOOKINGS_ENABLED=false, a missing notebook returns the documented JSON Error404 response."
 // @Failure      422  {object}  Error422
+// @Failure      429  {object}  Error429
+// @Failure      500  {object}  Error500
 // @Security     BearerAuth
 // @Router       /v1/notebook/start [patch]
 func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
@@ -434,6 +500,17 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+
+	logger = logger.With("method", "startNotebook", "namespace", namespace, "name", startReq.Name)
+
+	if app.registrySecret.SecretType != "none" {
+		if err = app.ensureRegistrySecret(ctx, logger, namespace); err != nil {
+			logger.Error("failed to refresh registry secret before notebook start", "error", err)
+			sendError(w, logger, http.StatusInternalServerError, "Internal Server Error")
+			return
+		}
+	}
+
 	tx, err := app.pgPool.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		logger.Error("failed to start transaction", "error", err)
@@ -442,19 +519,11 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(ctx)
 
-	var billingProfile BillingProfile
-	lockQuery := `SELECT id, user_id, email, total_paid_credit, last_sync_balance, 
-		       can_create_gpu_notebook, aaa_and_opencost_synced_at, pending_deduction 
-		       FROM profiles WHERE user_id = $1 FOR UPDATE NOWAIT`
-	err = tx.QueryRow(ctx, lockQuery, userInfo.Sub).Scan(
-		&billingProfile.ProfileID,
-		&billingProfile.UserID,
-		&billingProfile.Email,
-		&billingProfile.TotalPaidCredit,
-		&billingProfile.LastSyncBalance,
-		&billingProfile.CanCreateGpuNotebook,
-		&billingProfile.AaaAndOpenCostSyncedAt,
-		&billingProfile.PendingDeduction)
+	// Lock profile for concurrency control
+	var profileID int64
+	var canCreateGpuNotebook bool
+	lockQuery := `SELECT id, can_create_gpu_notebook FROM profiles WHERE user_id = $1 FOR UPDATE NOWAIT`
+	err = tx.QueryRow(ctx, lockQuery, userInfo.Sub).Scan(&profileID, &canCreateGpuNotebook)
 	if err != nil {
 		if pgErr, ok := err.(*pgconn.PgError); ok && pgErr.Code == "55P03" { // lock_not_available
 			logger.Warn("profile is locked by another operation",
@@ -471,9 +540,7 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logger = logger.With("method", "startNotebook", "namespace", namespace, "name", startReq.Name)
-
-	rows, err := tx.Query(ctx, "SELECT id, name, gpu_type, gpu_request, gpu_limit, events[array_upper(events, 1)] as latest_event FROM notebooks WHERE user_id = $1", userInfo.Sub)
+	rows, err := tx.Query(ctx, "SELECT id, name, gpu_type, gpu_request, gpu_limit, events[array_upper(events, 1)] as latest_event FROM notebooks WHERE user_id = $1 AND events[array_upper(events, 1)] <> 'deleted'", userInfo.Sub)
 	if err != nil {
 		logger.Error("failed to fetch notebooks for user", "error", err)
 		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
@@ -533,6 +600,13 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 
 	isGPUResource := utils.CheckGPUResource(gpuType, gpuRequest, gpuLimit)
 
+	// Set sandbox type for audit logging
+	if isGPUResource {
+		SetAuditSandboxType(r, "gpu")
+	} else {
+		SetAuditSandboxType(r, "cpu")
+	}
+
 	runningCPU, runningGPU, err := app.CountEffectiveRunningNotebooks(ctx, dbNotebooks, namespace)
 	if err != nil {
 		logger.Error("failed to check running notebooks from k8s", "error", err)
@@ -540,6 +614,11 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if isGPUResource {
+		if !canCreateGpuNotebook {
+			logger.Warn("user credit limit exceeded for GPU notebooks", "notebook_name", startReq.Name)
+			sendError(w, logger, http.StatusForbidden, "Credit limit exceeded. You cannot start GPU notebooks.")
+			return
+		}
 		if runningGPU >= app.env.NotebookConfig.MaxRunningGPU {
 			errorMsg := fmt.Sprintf("Cannot start GPU notebook: running GPU notebook limit exceeded (%d/%d running). Please stop an existing GPU notebook before starting this one.", runningGPU, app.env.NotebookConfig.MaxRunningGPU)
 			sendError(w, logger, http.StatusBadRequest, errorMsg)
@@ -550,36 +629,6 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 			errorMsg := fmt.Sprintf("Cannot start CPU notebook: running CPU notebook limit exceeded (%d/%d running). Please stop an existing CPU notebook before starting this one.", runningCPU, app.env.NotebookConfig.MaxRunningCPU)
 			sendError(w, logger, http.StatusBadRequest, errorMsg)
 			return
-		}
-	}
-
-	if isGPUResource {
-		if !billingProfile.CanCreateGpuNotebook {
-			logger.Info("user doesn't have GPU permission, checking if credit can be processed",
-				"notebook_name", startReq.Name,
-				"can_create_gpu_notebook", billingProfile.CanCreateGpuNotebook)
-
-			// Try to process pending credits and restore access
-			hasAccess, creditErr := app.tryRestoreGPUAccess(ctx, tx, &billingProfile, logger)
-			if creditErr != nil {
-				logger.Error("failed to process credits for GPU access", "error", creditErr)
-				sendError(w, logger, http.StatusInternalServerError, "Internal server error while processing credits")
-				return
-			}
-
-			if !hasAccess {
-				logger.Warn("user still doesn't have enough credit for GPU notebooks after credit check",
-					"notebook_name", startReq.Name)
-				sendError(w, logger, http.StatusForbidden, "You don't have enough credit for this operation")
-				return
-			}
-
-			logger.Info("user regained GPU access after credit processing",
-				"notebook_name", startReq.Name)
-		} else {
-			logger.Debug("user has permission to start GPU notebooks",
-				"notebook_name", startReq.Name,
-				"can_create_gpu_notebook", billingProfile.CanCreateGpuNotebook)
 		}
 	}
 
@@ -596,21 +645,24 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
 		return
 	}
+
 	sendResponse(w, logger, http.StatusOK, "Notebook started successfully")
 }
 
 // deleteNotebook godoc
 // @Summary      Delete notebook
-// @Description  Deletes a notebook by name
+// @Description  Deletes a directly managed notebook and its PVC. Available when API_BOOKINGS_ENABLED=false. When API_BOOKINGS_ENABLED=true, this route is not registered for security reasons. Authenticated requests that pass shared middleware receive 404 Not Found with a text/plain body (404 page not found), without JSON title, detail, or type fields. The success and validation responses documented here apply only when API_BOOKINGS_ENABLED=false.
 // @Tags         notebook
 // @Accept       json
 // @Produce      json
-// @Param        notebook_name  body  DeleteNotebookRequest  true  "Notebook Delete Request"
+// @Param        notebook  body  DeleteNotebookRequest  true  "Notebook delete request"
 // @Success      200  {object}  SwaggerMessageResponse
-// @Failure      429  {object}  Error429
+// @Failure      400  {object}  Error400
 // @Failure      401  {object}  Error401
-// @Failure      404  {object}  Error404
+// @Failure      404  {object}  Error404  "Route not registered when API_BOOKINGS_ENABLED=true. Returns plain-text 404 page not found without JSON error fields. When API_BOOKINGS_ENABLED=false, a missing notebook returns the documented JSON Error404 response."
+// @Failure      409  {object}  Error409
 // @Failure      422  {object}  Error422
+// @Failure      429  {object}  Error429
 // @Failure      500  {object}  Error500
 // @Security     BearerAuth
 // @Router       /v1/notebook/delete [delete]
@@ -632,13 +684,19 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 
 	logger = logger.With("method", "deleteNotebook", "namespace", namespace, "name", deleteReq.Name)
 	query := `
-		SELECT events[array_upper(events, 1)] as latest_event
+		SELECT id, booking_id, events[array_upper(events, 1)] as latest_event, gpu_type, gpu_request, gpu_limit
 		FROM notebooks
 		WHERE name = $1 AND namespace = $2
+		  AND events[array_upper(events, 1)] <> 'deleted'
 	`
+	var notebookRowID int64
+	var notebookBookingID *int64
 	var latestEvent constants.Events
+	var gpuType *string
+	var gpuRequest, gpuLimit *int
 	ctx := r.Context()
-	err = app.pgPool.Pool.QueryRow(ctx, query, deleteReq.Name, namespace).Scan(&latestEvent)
+	err = app.pgPool.Pool.QueryRow(ctx, query, deleteReq.Name, namespace).Scan(
+		&notebookRowID, &notebookBookingID, &latestEvent, &gpuType, &gpuRequest, &gpuLimit)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			logger.Error("notebook not found", "error", err)
@@ -650,6 +708,89 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var blockingBookingID int64
+	var blockingBookingStatus string
+	err = app.pgPool.Pool.QueryRow(ctx, `
+		SELECT id, status FROM bookings
+		WHERE user_id = $1
+		  AND status IN ('scheduled', 'ready', 'active', 'shutting_down')
+		  AND (
+		    ($2::bigint IS NOT NULL AND id = $2)
+		    OR notebook_id = $3
+		  )
+		LIMIT 1
+	`, userInfo.Sub, notebookBookingID, notebookRowID).Scan(&blockingBookingID, &blockingBookingStatus)
+	if err != nil && err != pgx.ErrNoRows {
+		logger.Error("failed to check booking link for notebook delete", "error", err)
+		sendError(w, logger, http.StatusInternalServerError, "Failed to delete notebook")
+		return
+	}
+	if err == nil {
+		switch blockingBookingStatus {
+		case "scheduled":
+			result, updateErr := app.pgPool.Pool.Exec(ctx, `
+				UPDATE bookings
+				SET status = 'cancelled',
+				    notebook_id = NULL
+				WHERE id = $1
+				  AND user_id = $2
+				  AND status = 'scheduled'
+			`, blockingBookingID, userInfo.Sub)
+			if updateErr != nil {
+				logger.Error("failed to auto-cancel linked booking during notebook delete",
+					"booking_id", blockingBookingID,
+					"error", updateErr)
+				sendError(w, logger, http.StatusInternalServerError, "Failed to delete notebook")
+				return
+			}
+			if result.RowsAffected() == 0 {
+				logger.Error("linked booking state changed while deleting notebook",
+					"booking_id", blockingBookingID,
+					"expected_status", "scheduled")
+				sendError(w, logger, http.StatusConflict, "Booking state changed while deleting notebook; please retry")
+				return
+			}
+		case "ready", "active", "shutting_down":
+			result, updateErr := app.pgPool.Pool.Exec(ctx, `
+				UPDATE bookings
+				SET status = 'completed',
+				    session_ended_at = NOW(),
+				    cleanup_completed_at = NOW(),
+				    notebook_id = NULL
+				WHERE id = $1
+				  AND user_id = $2
+				  AND status IN ('ready', 'active', 'shutting_down')
+			`, blockingBookingID, userInfo.Sub)
+			if updateErr != nil {
+				logger.Error("failed to auto-terminate linked booking during notebook delete",
+					"booking_id", blockingBookingID,
+					"error", updateErr)
+				sendError(w, logger, http.StatusInternalServerError, "Failed to delete notebook")
+				return
+			}
+			if result.RowsAffected() == 0 {
+				logger.Error("linked booking state changed while deleting notebook",
+					"booking_id", blockingBookingID,
+					"expected_status", "ready|active|shutting_down")
+				sendError(w, logger, http.StatusConflict, "Booking state changed while deleting notebook; please retry")
+				return
+			}
+		default:
+			logger.Error("unexpected linked booking status while deleting notebook",
+				"booking_id", blockingBookingID,
+				"status", blockingBookingStatus)
+			sendError(w, logger, http.StatusConflict, "Cannot delete notebook due to linked booking state")
+			return
+		}
+	}
+
+	// Set sandbox type for audit logging
+	if utils.CheckGPUResource(gpuType, gpuRequest, gpuLimit) {
+		SetAuditSandboxType(r, "gpu")
+	} else {
+		SetAuditSandboxType(r, "cpu")
+	}
+
 	notebookFailed := checkNotebookFailed(latestEvent)
 
 	if latestEvent != constants.StatusNotebookApplied && !notebookFailed {
@@ -657,11 +798,24 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deleteQuery := `DELETE FROM notebooks WHERE name = $1 AND namespace = $2`
-	_, err = app.pgPool.Pool.Exec(ctx, deleteQuery, deleteReq.Name, namespace)
+	softDeleteQuery := `
+		UPDATE notebooks
+		SET events = array_append(events, 'deleted'),
+		    name = name || '__deleted__' || id::text || '__' || extract(epoch from now())::bigint::text,
+		    pvc_name = pvc_name || '__deleted__' || id::text || '__' || extract(epoch from now())::bigint::text,
+		    booking_id = NULL
+		WHERE name = $1
+		  AND namespace = $2
+		  AND events[array_upper(events, 1)] <> 'deleted'
+	`
+	_, err = app.pgPool.Pool.Exec(ctx, softDeleteQuery, deleteReq.Name, namespace)
 	if err != nil {
 		sendError(w, logger, http.StatusInternalServerError, "Failed to delete notebook")
 		return
+	}
+
+	if err := app.deletePlatformTokenSecret(ctx, namespace, deleteReq.Name); err != nil {
+		logger.Error("failed to delete platform token secret", "error", err)
 	}
 
 	if !notebookFailed {
@@ -677,14 +831,20 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 		}
 		err = app.deletePVCFromK8s(ctx, logger, namespace, deleteReq.Name+"-pvc")
 		if errors.IsNotFound(err) {
-			if notebookAlreadyDeleted {
-				logger.Warn("notebook already deleted from k8s", "error", err)
-			}
+			logger.Warn("pvc not found in Kubernetes", "error", err, "pvc_name", deleteReq.Name+"-pvc")
+			err = nil
 		}
 		if err != nil {
 			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
 			return
 		}
+	}
+	// Label-based cleanup also runs for failed notebook provisioning. This
+	// recovers managed claims left behind if the worker stopped before rollback.
+	if err := app.deleteManagedPVCsFromK8s(ctx, namespace, deleteReq.Name); err != nil {
+		logger.Error("failed to delete labelled managed PVCs", "error", err)
+		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+		return
 	}
 	sendResponse(w, logger, http.StatusOK, "Notebook deleted successfully")
 }
@@ -824,9 +984,10 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		query = fmt.Sprintf(`
 			SELECT id, name, namespace, storage_size, pvc_name,
 				cpu_request, cpu_limit, memory_request, memory_limit,
-				gpu_type, gpu_request, gpu_limit, template_name, events, created_at
+				gpu_type, gpu_request, gpu_limit, instance_type, template_name, image_name, events, created_at, booking_id
 			FROM notebooks
 			WHERE namespace = $1 AND created_at >= $2 AND created_at <= $3
+			  AND events[array_upper(events, 1)] <> 'deleted'
 			%s
 			LIMIT $4 OFFSET $5`, orderClause)
 		logger.Debug("executing filtered query",
@@ -840,9 +1001,10 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 		query = fmt.Sprintf(`
 			SELECT id, name, namespace, storage_size, pvc_name,
 				cpu_request, cpu_limit, memory_request, memory_limit,
-				gpu_type, gpu_request, gpu_limit, template_name, events, created_at
+				gpu_type, gpu_request, gpu_limit, instance_type, template_name, image_name, events, created_at, booking_id
 			FROM notebooks
 			WHERE namespace = $1
+			  AND events[array_upper(events, 1)] <> 'deleted'
 			%s
 			LIMIT $2 OFFSET $3`, orderClause)
 		logger.Debug("executing unfiltered query",
@@ -864,23 +1026,96 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	notebooks := []NotebookStatus{}
+	notebookBookingIDByNotebookID := map[int64]int64{}
 	for rows.Next() {
 		var nb NotebookStatus
+		var bookingID *int64
 		scanErr := rows.Scan(
 			&nb.ID, &nb.Name, &nb.Namespace, &nb.StorageSize, &nb.PVCName,
 			&nb.CPURequest, &nb.CPULimit, &nb.MemoryRequest, &nb.MemoryLimit,
-			&nb.GPUType, &nb.GPURequest, &nb.GPULimit, &nb.TemplateName, &nb.Events, &nb.CreatedAt,
+			&nb.GPUType, &nb.GPURequest, &nb.GPULimit, &nb.InstanceType, &nb.TemplateName, &nb.ImageName, &nb.Events, &nb.CreatedAt, &bookingID,
 		)
 		if scanErr != nil {
 			logger.Error("failed to scan notebook row", "error", scanErr)
 			continue
 		}
 		notebooks = append(notebooks, nb)
+		if app.env.BookingsEnabled && bookingID != nil {
+			notebookBookingIDByNotebookID[nb.ID] = *bookingID
+		}
 	}
 	if rowsErr := rows.Err(); rowsErr != nil {
 		logger.Error("error iterating notebook rows", "error", rowsErr)
 		sendError(w, logger, http.StatusInternalServerError, "Failed to fetch notebooks")
 		return
+	}
+
+	bookingByNotebookID := map[int64]*NotebookBooking{}
+	if app.env.BookingsEnabled && len(notebookBookingIDByNotebookID) > 0 {
+		notebookIDs := make([]int64, 0, len(notebookBookingIDByNotebookID))
+		for notebookID := range notebookBookingIDByNotebookID {
+			notebookIDs = append(notebookIDs, notebookID)
+		}
+		bookingRows, err := app.pgPool.Pool.Query(
+			ctx,
+			`SELECT notebook_id, id, status, category_name, slot_key, slot_keys, slot_date, slot_start, slot_end
+			 FROM bookings
+			 WHERE notebook_id = ANY($1::bigint[])`,
+			notebookIDs,
+		)
+		if err != nil {
+			logger.Error("failed to query linked gpu bookings", "error", err)
+			sendError(w, logger, http.StatusInternalServerError, "Failed to fetch notebooks")
+			return
+		}
+		defer bookingRows.Close()
+
+		profile := app.env.NotebookConfig.SlotConfigProfile
+		for bookingRows.Next() {
+			var notebookID int64
+			var bookingID int64
+			var status string
+			var categoryName string
+			var slotKey string
+			var slotKeys []string
+			var slotDate time.Time
+			var slotStart time.Time
+			var slotEnd time.Time
+			if err := bookingRows.Scan(&notebookID, &bookingID, &status, &categoryName, &slotKey, &slotKeys, &slotDate, &slotStart, &slotEnd); err != nil {
+				logger.Error("failed to scan gpu booking row", "error", err)
+				sendError(w, logger, http.StatusInternalServerError, "Failed to fetch notebooks")
+				return
+			}
+			if len(slotKeys) == 0 {
+				slotKeys = []string{slotKey}
+			}
+			displayName := categoryName
+			gpuMemory := ""
+			resourceType := ""
+			if c, ok := gpuconfig.GetGPUCategory(profile, categoryName); ok {
+				displayName = c.DisplayName
+				gpuMemory = c.GPUMemory
+				resourceType = c.ResourceType
+			}
+			bookingByNotebookID[notebookID] = &NotebookBooking{
+				ID:           bookingID,
+				Status:       status,
+				Category:     categoryName,
+				ResourceType: resourceType,
+				DisplayName:  displayName,
+				GPUMemory:    gpuMemory,
+				SlotDate:     slotDate.Format("2006-01-02"),
+				SlotKeys:     slotKeys,
+				SlotStart:    slotStart.Format(time.RFC3339),
+				SlotEnd:      slotEnd.Format(time.RFC3339),
+				Duration:     bookingDurationLabel(profile, categoryName, slotKeys, slotStart, slotEnd),
+			}
+		}
+		if err := bookingRows.Err(); err != nil {
+			logger.Error("error iterating gpu booking rows", "error", err)
+			sendError(w, logger, http.StatusInternalServerError, "Failed to fetch notebooks")
+			return
+		}
 	}
 	type k8sResult struct {
 		index     int
@@ -987,7 +1222,10 @@ func (app *application) listNotebooks(w http.ResponseWriter, r *http.Request) {
 
 		nb.Status = determineNotebookState(latestEvent, k8sObject)
 		if nb.Status == NotebookStateRunning {
-			nb.URL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, nb.Namespace, nb.Name)
+			nb.URL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, nb.Namespace, nb.Name, nb.ImageName, app.env.NotebookConfig.DisableInit, app.env.NotebookConfig.StartupNotebookFilename)
+		}
+		if booking, ok := bookingByNotebookID[nb.ID]; ok {
+			nb.Booking = booking
 		}
 		notebooks[i] = nb
 	}
@@ -1045,12 +1283,14 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 	logger = logger.With("method", "checkNotebookStatus", "namespace", namespace, "name", notebookName)
 	ctx := r.Context()
 	var status NotebookStatus
+	var bookingID *int64
 	query := `
 		SELECT id, name, namespace, storage_size, pvc_name, 
 			cpu_request, cpu_limit, memory_request, memory_limit,
-			gpu_type, gpu_request, gpu_limit, template_name, events, created_at
+			gpu_type, gpu_request, gpu_limit, instance_type, template_name, image_name, events, created_at, booking_id
 		FROM notebooks
-		WHERE namespace= $1 and name = $2`
+		WHERE namespace= $1 and name = $2
+		  AND events[array_upper(events, 1)] <> 'deleted'`
 
 	err := app.pgPool.Pool.QueryRow(ctx, query, namespace, notebookName).Scan(
 		&status.ID,
@@ -1065,9 +1305,12 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 		&status.GPUType,
 		&status.GPURequest,
 		&status.GPULimit,
+		&status.InstanceType,
 		&status.TemplateName,
+		&status.ImageName,
 		&status.Events,
 		&status.CreatedAt,
+		&bookingID,
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -1100,7 +1343,44 @@ func (app *application) checkNotebookStatus(w http.ResponseWriter, r *http.Reque
 	status.Status = determineNotebookState(latestEvent, k8sObject)
 
 	if status.Status == NotebookStateRunning {
-		status.URL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, status.Namespace, status.Name)
+		status.URL = generateNotebookURL(app.env.NotebookConfig.KubeFlowURL, status.Namespace, status.Name, status.ImageName, app.env.NotebookConfig.DisableInit, app.env.NotebookConfig.StartupNotebookFilename)
+	}
+
+	if app.env.BookingsEnabled && bookingID != nil {
+		profile := app.env.NotebookConfig.SlotConfigProfile
+		var booking NotebookBooking
+		var slotKey, categoryName string
+		var slotDate, slotStart, slotEnd time.Time
+		err := app.pgPool.Pool.QueryRow(
+			ctx,
+			`SELECT id, status, category_name, slot_key, slot_keys, slot_date, slot_start, slot_end
+			 FROM bookings
+			 WHERE id = $1`,
+			*bookingID,
+		).Scan(&booking.ID, &booking.Status, &categoryName, &slotKey, &booking.SlotKeys, &slotDate, &slotStart, &slotEnd)
+		if err == nil {
+			if len(booking.SlotKeys) == 0 {
+				booking.SlotKeys = []string{slotKey}
+			}
+			displayName := categoryName
+			gpuMemory := ""
+			resourceType := ""
+			if c, ok := gpuconfig.GetGPUCategory(profile, categoryName); ok {
+				displayName = c.DisplayName
+				gpuMemory = c.GPUMemory
+				resourceType = c.ResourceType
+			}
+
+			booking.Category = categoryName
+			booking.ResourceType = resourceType
+			booking.DisplayName = displayName
+			booking.GPUMemory = gpuMemory
+			booking.SlotDate = slotDate.Format("2006-01-02")
+			booking.SlotStart = slotStart.Format(time.RFC3339)
+			booking.SlotEnd = slotEnd.Format(time.RFC3339)
+			booking.Duration = bookingDurationLabel(profile, categoryName, booking.SlotKeys, slotStart, slotEnd)
+			status.Booking = &booking
+		}
 	}
 
 	sendResponseJson(w, logger, http.StatusOK, status)
@@ -1141,6 +1421,27 @@ func (app *application) createProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := app.ensureProfileWorkspacePVC(r.Context(), logger, userId); err != nil {
+		logger.Error("failed to create profile workspace PVC", "error", err, "namespace", userId)
+		sendError(w, logger, http.StatusInternalServerError, "Failed to create profile workspace")
+		return
+	}
+
+	// Attach registry secret to the newly created namespace so notebook pods can
+	// pull images from the configured private registry (ECR or static).
+	if app.registrySecret.SecretType != "none" {
+		if err := app.waitForNamespace(r.Context(), logger, userId); err != nil {
+			logger.Error("namespace not ready after profile creation", "error", err, "namespace", userId)
+			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+			return
+		}
+		if err := app.ensureRegistrySecret(r.Context(), logger, userId); err != nil {
+			logger.Error("failed to create registry secret for namespace", "error", err, "namespace", userId)
+			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
+			return
+		}
+	}
+
 	query := `
 			INSERT INTO profiles (user_id,email)
 			VALUES ($1,$2)
@@ -1157,4 +1458,120 @@ func (app *application) createProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sendResponse(w, logger, http.StatusCreated, "The profile has been created successfully or already exists.")
+}
+
+// listGPUInstanceTypes godoc
+// @Summary      List instance types for GPU bookings
+// @Description  Returns instance types from API_GPU_NODE_INSTANCE_TYPES with display metadata (for GPU-backed booking categories). Legacy path GET /v1/notebook/gpu-instance-types is also served.
+// @Tags         bookings
+// @Produce      json
+// @Success      200  {object}  NotebookInstanceTypesResponse
+// @Failure      401  {object}  Error401
+// @Failure      429  {object}  Error429
+// @Failure      500  {object}  Error500
+// @Security     BearerAuth
+// @Router       /v1/notebook/instance-types [get]
+func (app *application) listGPUInstanceTypes(w http.ResponseWriter, r *http.Request) {
+	logger := getLogger(r)
+	configuredTypes := strings.Split(app.env.NotebookConfig.GPUNodeInstanceTypes, ",")
+	var result []NotebookInstanceType
+	for _, t := range configuredTypes {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			continue
+		}
+		if meta, exists := NotebookInstanceTypeMetadata[t]; exists {
+			result = append(result, meta)
+		} else {
+			// Instance type is in config but has no metadata — return with just the instanceType
+			result = append(result, NotebookInstanceType{
+				InstanceType: t,
+				DisplayName:  t,
+			})
+		}
+	}
+	sendResponseJson(w, logger, http.StatusOK, NotebookInstanceTypesResponse{
+		InstanceTypes: result,
+	})
+}
+
+// listGPUCategories godoc
+// @Summary      List booking categories and slot templates
+// @Description  Returns configured CPU and GPU categories and their slot templates from code (API_GPU_SLOT_CONFIG_PROFILE)
+// @Tags         bookings
+// @Produce      json
+// @Success      200  {object}  CategoriesResponse
+// @Failure      401  {object}  Error401
+// @Failure      429  {object}  Error429
+// @Failure      500  {object}  Error500
+// @Security     BearerAuth
+// @Router       /v1/categories [get]
+func (app *application) listGPUCategories(w http.ResponseWriter, r *http.Request) {
+	logger := getLogger(r)
+	profile := app.env.NotebookConfig.SlotConfigProfile
+	cfg, ok := gpuconfig.GPUSlotConfigs[profile]
+	if !ok {
+		logger.Error("slot config profile not found", "profile", profile)
+		sendError(w, logger, http.StatusInternalServerError, "Slot configuration is invalid")
+		return
+	}
+
+	categories := make([]CategoryResponse, 0, len(cfg.Categories))
+	orderedCategories := make([]gpuconfig.GPUCategory, len(cfg.Categories))
+	copy(orderedCategories, cfg.Categories)
+	sort.Slice(orderedCategories, func(i, j int) bool {
+		if orderedCategories[i].SortOrder == orderedCategories[j].SortOrder {
+			return orderedCategories[i].Name < orderedCategories[j].Name
+		}
+		return orderedCategories[i].SortOrder < orderedCategories[j].SortOrder
+	})
+
+	for _, c := range orderedCategories {
+		slots := make([]SlotTemplateResponse, 0, len(c.Slots))
+		for _, s := range c.Slots {
+			slots = append(slots, SlotTemplateResponse{
+				Key:           s.Key,
+				Label:         s.Label,
+				StartTime:     s.StartTime,
+				EndTime:       s.EndTime,
+				DurationHours: s.DurationHours,
+				SpansMidnight: s.SpansMidnight,
+			})
+		}
+		categories = append(categories, CategoryResponse{
+			Name:                    c.Name,
+			DisplayName:             c.DisplayName,
+			Description:             c.Description,
+			ResourceType:            c.ResourceType,
+			IsBookable:              c.IsBookable,
+			LaunchMode:              c.LaunchMode,
+			LaunchURL:               app.categoryLaunchURL(c),
+			PriceLabel:              c.PriceLabel,
+			Persistence:             c.Persistence,
+			RequiresCredits:         c.RequiresCredits,
+			InstanceType:            c.InstanceType,
+			GPUMemory:               c.GPUMemory,
+			MaxActiveBookings:       c.MaxActiveBookings,
+			MaxBookingsPerWeek:      c.MaxBookingsPerWeek,
+			AdvanceBookingDays:      c.AdvanceBookingDays,
+			MinAdvanceBookingDays:   c.MinAdvanceBookingDays,
+			NoShowGraceMins:         c.NoShowGraceMins,
+			MaxConcurrentUsers:      c.MaxConcurrentUsers,
+			PreShutdownWarningMins:  c.PreShutdownWarningMins,
+			ShutdownGracePeriodMins: c.ShutdownGracePeriodMins,
+			Slots:                   slots,
+		})
+	}
+
+	sendResponseJson(w, logger, http.StatusOK, CategoriesResponse{Categories: categories})
+}
+
+func (app *application) categoryLaunchURL(category gpuconfig.GPUCategory) string {
+	if category.LaunchMode != "direct" {
+		return category.LaunchURL
+	}
+	if category.Name == "jupyter_lite" {
+		return app.jupyterLiteLaunchURL()
+	}
+	return category.LaunchURL
 }

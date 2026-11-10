@@ -27,9 +27,11 @@ func FetchAndMarkNotebook(pg *db.PgPool, logger *slog.Logger, originalCtx contex
 
 		query := `
 			SELECT id, name, namespace, storage_size, pvc_name, cpu_request, cpu_limit, 
-			       memory_request, memory_limit, gpu_type, gpu_request, gpu_limit, template_name
+			       memory_request, memory_limit, gpu_type, gpu_request, gpu_limit, instance_type, template_name, image_name,
+			       file_url, git_url, git_token_secret_name, booking_id
 			FROM notebooks
 			WHERE picked_at IS NULL
+			  AND events[array_upper(events, 1)] <> 'deleted'
 			FOR UPDATE SKIP LOCKED
 			LIMIT 1
 		`
@@ -64,7 +66,13 @@ func FetchAndMarkNotebook(pg *db.PgPool, logger *slog.Logger, originalCtx contex
 				&newNotebook.GPUType,
 				&newNotebook.GPURequest,
 				&newNotebook.GPULimit,
+				&newNotebook.InstanceType,
 				&newNotebook.TemplateName,
+				&newNotebook.ImageName,
+				&newNotebook.FileURL,
+				&newNotebook.GitURL,
+				&newNotebook.GitTokenSecretName,
+				&newNotebook.BookingID,
 			); err != nil {
 				logger.Warn("failed to scan notebook row, will retry", "error", err)
 				return constants.RetryContinue, err

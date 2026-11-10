@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: notebook-controller-config
+  namespace: kubeflow
+data:
+  ENABLE_CULLING: "true"
+  CULL_IDLE_TIME: "360"
+  IDLENESS_CHECK_PERIOD: "10"

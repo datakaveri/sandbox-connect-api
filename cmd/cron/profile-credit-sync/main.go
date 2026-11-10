@@ -251,33 +251,14 @@ func (ps *profileSync) executeProfileProcessing(userID string, token string, log
 		"last_sync_balance", freshProfile.LastSyncBalance,
 		"can_create_gpu_notebook", freshProfile.CanCreateGpuNotebook)
 
-	currentTime := time.Now()
-	timeSinceLastSync := currentTime.Sub(freshProfile.AaaAndOpenCostSyncedAt)
-
-	var cost float64
 	syncAtTime := time.Now()
+	start := freshProfile.AaaAndOpenCostSyncedAt
 
-	if timeSinceLastSync < 3*time.Minute {
-		logger.Info("last sync was less than 3 minutes ago, setting OpenCost to 0 but checking pending deductions",
-			"last_sync", freshProfile.AaaAndOpenCostSyncedAt,
-			"time_since_last_sync", timeSinceLastSync.String(),
-			"pending_deduction", freshProfile.PendingDeduction)
-		cost = 0
-	} else {
-		logger.Info("processing profile - sufficient time since last sync",
-			"last_sync", freshProfile.AaaAndOpenCostSyncedAt,
-			"time_since_last_sync", timeSinceLastSync.String())
-
-		start := freshProfile.AaaAndOpenCostSyncedAt
-
-		logger.Info("calculating cost from OpenCost with fresh profile data", "start_time", start, "end_time", syncAtTime)
-		var err error
-		cost, err = ps.getProfileCostFromOpenCost(start, syncAtTime, &freshProfile)
-		if err != nil {
-			logger.Error("failed to get profile cost from OpenCost", "error", err)
-			return fmt.Errorf("failed to get profile cost: %w", err)
-		}
-		logger.Info("cost calculated from OpenCost", "cost", cost)
+	logger.Info("calculating cost from OpenCost with fresh profile data", "start_time", start, "end_time", syncAtTime)
+	cost, err := ps.getProfileCostFromOpenCost(start, syncAtTime, &freshProfile)
+	if err != nil {
+		logger.Error("failed to get profile cost from OpenCost", "error", err)
+		return fmt.Errorf("failed to get profile cost: %w", err)
 	}
 
 	canCreateGpuNotebook := freshProfile.CanCreateGpuNotebook
@@ -448,7 +429,10 @@ func (ps *profileSync) getProfileCostFromOpenCost(lastSyncAt time.Time, endTime 
 	for _, dataMap := range costData.Data {
 		for _, data := range dataMap {
 			if data.Properties.Namespace == profile.UserID {
-				cost = normalizeValue(data.GPUCost)
+				gpuCost := normalizeValue(data.GPUCost)
+				cpuCost := normalizeValue(data.CPUCost)
+				cost = gpuCost + cpuCost
+				logger.Info("cost calculated from OpenCost", "gpu_cost", gpuCost, "cpu_cost", cpuCost, "total_cost", cost)
 				break
 			}
 		}
@@ -523,8 +507,9 @@ func (ps *profileSync) costDeductionRequest(ctx context.Context, profileID strin
 	var payload map[string]interface{}
 
 	err := WithExternalApiRetry(ctx, logger, func() (constants.ShouldContinue, error) {
-		// Generate fresh timestamp for each retry attempt
-		requestTime = time.Now().Format("2006-01-02T15:04:05.000")
+		// Generate fresh timestamp for each retry attempt.
+		// OpenAPI spec: requested_at must match pattern ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$ (no milliseconds).
+		requestTime = time.Now().Format("2006-01-02T15:04:05")
 
 		// Format amount to preserve decimal places with 15 decimal precision
 		amountStr := fmt.Sprintf("%.15f", cost)
@@ -543,6 +528,8 @@ func (ps *profileSync) costDeductionRequest(ctx context.Context, profileID strin
 		if err != nil {
 			return constants.RetryStop, fmt.Errorf("failed to marshal deduction payload: %v", err)
 		}
+
+		logger.Debug("AAA deduct request", "url", deductionURL, "body", string(payloadBytes))
 
 		req, err := http.NewRequest("PUT", deductionURL, bytes.NewBuffer(payloadBytes))
 		if err != nil {

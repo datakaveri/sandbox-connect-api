@@ -31,6 +31,18 @@ func main() {
 	if err := env.Parse(&config); err != nil {
 		utils.LogErrorAndExit(logger, "failed to parse environment variables", "error", err)
 	}
+	cpuTemplate, err := LoadSandboxNotebookTemplate(config.CPUNotebookTemplatePath, "cpu")
+	if err != nil {
+		utils.LogErrorAndExit(logger, "failed to load CPU notebook template", "error", err)
+	}
+	gpuTemplate, err := LoadSandboxNotebookTemplate(config.GPUNotebookTemplatePath, "gpu")
+	if err != nil {
+		utils.LogErrorAndExit(logger, "failed to load GPU notebook template", "error", err)
+	}
+	logger.Info("worker notebook templates loaded",
+		"cpu_source", cpuTemplate.source,
+		"gpu_source", gpuTemplate.source,
+	)
 
 	sigChan := make(chan os.Signal, 2)
 
@@ -57,7 +69,11 @@ func main() {
 		pgPool:    pool,
 		s3Client:  s3Client,
 		env:       config,
-		logger:    logger,
+		notebookTemplates: map[string]*SandboxNotebookTemplate{
+			"cpu": cpuTemplate,
+			"gpu": gpuTemplate,
+		},
+		logger: logger,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

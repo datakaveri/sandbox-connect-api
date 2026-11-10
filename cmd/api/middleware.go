@@ -66,6 +66,11 @@ func loggingMiddleware(next http.Handler) http.Handler {
 
 func (app *application) rateLimitMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if app.isJupyterLiteRequestPath(r.URL.Path) && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		// IP-based rate limiting (protection against unauthenticated attacks)
 		ip := getClientIP(r)
 		logger := getLogger(r)
@@ -97,21 +102,29 @@ func (app *application) contextTimeout(next http.Handler) http.Handler {
 func (app *application) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logger := getLogger(r)
+		isDashboard := strings.HasPrefix(r.URL.Path, dashboardBasePath+"/")
+		if isDashboard {
+			w.Header().Set("Cache-Control", "private, no-store")
+		}
 
 		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" && app.isJupyterLiteRequestPath(r.URL.Path) {
+			if cookie, err := r.Cookie(jupyterLiteAuthCookieName); err == nil && cookie.Value != "" {
+				authHeader = "Bearer " + cookie.Value
+			}
+		}
 		if authHeader == "" {
 			logger.Warn("Missing authorization header")
 			sendError(w, logger, http.StatusUnauthorized, "Missing authorization header")
 			return
 		}
 
-		parts := strings.Split(authHeader, " ")
-		if len(parts) != 2 || parts[0] != "Bearer" {
+		tokenString, ok := bearerTokenFromAuthorizationHeader(authHeader)
+		if !ok {
 			logger.Warn("Invalid authorization header format")
 			sendError(w, logger, http.StatusUnauthorized, "Invalid authorization header format")
 			return
 		}
-		tokenString := parts[1]
 
 		formattedPublicKey := app.env.KeycloakPublicKey
 		if !strings.Contains(formattedPublicKey, "BEGIN PUBLIC KEY") {
@@ -126,12 +139,17 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 		}
 
 		var jwtPayload JWTPayload
+		parseOptions := []jwt.ParserOption{jwt.WithValidMethods([]string{"RS256"})}
+		if isDashboard {
+			parseOptions = append(parseOptions, jwt.WithIssuer(app.platformTokenIssuer()),
+				jwt.WithExpirationRequired())
+		}
 		token, err := jwt.ParseWithClaims(tokenString, &jwtPayload, func(token *jwt.Token) (interface{}, error) {
 			if token.Method != jwt.SigningMethodRS256 {
 				return nil, fmt.Errorf("unexpected signing method: %v, expected RS256", token.Header["alg"])
 			}
 			return publicKey, nil
-		}, jwt.WithValidMethods([]string{"RS256"}))
+		}, parseOptions...)
 
 		if err != nil {
 			logger.Error("Failed to validate token", "error", err)
@@ -143,6 +161,12 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 			logger.Warn("Invalid token")
 			sendError(w, logger, http.StatusUnauthorized, "Invalid token")
 			return
+		}
+		if isDashboard {
+			if _, err := uuid.Parse(jwtPayload.Sub); err != nil {
+				sendError(w, logger, http.StatusUnauthorized, "Invalid token subject")
+				return
+			}
 		}
 
 		// Debug: Log detailed user information from JWT payload
@@ -162,19 +186,38 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 			"jti", jwtPayload.Jti,
 		)
 
-		if jwtPayload.Azp == "" || jwtPayload.Azp != app.env.KeycloakClientID {
+		expectedClientID := app.env.KeycloakClientID
+		isNotebookTokenRotation := app.isNotebookTokenRotationRequest(r)
+		if isNotebookTokenRotation {
+			expectedClientID = app.env.PlatformTokenNotebookClientID
+		}
+		if jwtPayload.Azp == "" || jwtPayload.Azp != expectedClientID {
 			logger.Warn("Authentication failed: Invalid client ID",
 				"provided_client_id", jwtPayload.Azp,
-				"expected_client_id", app.env.KeycloakClientID,
+				"expected_client_id", expectedClientID,
 				"user_id", jwtPayload.Sub,
 				"email", jwtPayload.Email,
 			)
 			sendError(w, logger, http.StatusUnauthorized, "Invalid client")
 			return
 		}
+		if isNotebookTokenRotation && jwtPayload.Iss != app.platformTokenIssuer() {
+			logger.Warn("Authentication failed: Invalid token issuer",
+				"provided_issuer", jwtPayload.Iss,
+				"expected_issuer", app.platformTokenIssuer(),
+				"user_id", jwtPayload.Sub,
+			)
+			sendError(w, logger, http.StatusUnauthorized, "Invalid token issuer")
+			return
+		}
 
 		currentTime := time.Now().Unix()
 		exp, _ := jwtPayload.GetExpirationTime()
+		if isNotebookTokenRotation && exp == nil {
+			logger.Warn("Authentication failed: Missing token expiry", "user_id", jwtPayload.Sub)
+			sendError(w, logger, http.StatusUnauthorized, "Invalid token expiry")
+			return
+		}
 		if exp != nil && exp.Unix() < currentTime {
 			logger.Warn("Authentication failed: Token expired",
 				"exp", exp.Unix(),
@@ -200,9 +243,20 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		if isEmailDomainBlocked(jwtPayload.Email, app.env.BlockedEmailDomains) {
+			logger.Warn("Authorization failed: Email domain is blocked from sandbox access",
+				"user_id", jwtPayload.Sub,
+				"email", jwtPayload.Email,
+			)
+			sendError(w, logger, http.StatusForbidden, "Sandbox access is not allowed for this email domain")
+			return
+		}
+
 		// Check KYC verification
-		needKYC := true
-		if r.URL.Path == "/v1/profile/create" {
+		needKYC := app.env.KYCEnabled
+		if r.URL.Path == "/v1/profile/create" ||
+			r.URL.Path == "/v1/jupyterlite/session" ||
+			app.isJupyterLiteRequestPath(r.URL.Path) {
 			needKYC = false
 		}
 		if needKYC && !jwtPayload.KycVerified {
@@ -218,9 +272,10 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 		}
 
 		userInfo := UserInfo{
-			Sub:   jwtPayload.Sub,
-			Email: jwtPayload.Email,
-			Roles: jwtPayload.RealmAccess.Roles,
+			Sub:      jwtPayload.Sub,
+			Email:    jwtPayload.Email,
+			Roles:    jwtPayload.RealmAccess.Roles,
+			ClientID: jwtPayload.Azp,
 		}
 
 		// Debug: Log successful authentication with user context
@@ -237,6 +292,22 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func isEmailDomainBlocked(email, blockedDomains string) bool {
+	at := strings.LastIndex(email, "@")
+	if at <= 0 || at == len(email)-1 {
+		return false
+	}
+
+	emailDomain := strings.TrimSpace(email[at+1:])
+	for _, configuredDomain := range strings.Split(blockedDomains, ",") {
+		if strings.EqualFold(emailDomain, strings.TrimSpace(configuredDomain)) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // getClientIP extracts the real client IP address from the request,
@@ -319,9 +390,8 @@ func isValidIP(ip string) bool {
 		return false
 	}
 
-	// Reject private/internal IPs that might be from proxies
-	// You might want to customize this based on your infrastructure
-	if parsedIP.IsLoopback() || parsedIP.IsLinkLocalUnicast() || parsedIP.IsLinkLocalMulticast() {
+	// Reject link-local addresses
+	if parsedIP.IsLinkLocalUnicast() || parsedIP.IsLinkLocalMulticast() {
 		return false
 	}
 

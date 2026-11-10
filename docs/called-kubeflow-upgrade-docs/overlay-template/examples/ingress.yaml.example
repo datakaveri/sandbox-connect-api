@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: istio-gateway-ingress
+  namespace: istio-system
+  annotations:
+    cert-manager.io/cluster-issuer: REPLACE_TLS_CLUSTER_ISSUER
+    nginx.ingress.kubernetes.io/proxy-body-size: 50m
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: REPLACE_TARGET_HOST
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: istio-ingressgateway
+                port:
+                  number: 80
+  tls:
+    - hosts: [REPLACE_TARGET_HOST]
+      secretName: kubeflow-upgrade-tls

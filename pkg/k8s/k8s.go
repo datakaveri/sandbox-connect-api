@@ -5,7 +5,7 @@ import (
 )
 
 type K8sClient struct {
-	Dynamic *dynamic.DynamicClient
+	Dynamic dynamic.Interface
 }
 
 func NewK8sClient(kubeConfigMode, kubeConfigPath string) (*K8sClient, error) {

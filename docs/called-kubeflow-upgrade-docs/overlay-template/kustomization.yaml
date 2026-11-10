@@ -1,0 +1,67 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  # EKS owns cert-manager itself; install only Kubeflow issuer/network policy.
+  - ../../common/cert-manager/overlays/kubeflow
+  - ../../common/istio/istio-crds/base
+  - ../../common/istio/istio-namespace/base
+  - ../../common/istio/istio-install/overlays/oauth2-proxy
+  - ../../common/oauth2-proxy/overlays/m2m-dex-only
+  - ../../common/dex/overlays/oauth2-proxy
+  - ../../common/kubeflow-namespace/base
+  - ../../common/kubeflow-roles/base
+  - ../../common/istio/kubeflow-istio-resources/base
+  - ../../applications/dashboard/overlays/istio
+  - ../../applications/notebooks-v1/overlays/istio
+  - patches/allow-platform-token-readyz.yaml
+
+# Replace the upstream demonstration credentials. Keep placeholders unresolved
+# in Git and inject the real values only in a private build workspace.
+secretGenerator:
+  - name: dex-oidc-client
+    namespace: auth
+    behavior: replace
+    type: Opaque
+    literals:
+      - OIDC_CLIENT_ID=kubeflow-oidc-authservice
+      - OIDC_CLIENT_SECRET=REPLACE_OIDC_CLIENT_SECRET
+  - name: oauth2-proxy
+    namespace: oauth2-proxy
+    behavior: replace
+    type: Opaque
+    literals:
+      - client-id=kubeflow-oidc-authservice
+      - client-secret=REPLACE_OIDC_CLIENT_SECRET
+      - cookie-secret=REPLACE_32_BYTE_COOKIE_SECRET
+
+patches:
+  - path: patches/notebook-controller-culling.yaml
+    target:
+      kind: ConfigMap
+      name: notebook-controller-config
+
+  - path: patches/dex-keycloak-config.yaml
+    target:
+      kind: ConfigMap
+      name: dex
+  - path: patches/dex-keycloak-secret-env.yaml
+    target:
+      kind: Deployment
+      name: dex
+  - path: patches/delete-dex-passwords.yaml
+    target:
+      kind: Secret
+      name: dex-passwords
+  - path: patches/oauth2-proxy-config.yaml
+    target:
+      kind: ConfigMap
+      name: oauth2-proxy
+  - path: patches/oauth2-proxy-parameters.yaml
+    target:
+      kind: ConfigMap
+      name: oauth2-proxy-parameters
+  - path: patches/requestauthentication.yaml
+    target:
+      kind: RequestAuthentication
+      name: dex-jwt

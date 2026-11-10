@@ -5,38 +5,101 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	"sandbox-backend-service/pkg/constants"
 	"sandbox-backend-service/pkg/db"
 	"sandbox-backend-service/pkg/k8s"
 )
 
 type ApiEnv struct {
-	Address           string `env:"API_ADDRESS,required"`
-	KubeConfigPath    string `env:"API_KUBE_CONFIG_PATH" envDefault:""`
-	KubeConfigMode    string `env:"API_KUBE_CONFIG_MODE" envDefault:"cluster"`
-	POSTGRES_URL      string `env:"API_POSTGRES_URL,required"`
-	KeycloakURL       string `env:"API_KEYCLOAK_URL,required"`
-	KeycloakRealm     string `env:"API_KEYCLOAK_REALM,required"`
-	KeycloakClientID  string `env:"API_KEYCLOAK_CLIENT_ID,required"`
-	KeycloakPublicKey string `env:"API_KEYCLOAK_PUBLIC_KEY,required"`
-	CORS_ORIGINS      string `env:"API_CORS_ORIGINS"`
-	RateLimit         int    `env:"API_RATE_LIMIT"`
-	RateWindowSecs    int    `env:"API_RATE_WINDOW_SECS"`
-	TimeoutInSecs     int    `env:"API_TIMEOUT_SECS"`
-	IdleTimeoutSecs   int    `env:"API_IDLE_TIMEOUT_SECS"`
-	MaxBodySizeInMB   int    `env:"API_MAX_BODY_SIZE_IN_MB"`
-	WriteTimeoutSecs  int    `env:"API_WRITE_TIMEOUT_SECS"`
-	ReadTimeoutSecs   int    `env:"API_READ_TIMEOUT_SECS"`
-	Version           string `env:"API_VERSION,required"`
-	NotebookConfig    NotebookConfig
-	BillingConfig     BillingConfig
+	Address                           string `env:"API_ADDRESS,required"`
+	KubeConfigPath                    string `env:"API_KUBE_CONFIG_PATH" envDefault:""`
+	KubeConfigMode                    string `env:"API_KUBE_CONFIG_MODE" envDefault:"cluster"`
+	JupyterLiteBaseURL                string `env:"API_JUPYTERLITE_BASE_URL" envDefault:"/jupyterlite"`
+	JupyterLiteStaticDir              string `env:"API_JUPYTERLITE_STATIC_DIR" envDefault:"jupyterlite"`
+	POSTGRES_URL                      string `env:"API_POSTGRES_URL,required"`
+	KeycloakURL                       string `env:"API_KEYCLOAK_URL,required"`
+	KeycloakRealm                     string `env:"API_KEYCLOAK_REALM,required"`
+	KeycloakClientID                  string `env:"API_KEYCLOAK_CLIENT_ID,required"`
+	KeycloakPublicKey                 string `env:"API_KEYCLOAK_PUBLIC_KEY,required"`
+	BlockedEmailDomains               string `env:"API_BLOCKED_EMAIL_DOMAINS" envDefault:""`
+	PlatformTokenExchangeClientID     string `env:"API_PLATFORM_TOKEN_EXCHANGE_CLIENT_ID" envDefault:"sandbox-notebook"`
+	PlatformTokenExchangeClientSecret string `env:"API_PLATFORM_TOKEN_EXCHANGE_CLIENT_SECRET" envDefault:""`
+	PlatformTokenNotebookClientID     string `env:"API_PLATFORM_TOKEN_NOTEBOOK_CLIENT_ID" envDefault:"sandbox-notebook"`
+	PlatformTokenExchangeTokenURL     string `env:"API_PLATFORM_TOKEN_EXCHANGE_TOKEN_URL" envDefault:""`
+	PlatformTokenExchangeScope        string `env:"API_PLATFORM_TOKEN_EXCHANGE_SCOPE" envDefault:"openid profile email"`
+	PlatformTokenExchangeAudience     string `env:"API_PLATFORM_TOKEN_EXCHANGE_AUDIENCE" envDefault:""`
+	PlatformTokenReadyPort            int    `env:"API_PLATFORM_TOKEN_READY_PORT" envDefault:"8081"`
+	PlatformTokenReadyTimeoutSecs     int    `env:"API_PLATFORM_TOKEN_READY_TIMEOUT_SECS" envDefault:"40"`
+	CORS_ORIGINS                      string `env:"API_CORS_ORIGINS"`
+	KYCEnabled                        bool   `env:"API_KYC_ENABLED,required"`
+	RateLimit                         int    `env:"API_RATE_LIMIT"`
+	RateWindowSecs                    int    `env:"API_RATE_WINDOW_SECS"`
+	TimeoutInSecs                     int    `env:"API_TIMEOUT_SECS"`
+	IdleTimeoutSecs                   int    `env:"API_IDLE_TIMEOUT_SECS"`
+	BookingsEnabled                   bool   `env:"API_BOOKINGS_ENABLED" envDefault:"true"`
+	WorkspaceEnabled                  bool   `env:"WORKSPACE_ENABLED" envDefault:"false"`
+	WorkspaceStorageClass             string `env:"API_WORKSPACE_STORAGE_CLASS" envDefault:"ceph-filesystem"`
+	WorkspaceStorageSize              string `env:"API_WORKSPACE_STORAGE_SIZE" envDefault:"50Gi"`
+	DashboardEventTimezone            string `env:"API_DASHBOARD_EVENT_TIMEZONE" envDefault:""`
+	MaxBodySizeInMB                   int    `env:"API_MAX_BODY_SIZE_IN_MB"`
+	WriteTimeoutSecs                  int    `env:"API_WRITE_TIMEOUT_SECS"`
+	ReadTimeoutSecs                   int    `env:"API_READ_TIMEOUT_SECS"`
+	Version                           string `env:"API_VERSION,required"`
+	NotebookConfig                    NotebookConfig
+	RegistrySecretConfig              RegistrySecretConfig
+	RabbitMQConfig                    RabbitMQConfig
+}
+
+// RabbitMQConfig holds the RabbitMQ connection configuration for audit message publishing.
+// All fields are optional — if not configured, auditing is silently disabled.
+type RabbitMQConfig struct {
+	Host           string `env:"RABBITMQ_HOST"`
+	Port           string `env:"RABBITMQ_PORT"`
+	Vhost          string `env:"RABBITMQ_VHOST"`
+	Username       string `env:"RABBITMQ_USERNAME"`
+	Password       string `env:"RABBITMQ_PASSWORD"`
+	Exchange       string `env:"RABBITMQ_EXCHANGE"`
+	RoutingKey     string `env:"RABBITMQ_ROUTING_KEY"`
+	OnlyForMahaAgx string `env:"RABBITMQ_ONLY_FOR_MAHA_AGX"`
+}
+
+// RegistrySecretConfig is the single, generic registry-secret configuration.
+// Set API_REGISTRY_SECRET_TYPE to control which flow is active:
+//
+//	"ecr"              — AWS ECR with rotating 12-hour tokens
+//	"private-registry" — static username/password (e.g. CBR on-prem)
+//	"none" (default)   — no registry secret is created
+type RegistrySecretConfig struct {
+	SecretType string `env:"API_REGISTRY_SECRET_TYPE" envDefault:"none"`
+	SecretName string `env:"API_REGISTRY_SECRET_NAME" envDefault:"registry-cred"`
+	URL        string `env:"API_REGISTRY_URL"`
+
+	// Credentials for "private-registry" type
+	Username string `env:"API_REGISTRY_USERNAME"`
+	Password string `env:"API_REGISTRY_PASSWORD"`
+
+	// Credentials for "ecr" type
+	ECRRegion      string `env:"API_REGISTRY_ECR_REGION"`
+	AWSAccessKeyID string `env:"API_REGISTRY_AWS_ACCESS_KEY_ID"`
+	AWSSecretKey   string `env:"API_REGISTRY_AWS_SECRET_KEY"`
+}
+
+type ECRClient struct {
+	ECRClient *ecr.Client
+	Config    RegistrySecretConfig
 }
 
 type application struct {
-	env         ApiEnv
-	k8sClient   *k8s.K8sClient
-	pgPool      *db.PgPool
-	rateLimiter *IPRateLimiter
+	env            ApiEnv
+	k8sClient      *k8s.K8sClient
+	pgPool         *db.PgPool
+	rateLimiter    *IPRateLimiter
+	ecrClient      *ECRClient // non-nil only when SecretType == "ecr"
+	registrySecret RegistrySecretConfig
+	auditService   *AuditService // nil if auditing is disabled
+	dashboardStore dashboardStore
+	dashboardCache dashboardRuntimeCache
 }
 type Resource struct {
 	Request float64 `json:"request" validate:"required,gt=0.1"`
@@ -69,8 +132,26 @@ type NotebookConfig struct {
 	GPUCPULimit      string `env:"API_DEFAULT_GPU_CPU_LIMIT,required"`
 	GPUCPURequest    string `env:"API_DEFAULT_GPU_CPU_REQUEST,required"`
 
+	GPUNodeInstanceTypes string `env:"API_GPU_NODE_INSTANCE_TYPES,required"`
+	// SLOT_CONFIG_PROFILE selects which code-defined slot/category configuration
+	// is active at deployment time.
+	SlotConfigProfile string `env:"SLOT_CONFIG_PROFILE" envDefault:""`
+
+	// Backward compatible fallback (older deployments used API_GPU_SLOT_CONFIG_PROFILE).
+	LegacyGPUSlotConfigProfile string `env:"API_GPU_SLOT_CONFIG_PROFILE" envDefault:""`
+
 	KubeFlowURL              string `env:"API_KUBEFLOW_URL,required"`
 	DefaultNotebookListLimit int    `env:"API_NOTEBOOK_LIST_LIMIT"`
+
+	// StartupNotebookFilename is the file a notebook URL opens by default. When
+	// empty the URL opens the JupyterLab file browser instead. Images with a
+	// known skeletal notebook override it in generateNotebookURL.
+	StartupNotebookFilename string `env:"API_STARTUP_NOTEBOOK_FILENAME" envDefault:""`
+
+	// DisableInit must match lifecycle.demoFiles.enabled in the deployed worker
+	// templates: when demo initialization is disabled, notebook URLs point to
+	// the JupyterLab auto workspace instead of a notebook file.
+	DisableInit bool `env:"API_DISABLE_INIT" envDefault:"false"`
 
 	MaxRunningCPU int `env:"API_MAX_RUNNING_CPU"`
 	MaxRunningGPU int `env:"API_MAX_RUNNING_GPU"`
@@ -78,17 +159,15 @@ type NotebookConfig struct {
 	MaxTotalGPU   int `env:"API_MAX_TOTAL_GPU"`
 }
 
-type BillingConfig struct {
-	AAAURL           string `env:"API_AAA_URL,required"`
-	OpenCostURL      string `env:"API_OPENCOST_URL,required"`
-	KeycloakClientID string `env:"API_KEYCLOAK_BILLING_CLIENT_ID,required"`
-	KeycloakUsername string `env:"API_KEYCLOAK_ADMIN_USERNAME,required"`
-	KeycloakPassword string `env:"API_KEYCLOAK_ADMIN_PASSWORD,required"`
-}
-
 type NotebookRequest struct {
-	Name string `json:"name" validate:"required"`
-	Type string `json:"type" validate:"required"`
+	Name               string  `json:"name" validate:"required"`
+	Type               string  `json:"type" validate:"required"`
+	InstanceType       string  `json:"instanceType" validate:"omitempty"`
+	ImageName          *string `json:"imageName" validate:"omitempty"`
+	FileURL            *string `json:"fileUrl" validate:"omitempty"`
+	GitURL             *string `json:"gitUrl" validate:"omitempty"`
+	GitAccessToken     *string `json:"gitAccessToken" validate:"omitempty"`
+	GitTokenSecretName *string `json:"gitTokenSecretName" validate:"omitempty"`
 }
 
 type NotebookStatus struct {
@@ -104,11 +183,28 @@ type NotebookStatus struct {
 	GPUType       *string            `json:"gpuType,omitempty"`
 	GPURequest    *int               `json:"gpuRequest,omitempty"`
 	GPULimit      *int               `json:"gpuLimit,omitempty"`
+	InstanceType  *string            `json:"instanceType,omitempty"`
 	TemplateName  *string            `json:"templateName,omitempty"`
+	ImageName     *string            `json:"imageName,omitempty"`
 	Events        []constants.Events `json:"events"`
 	Status        NotebookState      `json:"status"`
 	URL           string             `json:"notebookUrl,omitempty"`
+	Booking       *NotebookBooking   `json:"booking,omitempty"`
 	CreatedAt     time.Time          `json:"createdAt"`
+}
+
+type NotebookBooking struct {
+	ID           int64    `json:"id"`
+	Status       string   `json:"status"`
+	Category     string   `json:"category"`
+	ResourceType string   `json:"resourceType"`
+	DisplayName  string   `json:"displayName"`
+	GPUMemory    string   `json:"gpuMemory"`
+	SlotDate     string   `json:"slotDate"`
+	SlotKeys     []string `json:"slotKeys,omitempty"`
+	SlotStart    string   `json:"slotStart"`
+	SlotEnd      string   `json:"slotEnd"`
+	Duration     string   `json:"duration"`
 }
 type NotebookListResponse struct {
 	Notebooks  []NotebookStatus `json:"notebooks"`
@@ -135,6 +231,200 @@ const (
 	NotebookStateOrphaned NotebookState = "orphaned"
 )
 
+// NotebookInstanceType is a selectable cloud instance type for GPU-backed notebooks (display metadata).
+type NotebookInstanceType struct {
+	InstanceType    string `json:"instanceType"`
+	DisplayName     string `json:"displayName"`
+	GPUMemory       string `json:"gpuMemory"`
+	Description     string `json:"description"`
+	SessionDuration string `json:"sessionDuration"`
+}
+
+// NotebookInstanceTypesResponse lists instance types from API_GPU_NODE_INSTANCE_TYPES with metadata.
+type NotebookInstanceTypesResponse struct {
+	InstanceTypes []NotebookInstanceType `json:"instanceTypes"`
+}
+
+type SlotTemplateResponse struct {
+	Key           string  `json:"key"`
+	Label         string  `json:"label"`
+	StartTime     string  `json:"startTime"`
+	EndTime       string  `json:"endTime"`
+	DurationHours float64 `json:"durationHours"`
+	SpansMidnight bool    `json:"spansMidnight"`
+}
+
+type JupyterLiteSessionResponse struct {
+	LaunchURL string `json:"launchUrl" example:"/jupyterlite/lab/index.html"`
+}
+
+type CategoryResponse struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"displayName"`
+	Description string `json:"description"`
+	// ResourceType is one of cpu, gpu, or browser.
+	ResourceType string `json:"resourceType"`
+	// IsBookable indicates whether clients should use booking and slot APIs.
+	IsBookable bool `json:"isBookable"`
+	// LaunchMode is direct for browser-only categories that open without booking.
+	LaunchMode string `json:"launchMode,omitempty"`
+	// LaunchURL opens direct-launch browser categories such as Jupyter Lite.
+	LaunchURL  string `json:"launchUrl,omitempty"`
+	PriceLabel string `json:"priceLabel,omitempty"`
+	// Persistence describes where files/settings are stored, e.g. browser_local.
+	Persistence             string                 `json:"persistence,omitempty"`
+	RequiresCredits         bool                   `json:"requiresCredits"`
+	InstanceType            string                 `json:"instanceType"`
+	GPUMemory               string                 `json:"gpuMemory"`
+	MaxActiveBookings       int                    `json:"maxActiveBookings"`
+	MaxBookingsPerWeek      int                    `json:"maxBookingsPerWeek"`
+	AdvanceBookingDays      int                    `json:"advanceBookingDays"`
+	MinAdvanceBookingDays   int                    `json:"minAdvanceBookingDays"`
+	NoShowGraceMins         int                    `json:"noShowGraceMins"`
+	MaxConcurrentUsers      int                    `json:"maxConcurrentUsers"`
+	PreShutdownWarningMins  int                    `json:"preShutdownWarningMins"`
+	ShutdownGracePeriodMins int                    `json:"shutdownGracePeriodMins"`
+	Slots                   []SlotTemplateResponse `json:"slots"`
+}
+
+type CategoriesResponse struct {
+	Categories []CategoryResponse `json:"categories"`
+}
+
+type CreateBookingRequest struct {
+	NotebookName       string   `json:"notebookName" validate:"required"`
+	Category           string   `json:"category" validate:"required"`
+	SlotKeys           []string `json:"slotKeys" validate:"required,min=1,dive,required"`
+	SlotDate           string   `json:"slotDate" validate:"required"`
+	FileURL            *string  `json:"fileUrl" validate:"omitempty"`
+	GitURL             *string  `json:"gitUrl" validate:"omitempty"`
+	GitAccessToken     *string  `json:"gitAccessToken" validate:"omitempty"`
+	GitTokenSecretName *string  `json:"gitTokenSecretName" validate:"omitempty"`
+}
+
+type CreateBookingResponse struct {
+	BookingID    int64    `json:"bookingId"`
+	Status       string   `json:"status"`
+	SlotDate     string   `json:"slotDate"`
+	SlotKeys     []string `json:"slotKeys,omitempty"`
+	SlotStart    string   `json:"slotStart"`
+	SlotEnd      string   `json:"slotEnd"`
+	NotebookName string   `json:"notebookName"`
+	ResourceType string   `json:"resourceType"`
+}
+
+type NotebookTokenRotationRequest struct {
+	RefreshToken string `json:"refreshToken" validate:"required"`
+}
+
+type NotebookTokenSessionResponse struct {
+	BookingID    int64  `json:"bookingId,omitempty"`
+	NotebookName string `json:"notebookName,omitempty"`
+	Status       string `json:"status"`
+	SecretName   string `json:"secretName"`
+}
+
+type ExtendBookingResponse struct {
+	BookingID int64    `json:"bookingId"`
+	Status    string   `json:"status"`
+	SlotDate  string   `json:"slotDate"`
+	SlotKeys  []string `json:"slotKeys"`
+	SlotStart string   `json:"slotStart"`
+	SlotEnd   string   `json:"slotEnd"`
+	Duration  string   `json:"duration"`
+}
+
+type BookingListItem struct {
+	ID           int64    `json:"id"`
+	NotebookName string   `json:"notebookName"`
+	NotebookURL  string   `json:"notebookUrl,omitempty"`
+	Category     string   `json:"category"`
+	ResourceType string   `json:"resourceType"`
+	DisplayName  string   `json:"displayName"`
+	GPUMemory    string   `json:"gpuMemory"`
+	Status       string   `json:"status"`
+	SlotDate     string   `json:"slotDate"`
+	SlotKeys     []string `json:"slotKeys,omitempty"`
+	SlotStart    string   `json:"slotStart"`
+	SlotEnd      string   `json:"slotEnd"`
+	Duration     string   `json:"duration"`
+	CreatedAt    string   `json:"createdAt"`
+}
+
+type PaginationInfo struct {
+	Page        int  `json:"page"`
+	Size        int  `json:"size"`
+	TotalCount  int  `json:"totalCount"`
+	TotalPages  int  `json:"totalPages"`
+	HasNext     bool `json:"hasNext"`
+	HasPrevious bool `json:"hasPrevious"`
+}
+
+type BookingsListResponse struct {
+	Type           string            `json:"type" example:"dx:controlPlane:success"`
+	Title          string            `json:"title" example:"Success"`
+	PaginationInfo PaginationInfo    `json:"paginationInfo"`
+	Result         []BookingListItem `json:"result"`
+}
+
+type AvailableSlot struct {
+	Key            string `json:"key"`
+	Label          string `json:"label"`
+	StartTime      string `json:"startTime"`
+	EndTime        string `json:"endTime"`
+	TotalSlots     int    `json:"totalSlots"`
+	BookedSlots    int    `json:"bookedSlots"`
+	AvailableSlots int    `json:"availableSlots"`
+	Availability   string `json:"availability"`
+	AlreadyBooked  bool   `json:"alreadyBooked"`
+}
+
+type AvailableSlotsResponse struct {
+	Date         string          `json:"date"`
+	Category     string          `json:"category"`
+	ResourceType string          `json:"resourceType"`
+	Slots        []AvailableSlot `json:"slots"`
+}
+
+type CalendarDay struct {
+	Date            string `json:"date"`
+	HasAvailability bool   `json:"hasAvailability"`
+	SlotsAvailable  int    `json:"slotsAvailable"`
+	SlotsTotal      int    `json:"slotsTotal"`
+}
+
+type CalendarResponse struct {
+	Month        string        `json:"month"`
+	Category     string        `json:"category"`
+	ResourceType string        `json:"resourceType"`
+	Days         []CalendarDay `json:"days"`
+}
+
+// NotebookInstanceTypeMetadata maps instance type → display metadata for GPU SKUs in API_GPU_NODE_INSTANCE_TYPES.
+var NotebookInstanceTypeMetadata = map[string]NotebookInstanceType{
+	"g4dn.xlarge": {
+		InstanceType:    "g4dn.xlarge",
+		DisplayName:     "Basic",
+		GPUMemory:       "16 GB",
+		Description:     "16 GB NVIDIA T4 GPU",
+		SessionDuration: "4h Session",
+	},
+	"p4d.24xlarge": {
+		InstanceType:    "p4d.24xlarge",
+		DisplayName:     "Advance",
+		GPUMemory:       "40 GB",
+		Description:     "40 GB NVIDIA A100 GPU",
+		SessionDuration: "22h Session",
+	},
+	"p5.48xlarge": {
+		InstanceType:    "p5.48xlarge",
+		DisplayName:     "Pro",
+		GPUMemory:       "80 GB",
+		Description:     "80 GB NVIDIA H100 GPU",
+		SessionDuration: "22h Session",
+	},
+}
+
 type CreateProfileRequest struct {
 	UserID string `json:"userId" validate:"required,uuid"`
 	Email  string `json:"email" validate:"required,email"`
@@ -151,20 +441,20 @@ type ResourceAccess struct {
 }
 
 type JWTPayload struct {
-	Exp            int64          `json:"exp"`
-	Iat            int64          `json:"iat"`
-	Jti            string         `json:"jti"`
-	Iss            string         `json:"iss"`
-	Aud            string         `json:"aud"`
-	Sub            string         `json:"sub" validate:"required,uuid"`
-	Typ            string         `json:"typ"`
-	Azp            string         `json:"azp" validate:"required"`
-	EmailVerified  bool           `json:"email_verified"`
-	KycVerified    bool           `json:"kyc_verified"`
-	Name           string         `json:"name"`
-	Email          string         `json:"email" validate:"required,email"`
-	RealmAccess    RealmAccess    `json:"realm_access"`
-	ResourceAccess ResourceAccess `json:"resource_access"`
+	Exp            int64            `json:"exp"`
+	Iat            int64            `json:"iat"`
+	Jti            string           `json:"jti"`
+	Iss            string           `json:"iss"`
+	Aud            jwt.ClaimStrings `json:"aud"`
+	Sub            string           `json:"sub" validate:"required,uuid"`
+	Typ            string           `json:"typ"`
+	Azp            string           `json:"azp" validate:"required"`
+	EmailVerified  bool             `json:"email_verified"`
+	KycVerified    bool             `json:"kyc_verified"`
+	Name           string           `json:"name"`
+	Email          string           `json:"email" validate:"required,email"`
+	RealmAccess    RealmAccess      `json:"realm_access"`
+	ResourceAccess ResourceAccess   `json:"resource_access"`
 }
 
 func (p *JWTPayload) GetExpirationTime() (*jwt.NumericDate, error) {
@@ -194,16 +484,17 @@ func (p *JWTPayload) GetSubject() (string, error) {
 }
 
 func (p *JWTPayload) GetAudience() (jwt.ClaimStrings, error) {
-	if p.Aud == "" {
+	if len(p.Aud) == 0 {
 		return nil, nil
 	}
-	return jwt.ClaimStrings{p.Aud}, nil
+	return p.Aud, nil
 }
 
 type UserInfo struct {
-	Sub   string   `json:"sub" validate:"required,uuid"`
-	Email string   `json:"email" validate:"required,email"`
-	Roles []string `json:"roles"`
+	Sub      string   `json:"sub" validate:"required,uuid"`
+	Email    string   `json:"email" validate:"required,email"`
+	Roles    []string `json:"roles"`
+	ClientID string   `json:"clientId"`
 }
 
 type userContextKey string
@@ -220,6 +511,8 @@ type SwaggerExistsResponse struct {
 // Error400 represents a 400 Bad Request error response
 // @Description Response for bad request errors
 type Error400 struct {
+	// Error title
+	Title string `json:"title" example:"Bad Request"`
 	// Error message
 	Detail string `json:"detail" example:"string"`
 	Type   string `json:"type" example:"error"`
@@ -228,6 +521,8 @@ type Error400 struct {
 // Error401 represents a 401 Unauthorized error response
 // @Description Response for authentication errors
 type Error401 struct {
+	// Error title
+	Title string `json:"title" example:"Unauthorized"`
 	// Error message
 	Detail string `json:"detail" example:"string"`
 	Type   string `json:"type" example:"error"`
@@ -236,6 +531,8 @@ type Error401 struct {
 // Error403 represents a 403 Forbidden error response
 // @Description Response for permission errors
 type Error403 struct {
+	// Error title
+	Title string `json:"title" example:"Forbidden"`
 	// Error message
 	Detail string `json:"detail" example:"string"`
 	Type   string `json:"type" example:"error"`
@@ -244,6 +541,8 @@ type Error403 struct {
 // Error404 represents a 404 Not Found error response
 // @Description Response for resource not found errors
 type Error404 struct {
+	// Error title
+	Title string `json:"title" example:"Not Found"`
 	// Error message
 	Detail string `json:"detail" example:"string"`
 	Type   string `json:"type" example:"error"`
@@ -252,6 +551,8 @@ type Error404 struct {
 // Error422 represents a 422 Unprocessable Entity error response
 // @Description Response for invalid request body errors
 type Error422 struct {
+	// Error title
+	Title string `json:"title" example:"Unprocessable Entity"`
 	// Error message
 	Detail string `json:"detail" example:"string"`
 	Type   string `json:"type" example:"error"`
@@ -260,6 +561,8 @@ type Error422 struct {
 // Error429 represents a 429 Too Many Requests error response
 // @Description Response for rate limiting errors
 type Error429 struct {
+	// Error title
+	Title string `json:"title" example:"Too Many Requests"`
 	// Error message
 	Detail string `json:"detail" example:"string"`
 	Type   string `json:"type" example:"error"`
@@ -268,6 +571,18 @@ type Error429 struct {
 // Error500 represents a 500 Internal Server Error response
 // @Description Response for internal server errors
 type Error500 struct {
+	// Error title
+	Title string `json:"title" example:"Internal Server Error"`
+	// Error message
+	Detail string `json:"detail" example:"string"`
+	Type   string `json:"type" example:"error"`
+}
+
+// Error503 represents a 503 Service Unavailable response
+// @Description Response for dependencies that are still becoming ready
+type Error503 struct {
+	// Error title
+	Title string `json:"title" example:"Service Unavailable"`
 	// Error message
 	Detail string `json:"detail" example:"string"`
 	Type   string `json:"type" example:"error"`
@@ -290,92 +605,9 @@ type SwaggerHealthResponse struct {
 // Error409 represents a 409 Conflict error response
 // @Description Response for resource conflict errors
 type Error409 struct {
+	// Error title
+	Title string `json:"title" example:"Conflict"`
 	// Error message
 	Detail string `json:"detail" example:"string"`
 	Type   string `json:"type" example:"error"`
-}
-
-// Billing API Response Types
-
-type KeycloakTokenResponse struct {
-	AccessToken      string `json:"access_token"`
-	ExpiresIn        int    `json:"expires_in"`
-	RefreshExpiresIn int    `json:"refresh_expires_in"`
-	RefreshToken     string `json:"refresh_token"`
-	TokenType        string `json:"token_type"`
-	SessionState     string `json:"session_state"`
-	Scope            string `json:"scope"`
-}
-
-type AAAResponse struct {
-	Type   string       `json:"type"`
-	Title  string       `json:"title"`
-	Detail string       `json:"detail,omitempty"`
-	Result CreditResult `json:"result,omitempty"`
-}
-
-type CreditResult struct {
-	ID                string  `json:"id"`
-	UserID            string  `json:"userId"`
-	Amount            float64 `json:"amount"`
-	TransactedBy      string  `json:"transactedBy"`
-	TransactionStatus string  `json:"transactionStatus"`
-	TransactionType   string  `json:"transactionType"`
-	CreatedAt         string  `json:"createdAt"`
-	RequestedAt       string  `json:"requestedAt"`
-	UpdatedBalance    float64 `json:"updatedBalance"`
-	TableName         string  `json:"tableName"`
-}
-
-type BalanceResult struct {
-	Balance float64 `json:"balance"`
-	UserID  string  `json:"user_id"`
-}
-
-type BalanceResponse struct {
-	Type   string        `json:"type"`
-	Title  string        `json:"title"`
-	Result BalanceResult `json:"result"`
-}
-
-// Profile for billing operations (matches cron job Profile type)
-type ProfileForBilling struct {
-	ProfileID              string    `json:"id"`
-	UserID                 string    `json:"user_id"`
-	Email                  string    `json:"email"`
-	TotalPaidCredit        float64   `json:"total_paid_credit"`
-	LastSyncBalance        float64   `json:"last_sync_balance"`
-	CanCreateGpuNotebook   bool      `json:"can_create_gpu_notebook"`
-	AaaAndOpenCostSyncedAt time.Time `json:"aaa_and_opencost_synced_at"`
-	PendingDeduction       float64   `json:"pending_deduction"`
-}
-
-// BillingProfile contains all billing-related profile data for API operations
-type BillingProfile struct {
-	ProfileID              string    `db:"id"`
-	UserID                 string    `db:"user_id"`
-	Email                  string    `db:"email"`
-	TotalPaidCredit        float64   `db:"total_paid_credit"`
-	LastSyncBalance        float64   `db:"last_sync_balance"`
-	CanCreateGpuNotebook   bool      `db:"can_create_gpu_notebook"`
-	AaaAndOpenCostSyncedAt time.Time `db:"aaa_and_opencost_synced_at"`
-	PendingDeduction       float64   `db:"pending_deduction"`
-}
-
-// OpenCost Response Types
-
-type CostAllocationResponse struct {
-	Data []map[string]CostAllocation `json:"data"`
-}
-
-type CostAllocation struct {
-	Name       string `json:"name"`
-	Properties struct {
-		Cluster   string `json:"cluster"`
-		Namespace string `json:"namespace"`
-	} `json:"properties"`
-	CPUCost   float64 `json:"cpuCost"`
-	GPUCost   float64 `json:"gpuCost"`
-	RAMCost   float64 `json:"ramCost"`
-	TotalCost float64 `json:"totalCost"`
 }

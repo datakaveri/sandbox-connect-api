@@ -1,0 +1,28 @@
+# Deployment example: replace environment-specific values before applying.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: userdocs-ui-ingress
+  namespace: sandbox
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: docs.example.com
+    http:
+      paths:
+      - path: /user-docs(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: userdocs-ui
+            port:
+              number: 80
+                #tls:
+                #- hosts:
+                #- docs.example.com
+                #secretName: sandbox-api-tls

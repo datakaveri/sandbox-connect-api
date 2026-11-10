@@ -1,9 +1,51 @@
 package main
 
 import (
+	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
 	"sandbox-backend-service/pkg/constants"
+	"sandbox-backend-service/pkg/gpuconfig"
 	"testing"
 )
+
+func TestSendErrorIncludesTitle(t *testing.T) {
+	rec := httptest.NewRecorder()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	sendError(rec, logger, http.StatusBadRequest, "active booking limit exceeded")
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", rec.Code)
+	}
+
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if body["title"] != "Bad Request" {
+		t.Fatalf("expected title Bad Request, got %q", body["title"])
+	}
+	if body["detail"] != "Active booking limit exceeded" {
+		t.Fatalf("expected formatted detail, got %q", body["detail"])
+	}
+	if body["type"] != "error" {
+		t.Fatalf("expected type error, got %q", body["type"])
+	}
+
+	rec = httptest.NewRecorder()
+	sendResponse(rec, logger, http.StatusUnauthorized, "unauthorized")
+	body = map[string]string{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("failed to decode sendResponse error response: %v", err)
+	}
+	if body["title"] != "Unauthorized" || body["detail"] != "Unauthorized" || body["type"] != "error" {
+		t.Fatalf("expected sendResponse error shape with title/detail/type, got %#v", body)
+	}
+}
 
 func TestDetermineNotebookState(t *testing.T) {
 
@@ -78,6 +120,143 @@ func TestValidateNotebookName(t *testing.T) {
 			result := ValidateNotebookName(tt.input)
 			if result != tt.expected {
 				t.Errorf("ValidateNotebookName(%q) = %v, expected %v", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGenerateNotebookURL(t *testing.T) {
+	ps1Image := "098809772313.dkr.ecr.ap-south-1.amazonaws.com/tgdex/ai-sandbox-cpu-notebook:nha-ps1-v3"
+
+	tests := []struct {
+		name        string
+		imageName   *string
+		disableInit bool
+		startupFile string
+		expected    string
+	}{
+		{
+			name:     "Opens the file browser when unconfigured",
+			expected: "https://sandbox.example.com/notebook/ns/nb/lab/tree",
+		},
+		{
+			name:        "Uses configured startup notebook",
+			startupFile: "starter.ipynb",
+			expected:    "https://sandbox.example.com/notebook/ns/nb/lab/tree/starter.ipynb",
+		},
+		{
+			name:      "Image override applies without a configured startup notebook",
+			imageName: &ps1Image,
+			expected:  "https://sandbox.example.com/notebook/ns/nb/lab/tree/nha_ps1_skeletal_notebook_main.ipynb",
+		},
+		{
+			name:        "Image override wins over configured startup notebook",
+			imageName:   &ps1Image,
+			startupFile: "starter.ipynb",
+			expected:    "https://sandbox.example.com/notebook/ns/nb/lab/tree/nha_ps1_skeletal_notebook_main.ipynb",
+		},
+		{
+			name:        "Init disabled points at the auto workspace",
+			disableInit: true,
+			startupFile: "starter.ipynb",
+			expected:    "https://sandbox.example.com/notebook/ns/nb/lab/workspaces/auto-s",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := generateNotebookURL("https://sandbox.example.com", "ns", "nb", tt.imageName, tt.disableInit, tt.startupFile)
+			if got != tt.expected {
+				t.Errorf("generateNotebookURL() = %q, expected %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestMaxContinuousSlotSelectionMessage(t *testing.T) {
+	tests := []struct {
+		name  string
+		limit int
+		want  string
+	}{
+		{
+			name:  "two slot limit",
+			limit: 2,
+			want:  "You can select a maximum of two continuous slots. Please reduce your selection to two slots or fewer.",
+		},
+		{
+			name:  "single slot limit",
+			limit: 1,
+			want:  "You can select a maximum of one continuous slot. Please reduce your selection to one slot or fewer.",
+		},
+		{
+			name:  "numeric fallback",
+			limit: 3,
+			want:  "You can select a maximum of 3 continuous slots. Please reduce your selection to 3 slots or fewer.",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := maxContinuousSlotSelectionMessage(tt.limit); got != tt.want {
+				t.Fatalf("expected %q, got %q", tt.want, got)
+			}
+		})
+	}
+}
+
+func TestOrderedContiguousSlotKeys(t *testing.T) {
+	slotDate, err := parseSlotDateIST("2026-06-08")
+	if err != nil {
+		t.Fatalf("failed to parse slot date: %v", err)
+	}
+	category, ok := gpuconfig.GetGPUCategory("production", "cpu_basic")
+	if !ok {
+		t.Fatal("expected cpu_basic category")
+	}
+	ordered, err := orderedTemplatesByStart(slotDate, category.Slots)
+	if err != nil {
+		t.Fatalf("failed to order slot templates: %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		input  []string
+		want   []string
+		wantOK bool
+	}{
+		{
+			name:   "already ordered contiguous slots",
+			input:  []string{"cpu_basic_16:00", "cpu_basic_20:00"},
+			want:   []string{"cpu_basic_16:00", "cpu_basic_20:00"},
+			wantOK: true,
+		},
+		{
+			name:   "reversed contiguous slots are canonicalized",
+			input:  []string{"cpu_basic_20:00", "cpu_basic_16:00"},
+			want:   []string{"cpu_basic_16:00", "cpu_basic_20:00"},
+			wantOK: true,
+		},
+		{
+			name:   "gapped slots are rejected",
+			input:  []string{"cpu_basic_12:00", "cpu_basic_20:00"},
+			wantOK: false,
+		},
+		{
+			name:   "duplicate slots are rejected",
+			input:  []string{"cpu_basic_16:00", "cpu_basic_16:00"},
+			wantOK: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, gotOK := orderedContiguousSlotKeys(tt.input, ordered)
+			if gotOK != tt.wantOK {
+				t.Fatalf("expected ok=%v, got %v", tt.wantOK, gotOK)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("expected %#v, got %#v", tt.want, got)
 			}
 		})
 	}

@@ -1,3 +1,4 @@
+# Deployment example: replace environment-specific values before applying.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -13,24 +14,42 @@ data:
   API_DEFAULT_GPU_TYPE: "nvidia.com/gpu"
   API_DEFAULT_GPU_REQUEST: "1"
   API_DEFAULT_GPU_LIMIT: "1"
-  API_KUBEFLOW_URL: "https://sandbox.tgdex.telangana.gov.in"
+  API_KUBEFLOW_URL: "https://notebooks.example.com"
+  API_JUPYTERLITE_BASE_URL: "/jupyterlite"
+  API_JUPYTERLITE_STATIC_DIR: "/app/jupyterlite"
   API_NOTEBOOK_LIST_LIMIT: "10"
+  API_STARTUP_NOTEBOOK_FILENAME: "demo.ipynb"
   API_ADDRESS: "0.0.0.0:3000"
   API_KUBE_CONFIG_MODE: "cluster"
   API_CORS_ORIGINS: "*"
+  API_KYC_ENABLED: "true"
   API_RATE_LIMIT: "80"
   API_RATE_WINDOW_SECS: "30"
-  API_KEYCLOAK_URL: "https://idp.tgdex.telangana.gov.in/auth"
-  API_KEYCLOAK_REALM: "tgdex"
-  API_KEYCLOAK_CLIENT_ID: "angular-tgdex-client"
+  API_KEYCLOAK_URL: "https://idp.example.com/auth"
+  API_KEYCLOAK_REALM: "<realm>"
+  API_KEYCLOAK_CLIENT_ID: "<frontend-client-id>"
+  # Notebook delegation and sidecar refresh use the same confidential client.
+  API_PLATFORM_TOKEN_EXCHANGE_CLIENT_ID: "sandbox-notebook"
+  API_PLATFORM_TOKEN_NOTEBOOK_CLIENT_ID: "sandbox-notebook"
+  API_PLATFORM_TOKEN_EXCHANGE_SCOPE: "openid profile email"
+  API_PLATFORM_TOKEN_EXCHANGE_AUDIENCE: ""
+  API_PLATFORM_TOKEN_READY_PORT: "8081"
+  API_PLATFORM_TOKEN_READY_TIMEOUT_SECS: "40"
   API_TIMEOUT_SECS: "60"
   API_IDLE_TIMEOUT_SECS: "120"
+  API_BOOKINGS_ENABLED: "true"
+  WORKSPACE_ENABLED: "true"
+  # For an existing 10Gi EFS workspace claim, use efs-csi-storage-class and 10Gi.
+  API_WORKSPACE_STORAGE_CLASS: "ceph-filesystem"
+  API_WORKSPACE_STORAGE_SIZE: "50Gi"
+  # Verified API/lifecycle database sessions use UTC; chart days still use IST.
+  API_DASHBOARD_EVENT_TIMEZONE: "UTC"
   API_MAX_BODY_SIZE_IN_MB: "5"
   API_WRITE_TIMEOUT_SECS: "60"
   API_READ_TIMEOUT_SECS: "30"
-  API_KEYCLOAK_PUBLIC_KEY: "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvkKGd9ztloOSZscVXESeBIk5marME7uPEgMQXTvxEUrb0DBLG+rSfU0xPfG0XmQnU6IELXEJaMG3L2el3lkT40RK/TZO/0XzRxFUqGivavGec7Yzu8PrbOPrD/r0b6P6syijtqndV2U00FuJZqpg2YUATq+MRL23uyeW9EiZlOEBrAH82tgRZPukwN91bAqVgwng/pxPoBS1T6NzF8kW8ul0p81IA3Y+qalfuJ+mRtGsbH6T7hewQUT6P7csRmXN+tSDtAPtwwwHHzDF8X46kkJ88IHA2WjXMZKJAU5klI/ZxFmyWnqGM53zgFFbH5MQCmOUhed7l+w/Y80f6NqyYQIDAQAB"
+  API_KEYCLOAK_PUBLIC_KEY: "<realm-rs256-public-key>"
   API_VERSION: "v1"
-  API_MAX_RUNNING_CPU: "1"
+  API_MAX_RUNNING_CPU: "2"
   API_MAX_RUNNING_GPU: "1"
   API_MAX_TOTAL_CPU: "6"
   API_MAX_TOTAL_GPU: "4"
@@ -38,7 +57,23 @@ data:
   API_DEFAULT_GPU_CPU_LIMIT: "3.9"
   API_DEFAULT_GPU_MEMORY_REQUEST: "12Gi"
   API_DEFAULT_GPU_MEMORY_LIMIT: "14Gi"
+  API_GPU_NODE_INSTANCE_TYPES: "g4dn.xlarge,p4d.24xlarge,p5.48xlarge"
+  SLOT_CONFIG_PROFILE: "production"
   API_LOG_LEVEL: "debug"
-  API_AAA_URL: "https://dx.tgdex.telangana.gov.in"
-  API_OPENCOST_URL: "http://opencost.opencost:9003"
-  API_KEYCLOAK_BILLING_CLIENT_ID: "frontend-client"
+  # Registry secret configuration
+  # Set API_REGISTRY_SECRET_TYPE to one of: ecr | private-registry | none
+  #
+  # --- AWS ECR ---
+  API_REGISTRY_SECRET_TYPE: "ecr"
+  API_REGISTRY_URL: "<aws-account-id>.dkr.ecr.ap-south-1.amazonaws.com"
+  API_REGISTRY_SECRET_NAME: "registry-cred"
+  API_REGISTRY_ECR_REGION: "ap-south-1"
+  # RabbitMQ Configuration (Audit).
+  # NOTE: a non-empty placeholder host ENABLES auditing and then fails DNS on
+  # every publish. Set a real host or delete these five keys entirely.
+  # Credentials belong in Secret api-creds, never here.
+  RABBITMQ_HOST: "<your-rabbitmq-host>"
+  RABBITMQ_PORT: "5672"
+  RABBITMQ_VHOST: "/"
+  RABBITMQ_EXCHANGE: "auditing"
+  RABBITMQ_ROUTING_KEY: "<your-routing-key>"
