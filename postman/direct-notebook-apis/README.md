@@ -15,8 +15,8 @@ Select **Sandbox Connect API - Direct Notebook APIs - Example** as the active en
 
 The environment contains these authentication variables:
 
-- `auth_token_url` defaults to `https://v2.dev.iudx.io/auth/realms/iudx-v2/protocol/openid-connect/token`.
-- `auth_client_id` defaults to `angular-client`.
+- `auth_token_url` defaults to `https://idp.example.com/auth/realms/replace-with-realm/protocol/openid-connect/token`.
+- `auth_client_id` must be set to your configured client ID (the example uses `<frontend-client-id>`).
 - `auth_username` and `auth_password` must be populated locally.
 - `access_token` is populated automatically after successful authentication.
 

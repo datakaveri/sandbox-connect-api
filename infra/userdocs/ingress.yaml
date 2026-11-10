@@ -1,3 +1,4 @@
+# Deployment example: replace environment-specific values before applying.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -11,7 +12,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-  - host: v2.dev.sandbox.iudx.io
+  - host: docs.example.com
     http:
       paths:
       - path: /user-docs(/|$)(.*)
@@ -23,5 +24,5 @@ spec:
               number: 80
                 #tls:
                 #- hosts:
-                #- v2.dev.sandbox.iudx.io
+                #- docs.example.com
                 #secretName: sandbox-api-tls

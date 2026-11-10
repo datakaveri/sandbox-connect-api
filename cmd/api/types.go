@@ -22,6 +22,7 @@ type ApiEnv struct {
 	KeycloakRealm                     string `env:"API_KEYCLOAK_REALM,required"`
 	KeycloakClientID                  string `env:"API_KEYCLOAK_CLIENT_ID,required"`
 	KeycloakPublicKey                 string `env:"API_KEYCLOAK_PUBLIC_KEY,required"`
+	BlockedEmailDomains               string `env:"API_BLOCKED_EMAIL_DOMAINS" envDefault:""`
 	PlatformTokenExchangeClientID     string `env:"API_PLATFORM_TOKEN_EXCHANGE_CLIENT_ID" envDefault:"sandbox-notebook"`
 	PlatformTokenExchangeClientSecret string `env:"API_PLATFORM_TOKEN_EXCHANGE_CLIENT_SECRET" envDefault:""`
 	PlatformTokenNotebookClientID     string `env:"API_PLATFORM_TOKEN_NOTEBOOK_CLIENT_ID" envDefault:"sandbox-notebook"`
@@ -38,6 +39,9 @@ type ApiEnv struct {
 	IdleTimeoutSecs                   int    `env:"API_IDLE_TIMEOUT_SECS"`
 	BookingsEnabled                   bool   `env:"API_BOOKINGS_ENABLED" envDefault:"true"`
 	WorkspaceEnabled                  bool   `env:"WORKSPACE_ENABLED" envDefault:"false"`
+	WorkspaceStorageClass             string `env:"API_WORKSPACE_STORAGE_CLASS" envDefault:"ceph-filesystem"`
+	WorkspaceStorageSize              string `env:"API_WORKSPACE_STORAGE_SIZE" envDefault:"50Gi"`
+	DashboardEventTimezone            string `env:"API_DASHBOARD_EVENT_TIMEZONE" envDefault:""`
 	MaxBodySizeInMB                   int    `env:"API_MAX_BODY_SIZE_IN_MB"`
 	WriteTimeoutSecs                  int    `env:"API_WRITE_TIMEOUT_SECS"`
 	ReadTimeoutSecs                   int    `env:"API_READ_TIMEOUT_SECS"`
@@ -94,6 +98,8 @@ type application struct {
 	ecrClient      *ECRClient // non-nil only when SecretType == "ecr"
 	registrySecret RegistrySecretConfig
 	auditService   *AuditService // nil if auditing is disabled
+	dashboardStore dashboardStore
+	dashboardCache dashboardRuntimeCache
 }
 type Resource struct {
 	Request float64 `json:"request" validate:"required,gt=0.1"`

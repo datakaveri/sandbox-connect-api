@@ -1,29 +1,17 @@
-# Profile Credit Sync
+# Profile credit sync
 
-This service synchronizes Kubeflow profile credits and usage data from OpenCost to the database. It processes namespace usage data and updates the corresponding profile records.
+This component synchronizes Kubeflow profile usage and credits using OpenCost, the platform
+credit service, Keycloak, and PostgreSQL. It runs once and exits.
 
-## Running Locally
-
-```bash
-go run main.go
-```
-
-## Kubernetes Deployment
-
-This service is designed to run as a CronJob in Kubernetes to regularly sync credit usage data.
-
-### Prerequisites
-
-1. Ensure the required secrets are created:
-   - `database-creds` with PostgreSQL connection details
-   - ConfigMap `profile-credit-sync-config` with application configuration
-
-2. Deploy the CronJob:
+From the repository root, configure `.env` and run:
 
 ```bash
-kubectl apply -f infra/cron/profile-credit-sync/configmap.yaml
-kubectl apply -f infra/cron/profile-credit-sync/secret.yaml
-kubectl apply -f infra/cron/profile-credit-sync/cronjob.yaml
+go run ./cmd/cron/profile-credit-sync
 ```
 
-The CronJob uses the image `ghcr.io/datakaveri/tgdex-sandbox-credit-sync-cron:latest` and runs every 15 minutes by default.
+See the [configuration reference](../../../docs/config/profile-credit-sync.md) for required
+settings and the [operations guide](../../../docs/operations.md) for deployment.
+
+The Kubernetes [CronJob](../../../infra/cron/profile-credit-sync/cronjob.yaml) runs every minute
+with `concurrencyPolicy: Forbid`. Configure credentials and an immutable image tag for your
+environment before deployment.

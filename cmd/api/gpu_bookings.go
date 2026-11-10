@@ -43,6 +43,64 @@ func parseClockIST(slotDate time.Time, hhmm string) (time.Time, error) {
 	return time.Date(slotDate.Year(), slotDate.Month(), slotDate.Day(), t.Hour(), t.Minute(), 0, 0, istLocation()), nil
 }
 
+// Slot timestamps are stored as IST wall clocks without a database time zone.
+// Use their calendar fields rather than converting the location returned by pgx.
+func slotWindow(slotDate time.Time, template gpuconfig.SlotTemplate) (time.Time, time.Time, error) {
+	start, err := parseClockIST(slotDate, template.StartTime)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	end, err := parseClockIST(slotDate, template.EndTime)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	if template.SpansMidnight || !end.After(start) {
+		end = end.AddDate(0, 0, 1)
+	}
+	return start, end, nil
+}
+
+// Count reservations by their occupied interval, including extensions whose
+// booking date is the previous day. Adjacent intervals do not overlap.
+func slotCapacityQuery() string {
+	return fmt.Sprintf(`
+		SELECT COUNT(1)
+		FROM bookings
+		WHERE category_name = $1
+		  AND slot_start < $3::timestamp
+		  AND slot_end > $2::timestamp
+		  AND status IN (%s)
+		  AND id <> $4
+	`, activeStatusSQLList())
+}
+
+func slotAvailabilityWindows(startDate, endDate time.Time, templates []gpuconfig.SlotTemplate) ([]string, []time.Time, []time.Time, error) {
+	var keys []string
+	var starts, ends []time.Time
+	for date := startDate; date.Before(endDate); date = date.AddDate(0, 0, 1) {
+		for _, template := range templates {
+			start, end, err := slotWindow(date, template)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			keys = append(keys, template.Key)
+			starts = append(starts, start)
+			ends = append(ends, end)
+		}
+	}
+	return keys, starts, ends, nil
+}
+
+func slotAvailabilitySQL() string {
+	return fmt.Sprintf(`
+		FROM unnest($2::varchar[], $3::timestamp[], $4::timestamp[]) AS slots(slot_key, slot_start, slot_end)
+		LEFT JOIN bookings b ON b.category_name = $1
+		  AND b.slot_start < slots.slot_end
+		  AND b.slot_end > slots.slot_start
+		  AND b.status IN (%s)
+	`, activeStatusSQLList())
+}
+
 func bookingStatusSQLList(statuses []string) string {
 	return "'" + strings.Join(statuses, "','") + "'"
 }
@@ -425,20 +483,14 @@ func (app *application) createGPUBooking(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	slotCountQuery := fmt.Sprintf(`
-		SELECT COUNT(1)
-		FROM bookings
-		WHERE category_name = $1
-		  AND slot_date = $2
-		  AND status IN (%s)
-		  AND (
-		    slot_keys && $3::varchar[]
-		    OR (slot_keys = '{}'::varchar[] AND slot_key = ANY($3::varchar[]))
-		  )
-	`, activeStatusSQLList())
 	for _, selectedKey := range req.SlotKeys {
+		selectedStart, selectedEnd, err := slotWindow(slotDate, templateByKey[selectedKey])
+		if err != nil {
+			sendError(w, logger, http.StatusBadRequest, "Invalid slot configuration for category")
+			return
+		}
 		var slotBooked int
-		err = tx.QueryRow(ctx, slotCountQuery, req.Category, slotDate.Format("2006-01-02"), []string{selectedKey}).Scan(&slotBooked)
+		err = tx.QueryRow(ctx, slotCapacityQuery(), req.Category, selectedStart, selectedEnd, int64(0)).Scan(&slotBooked)
 		if err != nil {
 			sendError(w, logger, http.StatusInternalServerError, "Internal server error")
 			return
@@ -785,26 +837,16 @@ func (app *application) listGPUAvailableSlots(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	keys, starts, ends, err := slotAvailabilityWindows(slotDate, slotDate.AddDate(0, 0, 1), category.Slots)
+	if err != nil {
+		sendError(w, logger, http.StatusInternalServerError, "Invalid slot configuration")
+		return
+	}
 	rows, err := app.pgPool.Pool.Query(
 		r.Context(),
-		fmt.Sprintf(`
-			SELECT sk.slot_key, COUNT(1), BOOL_OR(b.user_id = $3)
-			FROM bookings b,
-			     LATERAL unnest(
-			       CASE
-			         WHEN array_length(b.slot_keys, 1) IS NULL OR array_length(b.slot_keys, 1) = 0
-			           THEN ARRAY[b.slot_key]
-			         ELSE b.slot_keys
-			       END
-			     ) AS sk(slot_key)
-			WHERE category_name = $1
-			  AND slot_date = $2
-			  AND status IN (%s)
-			GROUP BY sk.slot_key
-		`, activeStatusSQLList()),
-		categoryName,
-		slotDate.Format("2006-01-02"),
-		userInfo.Sub,
+		`SELECT slots.slot_key, COUNT(b.id), COALESCE(BOOL_OR(b.user_id = $5), false)`+
+			slotAvailabilitySQL()+`GROUP BY slots.slot_key`,
+		categoryName, keys, starts, ends, userInfo.Sub,
 	)
 	if err != nil {
 		sendError(w, logger, http.StatusInternalServerError, "Failed to calculate slot availability")
@@ -907,27 +949,16 @@ func (app *application) listGPUCalendarSlots(w http.ResponseWriter, r *http.Requ
 	}
 	monthEnd := monthStart.AddDate(0, 1, 0)
 
+	keys, starts, ends, err := slotAvailabilityWindows(monthStart, monthEnd, category.Slots)
+	if err != nil {
+		sendError(w, logger, http.StatusInternalServerError, "Invalid slot configuration")
+		return
+	}
 	rows, err := app.pgPool.Pool.Query(
 		r.Context(),
-		fmt.Sprintf(`
-			SELECT b.slot_date, COUNT(1)
-			FROM bookings b,
-			     LATERAL unnest(
-			       CASE
-			         WHEN array_length(b.slot_keys, 1) IS NULL OR array_length(b.slot_keys, 1) = 0
-			           THEN ARRAY[b.slot_key]
-			         ELSE b.slot_keys
-			       END
-			     ) AS sk(slot_key)
-			WHERE category_name = $1
-			  AND slot_date >= $2
-			  AND slot_date < $3
-			  AND status IN (%s)
-			GROUP BY b.slot_date
-		`, activeStatusSQLList()),
-		categoryName,
-		monthStart.Format("2006-01-02"),
-		monthEnd.Format("2006-01-02"),
+		`SELECT slots.slot_start::date, COUNT(b.id)`+
+			slotAvailabilitySQL()+`GROUP BY slots.slot_start::date`,
+		categoryName, keys, starts, ends,
 	)
 	if err != nil {
 		sendError(w, logger, http.StatusInternalServerError, "Failed to calculate calendar availability")
@@ -1153,27 +1184,21 @@ func (app *application) extendGPUBooking(w http.ResponseWriter, r *http.Request)
 		sendError(w, logger, http.StatusBadRequest, "Invalid slot sequence for booking")
 		return
 	}
-	if lastIndex+1 >= len(orderedTemplates) {
+	nextTemplate := orderedTemplates[(lastIndex+1)%len(orderedTemplates)]
+	nextKey := nextTemplate.Key
+	nextSlotStart, newSlotEnd, err := slotWindow(slotEnd, nextTemplate)
+	if err != nil {
+		sendError(w, logger, http.StatusInternalServerError, "Invalid slot configuration")
+		return
+	}
+	// pgx reads timestamp-without-time-zone values in UTC; compare wall clocks.
+	if nextSlotStart.Format("2006-01-02 15:04:05") != slotEnd.Format("2006-01-02 15:04:05") {
 		sendError(w, logger, http.StatusBadRequest, "No next contiguous slot available")
 		return
 	}
-	nextTemplate := orderedTemplates[lastIndex+1]
-	nextKey := nextTemplate.Key
 
 	var slotBooked int
-	slotCountQuery := fmt.Sprintf(`
-		SELECT COUNT(1)
-		FROM bookings
-		WHERE category_name = $1
-		  AND slot_date = $2
-		  AND status IN (%s)
-		  AND id <> $3
-		  AND (
-		    slot_keys && $4::varchar[]
-		    OR (slot_keys = '{}'::varchar[] AND slot_key = ANY($4::varchar[]))
-		  )
-	`, activeStatusSQLList())
-	err = tx.QueryRow(ctx, slotCountQuery, category, slotDate.Format("2006-01-02"), bookingID, []string{nextKey}).Scan(&slotBooked)
+	err = tx.QueryRow(ctx, slotCapacityQuery(), category, nextSlotStart, newSlotEnd, bookingID).Scan(&slotBooked)
 	if err != nil {
 		sendError(w, logger, http.StatusInternalServerError, "Failed to extend booking")
 		return
@@ -1183,20 +1208,6 @@ func (app *application) extendGPUBooking(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	nextSlotStart, err := parseClockIST(slotDate.In(istLocation()), nextTemplate.StartTime)
-	if err != nil {
-		sendError(w, logger, http.StatusInternalServerError, "Invalid slot configuration")
-		return
-	}
-	newSlotEnd, err := parseClockIST(slotDate.In(istLocation()), nextTemplate.EndTime)
-	if err != nil {
-		sendError(w, logger, http.StatusInternalServerError, "Invalid slot configuration")
-		return
-	}
-	// Match create-booking semantics for midnight-spanning slots.
-	if nextTemplate.SpansMidnight || !newSlotEnd.After(nextSlotStart) {
-		newSlotEnd = newSlotEnd.Add(24 * time.Hour)
-	}
 	updatedSlotKeys := append(append([]string{}, slotKeys...), nextKey)
 
 	_, err = tx.Exec(ctx, `

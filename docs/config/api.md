@@ -5,11 +5,11 @@
 | | |
 |---|---|
 | **Service** | `sandbox-api` (`cmd/api`) |
-| **Code repo / branch** | `github.com/datakaveri/sandbox-connect-api`, `stable/v2.3` |
+| **Code repo / branch** | `github.com/datakaveri/sandbox-connect-api`, reviewed on `feature/evaluation-argo-service` at `5ed2930` |
 | **Config source** | `infra/api/configmap.yaml` (`api-config`), `infra/api/secret.yaml` (`api-creds`), plus `database-creds` |
 | **Config schema** | `cmd/api/types.go` — `ApiEnv`, `NotebookConfig`, `RegistrySecretConfig`, `RabbitMQConfig` |
 | **Maintainer / point of contact** | Sandbox Connect backend team |
-| **Last updated** | 2026-07-29 |
+| **Last updated** | 2026-09-03 |
 
 Read [README.md](README.md) first — it documents the loading order and the baseline
 startup-failure mode that every `,required` field shares.
@@ -213,8 +213,8 @@ Client-level requirements are in §3. The fields:
 
 - **Type / format:** string, Keycloak client ID.
 - **Required:** yes
-- **Purpose:** the public client whose tokens the API expects; used for audience and authorized-party
-  checks on incoming user tokens.
+- **Purpose:** the public client whose tokens the API expects; used for the `azp` (authorized-party)
+  check on incoming user tokens.
 - **Expected value:** the client the **frontend** authenticates with — not a service account.
 - **Example value:** `angular-tgdex-client`
 - **Default if omitted:** none — startup fails.
@@ -245,6 +245,26 @@ Client-level requirements are in §3. The fields:
 - **Notes / gotchas:** the API pins one static key rather than fetching JWKS, so it cannot follow
   automatic key rotation. If the IdP team rotates on a schedule, that schedule is an outage
   schedule unless this is updated in the same window.
+
+### `API_BLOCKED_EMAIL_DOMAINS`
+
+- **Type / format:** string containing a comma-separated list of exact email domains.
+- **Required:** no
+- **Purpose:** denies otherwise-authenticated users access to all sandbox API and JupyterLite routes
+  when the domain in their JWT `email` claim matches a configured domain.
+- **Expected value:** domain names without `@`, separated by commas when more than one is required.
+- **Example value:** `cbr.synthetic.org`
+- **Default if omitted:** empty; domain blocking is disabled.
+- **How to obtain:** product/security policy, confirmed with the identity or organization
+  administrator responsible for the affected domains.
+- **Failure mode:** a matching user receives HTTP 403. Invalid JWTs and unverified email addresses
+  continue to receive their existing HTTP 401 responses.
+- **Change impact:** no migration or data change. Because Kubernetes injects ConfigMap values as
+  environment variables, a ConfigMap edit takes effect only after the API pod is restarted; the
+  new rule then applies on the next authenticated request.
+- **Notes / gotchas:** matching is exact and case-insensitive. Subdomains and suffix lookalikes are
+  not blocked unless listed explicitly. This key is absent from both `infra/api/configmap.yaml`
+  and the live dev ConfigMap as of 2026-09-03, so the deployed feature is currently disabled.
 
 ### Platform token exchange (notebook delegation)
 
@@ -558,28 +578,28 @@ the same thing for each — the distinction is the point of this subsection.
 
 - **Type / format:** bool.
 - **Required:** no
-- **Purpose:** enables the profile-scoped shared CephFS workspace used by the no-code sharing flow.
+- **Purpose:** enables the profile-scoped shared workspace used by the no-code sharing flow.
   When true, `ensureProfileWorkspacePVC` in `cmd/api/k8s.go` creates a PVC named `workspace` in
-  each user's profile namespace — storage class `ceph-filesystem`, `ReadWriteMany`, `Filesystem`,
-  `50Gi` — labelled `sandbox-connect.tgdex.io/profile-workspace: true`. The API waits for Kubeflow
-  to create the namespace first.
-- **Expected value:** `true` only on clusters that provide a `ReadWriteMany` CephFS storage class.
+  each user's profile namespace with `ReadWriteMany` and `Filesystem`. Its class and requested size
+  come from `API_WORKSPACE_STORAGE_CLASS` and `API_WORKSPACE_STORAGE_SIZE`. An existing compatible
+  claim is reused. The API waits for Kubeflow to create the namespace first.
+- **Expected value:** `true` when the configured storage class supports `ReadWriteMany`.
 - **Example value:** `false`
 - **Default if omitted:** `false`.
-- **How to obtain:** determined by the cluster's storage capability, not by preference — check for
-  the storage class with `kubectl get storageclass ceph-filesystem`.
-- **Fields that become required as a result:** none in config, but the cluster **must** provide a
-  `ceph-filesystem` storage class supporting `ReadWriteMany`. The size, class, access mode and
-  volume mode are compile-time constants in `cmd/api/k8s.go`, not configurable.
+- **How to obtain:** check the storage class and size of an existing `workspace` PVC, or choose
+  values supported by the cluster for new claims. For the existing 10 GiB EFS claim, set
+  `API_WORKSPACE_STORAGE_CLASS=efs-csi-storage-class` and `API_WORKSPACE_STORAGE_SIZE=10Gi` on the API.
+- **Fields that become required as a result:** the configured class must support `ReadWriteMany`.
+  Access mode and volume mode remain fixed as `ReadWriteMany` and `Filesystem`.
 - **Failure mode:** **this flag is read by both the API and the worker and the two must agree.**
   The split cases fail differently and neither is obvious:
-  - API `true`, worker `false` → a 50 GiB RWX PVC is created per profile and never mounted. Silent
+  - API `true`, worker `false` → an RWX PVC is created per profile and never mounted. Silent
     storage waste that scales with user count.
   - API `false`, worker `true` → the worker keeps the `shared-workspace` volume in the notebook
     spec and waits for a PVC the API never creates, so notebooks stall against the template's
     `existing` volume policy rather than starting.
 
-  On a cluster with no `ceph-filesystem` class, the PVC is created but stays `Pending` forever, and
+  If the configured storage class is unavailable, the PVC stays `Pending`, and
   every notebook then blocks waiting for it to bind.
 - **Change impact:** enabling it on an existing deployment provisions a PVC per profile namespace
   on next reconcile. Disabling it leaves those PVCs behind — they are not garbage-collected, so
@@ -587,8 +607,46 @@ the same thing for each — the distinction is the point of this subsection.
 - **Notes / gotchas:** deliberately unprefixed, like `SLOT_CONFIG_PROFILE`, because it is shared
   across services. Notebooks mount the claim **read-only** at `/home/jovyan/workspace`; the claim
   stays writable so an external copy pod can populate it. If an existing `workspace` PVC does not
-  match the expected class, access mode, volume mode and size, the API logs a mismatch rather than
-  silently adopting it.
+  match the configured class, access mode, volume mode and minimum size, the API logs a mismatch
+  rather than silently adopting it.
+
+### `API_WORKSPACE_STORAGE_CLASS` and `API_WORKSPACE_STORAGE_SIZE`
+
+- **Type / format:** storage class name and positive Kubernetes storage quantity.
+- **Required:** no; defaults are `ceph-filesystem` and `50Gi` to preserve existing deployments.
+- **Purpose:** configure the class and requested size when the API creates a profile `workspace`
+  PVC. The API also checks existing claims against this class and minimum size; a larger claim is
+  accepted. An empty class or invalid or non-positive size is rejected before creating a claim.
+- **Example for the existing EFS claim:** `efs-csi-storage-class` and `10Gi`. Set both values in
+  `infra/api/configmap.yaml` (or the deployed API environment), then deploy a new API image.
+  The worker needs only `WORKSPACE_ENABLED=true`; it mounts claim `workspace` by name.
+
+### COS admin CPU/GPU dashboard
+
+The dashboard routes are `/v1/platform/sandbox-dashboard/{summary,trends,users,sandboxes}`.
+They are read-only and require realm role `cos_admin`. See the
+[generated API reference](../swagger.yaml) for the endpoint contract.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `API_DASHBOARD_EVENT_TIMEZONE` | empty in code; `UTC` in the verified deployment/example | How to read timezone-less session timestamps. The configured database stores them as UTC. Slots and chart days use IST. |
+
+The API uses its existing Kubernetes connection and returns built-in cluster labels:
+`sandbox-primary` / `Primary sandbox cluster`. No cluster identity configuration is needed.
+Use `API_DASHBOARD_EVENT_TIMEZONE=UTC` for the database verified in this workspace. Both API
+and lifecycle connections reported `Etc/UTC`, and existing session starts matched the UTC
+readiness anchors. Restart the API after changing its environment; ConfigMap changes require
+redeployment/restarting API pods. This reads existing values correctly without rewriting them.
+For another deployment, verify its historical timestamp convention before selecting a zone.
+Empty leaves session totals/chart points null with `LEGACY_TIMESTAMP_UNRESOLVED`; an invalid
+timezone fails startup. No new database tables or node/metrics permissions are required;
+the runtime collector uses the existing cluster-wide Notebook list grant.
+
+Dashboard bearer tokens must have the configured realm issuer, an expiry, `azp` equal to
+`API_KEYCLOAK_CLIENT_ID`, as well as the realm role `cos_admin`. Client validation follows the
+existing APIs: `azp` identifies the requesting app, and `aud` is not validated. No additional
+audience mapper is needed for the dashboard. Token signatures and existing email, blocked-domain
+and KYC requirements remain in force. Notebook-delegated tokens are denied.
 
 ### Notebook defaults and quotas
 
@@ -1183,7 +1241,7 @@ There is no connection-pool size knob — the `pgx` pool uses its defaults. If P
 | `API_KYC_ENABLED=true` | KYC gating on notebook creation | nothing in this service |
 | `API_BOOKINGS_ENABLED=true` | slot booking routes | `SLOT_CONFIG_PROFILE`; the slot-lifecycle Deployment must be running |
 | `API_DISABLE_INIT=true` | notebook URLs point at the JupyterLab auto workspace | `demoFiles.enabled: false` in both notebook templates |
-| `WORKSPACE_ENABLED=true` | per-profile CephFS `workspace` PVC creation | a `ceph-filesystem` RWX storage class in the cluster; the **same** value on the worker |
+| `WORKSPACE_ENABLED=true` | per-profile `workspace` PVC creation | an RWX storage class selected by `API_WORKSPACE_STORAGE_CLASS`; the **same** flag value on the worker |
 | `API_REGISTRY_SECRET_TYPE=ecr` | ECR token minting | `API_REGISTRY_ECR_REGION`, `API_REGISTRY_AWS_ACCESS_KEY_ID`, `API_REGISTRY_AWS_SECRET_KEY`, `API_REGISTRY_URL` |
 | `API_REGISTRY_SECRET_TYPE=private-registry` | static registry credentials | `API_REGISTRY_USERNAME`, `API_REGISTRY_PASSWORD`, `API_REGISTRY_URL` |
 | `RABBITMQ_HOST` non-empty | audit publishing | `RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD`, `RABBITMQ_EXCHANGE`, `RABBITMQ_ROUTING_KEY` |

@@ -9,6 +9,7 @@ import (
 	"sandbox-backend-service/pkg/k8s"
 
 	env "github.com/caarlos0/env/v11"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -25,7 +26,7 @@ func profileNamespace(name string) *unstructured.Unstructured {
 func workspacePVCTestApp(enabled bool, objects ...runtime.Object) *application {
 	client := fake.NewSimpleDynamicClient(runtime.NewScheme(), objects...)
 	return &application{
-		env:       ApiEnv{WorkspaceEnabled: enabled},
+		env:       ApiEnv{WorkspaceEnabled: enabled, WorkspaceStorageClass: "ceph-filesystem", WorkspaceStorageSize: "50Gi"},
 		k8sClient: &k8s.K8sClient{Dynamic: client},
 	}
 }
@@ -47,7 +48,7 @@ func TestEnsureProfileWorkspacePVCCreatesAndReusesCompatibleClaim(t *testing.T) 
 	if err != nil {
 		t.Fatalf("workspace PVC was not created: %v", err)
 	}
-	if err := validateProfileWorkspacePVC(pvc); err != nil {
+	if err := validateProfileWorkspacePVC(pvc, app.env.WorkspaceStorageClass, resource.MustParse(app.env.WorkspaceStorageSize)); err != nil {
 		t.Fatalf("created workspace PVC is incompatible: %v", err)
 	}
 	if pvc.GetLabels()["sandbox-connect.tgdex.io/profile-workspace"] != "true" {
@@ -56,6 +57,50 @@ func TestEnsureProfileWorkspacePVCCreatesAndReusesCompatibleClaim(t *testing.T) 
 
 	if err := app.ensureProfileWorkspacePVC(ctx, slog.Default(), "user-ns"); err != nil {
 		t.Fatalf("compatible existing workspace PVC should be reused: %v", err)
+	}
+}
+
+func TestEnsureProfileWorkspacePVCReusesExistingEFSClaim(t *testing.T) {
+	existing := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "v1", "kind": "PersistentVolumeClaim",
+		"metadata": map[string]any{"name": profileWorkspacePVCName, "namespace": "user-ns"},
+		"spec": map[string]any{
+			"storageClassName": "efs-csi-storage-class",
+			"accessModes":      []any{"ReadWriteMany"},
+			"volumeMode":       "Filesystem",
+			"resources":        map[string]any{"requests": map[string]any{"storage": "10Gi"}},
+		},
+	}}
+	app := workspacePVCTestApp(true, profileNamespace("user-ns"), existing)
+	app.env.WorkspaceStorageClass = "efs-csi-storage-class"
+	app.env.WorkspaceStorageSize = "10Gi"
+	if err := app.ensureProfileWorkspacePVC(context.Background(), slog.Default(), "user-ns"); err != nil {
+		t.Fatalf("existing EFS workspace claim should be reused: %v", err)
+	}
+}
+
+func TestEnsureProfileWorkspacePVCCreatesConfiguredClaim(t *testing.T) {
+	app := workspacePVCTestApp(true, profileNamespace("user-ns"))
+	app.env.WorkspaceStorageClass = "efs-csi-storage-class"
+	app.env.WorkspaceStorageSize = "10Gi"
+	ctx := context.Background()
+	if err := app.ensureProfileWorkspacePVC(ctx, slog.Default(), "user-ns"); err != nil {
+		t.Fatal(err)
+	}
+	pvc, err := app.k8sClient.Dynamic.Resource(profileWorkspacePVCGVR).Namespace("user-ns").Get(ctx, profileWorkspacePVCName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateProfileWorkspacePVC(pvc, app.env.WorkspaceStorageClass, resource.MustParse(app.env.WorkspaceStorageSize)); err != nil {
+		t.Fatalf("created EFS workspace claim is incompatible: %v", err)
+	}
+}
+
+func TestEnsureProfileWorkspacePVCRejectsInvalidSize(t *testing.T) {
+	app := workspacePVCTestApp(true, profileNamespace("user-ns"))
+	app.env.WorkspaceStorageSize = "invalid"
+	if err := app.ensureProfileWorkspacePVC(context.Background(), slog.Default(), "user-ns"); err == nil {
+		t.Fatal("expected invalid workspace size to be rejected")
 	}
 }
 
@@ -94,22 +139,27 @@ func TestWorkspaceFlagDefaultsDisabled(t *testing.T) {
 	for key, value := range required {
 		t.Setenv(key, value)
 	}
-	previousValue, hadPreviousValue := os.LookupEnv("WORKSPACE_ENABLED")
-	if err := os.Unsetenv("WORKSPACE_ENABLED"); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if hadPreviousValue {
-			_ = os.Setenv("WORKSPACE_ENABLED", previousValue)
-		} else {
-			_ = os.Unsetenv("WORKSPACE_ENABLED")
+	for _, name := range []string{"WORKSPACE_ENABLED", "API_WORKSPACE_STORAGE_CLASS", "API_WORKSPACE_STORAGE_SIZE"} {
+		previousValue, hadPreviousValue := os.LookupEnv(name)
+		if err := os.Unsetenv(name); err != nil {
+			t.Fatal(err)
 		}
-	})
+		t.Cleanup(func() {
+			if hadPreviousValue {
+				_ = os.Setenv(name, previousValue)
+			} else {
+				_ = os.Unsetenv(name)
+			}
+		})
+	}
 	var cfg ApiEnv
 	if err := env.Parse(&cfg); err != nil {
 		t.Fatal(err)
 	}
 	if cfg.WorkspaceEnabled {
 		t.Fatal("WORKSPACE_ENABLED must default to false")
+	}
+	if cfg.WorkspaceStorageClass != "ceph-filesystem" || cfg.WorkspaceStorageSize != "50Gi" {
+		t.Fatalf("workspace storage defaults changed: class=%q size=%q", cfg.WorkspaceStorageClass, cfg.WorkspaceStorageSize)
 	}
 }

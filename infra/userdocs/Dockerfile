@@ -4,7 +4,7 @@ FROM nginx:alpine
 # Remove default nginx static files (optional but clean)
 RUN rm -rf /usr/share/nginx/html/* && mkdir /usr/share/nginx/assets/
 
-# Copy built Angular app (IMPORTANT: browser folder)
+# Copy the built Docusaurus site from the prepared build context.
 COPY build/ /usr/share/nginx/html/
 
 # Replace default NGINX config with custom one

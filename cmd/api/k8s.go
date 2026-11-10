@@ -16,11 +16,9 @@ import (
 )
 
 const (
-	profileWorkspacePVCName      = "workspace"
-	profileWorkspaceStorageClass = "ceph-filesystem"
-	profileWorkspaceStorageSize  = "50Gi"
-	profileWorkspaceAccessMode   = "ReadWriteMany"
-	profileWorkspaceVolumeMode   = "Filesystem"
+	profileWorkspacePVCName    = "workspace"
+	profileWorkspaceAccessMode = "ReadWriteMany"
+	profileWorkspaceVolumeMode = "Filesystem"
 )
 
 var profileWorkspacePVCGVR = schema.GroupVersionResource{
@@ -65,12 +63,22 @@ func (app *application) waitForNamespace(ctx context.Context, logger *slog.Logge
 	}
 }
 
-// ensureProfileWorkspacePVC creates the profile-scoped CephFS claim used by
+// ensureProfileWorkspacePVC creates the profile-scoped shared claim used by
 // the no-code sharing flow. The claim remains writable for the external copy
 // pod; notebook templates mount it read-only.
 func (app *application) ensureProfileWorkspacePVC(ctx context.Context, logger *slog.Logger, namespace string) error {
 	if !app.env.WorkspaceEnabled {
 		return nil
+	}
+	if app.env.WorkspaceStorageClass == "" {
+		return fmt.Errorf("API_WORKSPACE_STORAGE_CLASS must not be empty")
+	}
+	requiredSize, err := resource.ParseQuantity(app.env.WorkspaceStorageSize)
+	if err != nil {
+		return fmt.Errorf("invalid API_WORKSPACE_STORAGE_SIZE %q: %w", app.env.WorkspaceStorageSize, err)
+	}
+	if requiredSize.Sign() <= 0 {
+		return fmt.Errorf("API_WORKSPACE_STORAGE_SIZE must be positive, got %q", app.env.WorkspaceStorageSize)
 	}
 	if err := app.waitForNamespace(ctx, logger, namespace); err != nil {
 		return err
@@ -87,12 +95,12 @@ func (app *application) ensureProfileWorkspacePVC(ctx context.Context, logger *s
 			},
 		},
 		"spec": map[string]any{
-			"storageClassName": profileWorkspaceStorageClass,
+			"storageClassName": app.env.WorkspaceStorageClass,
 			"accessModes":      []any{profileWorkspaceAccessMode},
 			"volumeMode":       profileWorkspaceVolumeMode,
 			"resources": map[string]any{
 				"requests": map[string]any{
-					"storage": profileWorkspaceStorageSize,
+					"storage": app.env.WorkspaceStorageSize,
 				},
 			},
 		},
@@ -113,7 +121,7 @@ func (app *application) ensureProfileWorkspacePVC(ctx context.Context, logger *s
 		if getErr != nil {
 			return constants.RetryContinue, getErr
 		}
-		if validateErr := validateProfileWorkspacePVC(existing); validateErr != nil {
+		if validateErr := validateProfileWorkspacePVC(existing, app.env.WorkspaceStorageClass, requiredSize); validateErr != nil {
 			return constants.RetryStop, validateErr
 		}
 		workspaceLogger.Info("compatible profile workspace PVC already exists")
@@ -121,10 +129,10 @@ func (app *application) ensureProfileWorkspacePVC(ctx context.Context, logger *s
 	})
 }
 
-func validateProfileWorkspacePVC(pvc *unstructured.Unstructured) error {
+func validateProfileWorkspacePVC(pvc *unstructured.Unstructured, expectedClass string, requiredSize resource.Quantity) error {
 	storageClass, _, err := unstructured.NestedString(pvc.Object, "spec", "storageClassName")
-	if err != nil || storageClass != profileWorkspaceStorageClass {
-		return fmt.Errorf("workspace PVC storageClassName is %q, expected %q", storageClass, profileWorkspaceStorageClass)
+	if err != nil || storageClass != expectedClass {
+		return fmt.Errorf("workspace PVC storageClassName is %q, expected %q", storageClass, expectedClass)
 	}
 	accessModes, _, err := unstructured.NestedStringSlice(pvc.Object, "spec", "accessModes")
 	if err != nil {
@@ -158,7 +166,6 @@ func validateProfileWorkspacePVC(pvc *unstructured.Unstructured) error {
 	if err != nil {
 		return fmt.Errorf("parse workspace PVC storage request %q: %w", storage, err)
 	}
-	requiredSize := resource.MustParse(profileWorkspaceStorageSize)
 	if actualSize.Cmp(requiredSize) < 0 {
 		return fmt.Errorf("workspace PVC storage request is %s, expected at least %s", actualSize.String(), requiredSize.String())
 	}

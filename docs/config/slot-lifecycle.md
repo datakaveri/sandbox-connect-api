@@ -5,11 +5,11 @@
 | | |
 |---|---|
 | **Service** | `slot-lifecycle` (`cmd/cron/slot-lifecycle`) |
-| **Code repo / branch** | `github.com/datakaveri/sandbox-connect-api`, `stable/v2.3` |
+| **Code repo / branch** | `github.com/datakaveri/sandbox-connect-api`, reviewed on `feature/evaluation-argo-service` at `5ed2930` |
 | **Config source** | `infra/cron/slot-lifecycle/configmap.yaml` (`slot-lifecycle-config`) + Secret `database-creds` |
 | **Config schema** | `cmd/cron/slot-lifecycle/types.go` |
 | **Maintainer / point of contact** | Sandbox Connect backend team |
-| **Last updated** | 2026-07-29 |
+| **Last updated** | 2026-09-03 |
 
 Read [README.md](README.md) first for the loading order and baseline startup-failure mode.
 

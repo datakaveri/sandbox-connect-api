@@ -111,6 +111,10 @@ func (app *application) contextTimeout(next http.Handler) http.Handler {
 func (app *application) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logger := getLogger(r)
+		isDashboard := strings.HasPrefix(r.URL.Path, dashboardBasePath+"/")
+		if isDashboard {
+			w.Header().Set("Cache-Control", "private, no-store")
+		}
 
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" && app.isJupyterLiteRequestPath(r.URL.Path) {
@@ -144,12 +148,17 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 		}
 
 		var jwtPayload JWTPayload
+		parseOptions := []jwt.ParserOption{jwt.WithValidMethods([]string{"RS256"})}
+		if isDashboard {
+			parseOptions = append(parseOptions, jwt.WithIssuer(app.platformTokenIssuer()),
+				jwt.WithExpirationRequired())
+		}
 		token, err := jwt.ParseWithClaims(tokenString, &jwtPayload, func(token *jwt.Token) (interface{}, error) {
 			if token.Method != jwt.SigningMethodRS256 {
 				return nil, fmt.Errorf("unexpected signing method: %v, expected RS256", token.Header["alg"])
 			}
 			return publicKey, nil
-		}, jwt.WithValidMethods([]string{"RS256"}))
+		}, parseOptions...)
 
 		if err != nil {
 			logger.Error("Failed to validate token", "error", err)
@@ -161,6 +170,12 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 			logger.Warn("Invalid token")
 			sendError(w, logger, http.StatusUnauthorized, "Invalid token")
 			return
+		}
+		if isDashboard {
+			if _, err := uuid.Parse(jwtPayload.Sub); err != nil {
+				sendError(w, logger, http.StatusUnauthorized, "Invalid token subject")
+				return
+			}
 		}
 
 		// Debug: Log detailed user information from JWT payload
@@ -237,6 +252,15 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		if isEmailDomainBlocked(jwtPayload.Email, app.env.BlockedEmailDomains) {
+			logger.Warn("Authorization failed: Email domain is blocked from sandbox access",
+				"user_id", jwtPayload.Sub,
+				"email", jwtPayload.Email,
+			)
+			sendError(w, logger, http.StatusForbidden, "Sandbox access is not allowed for this email domain")
+			return
+		}
+
 		// Check KYC verification
 		needKYC := app.env.KYCEnabled
 		if r.URL.Path == "/v1/profile/create" ||
@@ -277,6 +301,22 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func isEmailDomainBlocked(email, blockedDomains string) bool {
+	at := strings.LastIndex(email, "@")
+	if at <= 0 || at == len(email)-1 {
+		return false
+	}
+
+	emailDomain := strings.TrimSpace(email[at+1:])
+	for _, configuredDomain := range strings.Split(blockedDomains, ",") {
+		if strings.EqualFold(emailDomain, strings.TrimSpace(configuredDomain)) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // getClientIP extracts the real client IP address from the request,
