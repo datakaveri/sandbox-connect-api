@@ -70,6 +70,7 @@ func (app *application) router() http.Handler {
 	apiMux.HandleFunc("GET /v1/admin/outputs", app.listPendingOutputs)
 	apiMux.HandleFunc("GET /v1/admin/outputs/{output_id}/files", app.listAdminOutputFiles)
 	apiMux.HandleFunc("GET /v1/admin/outputs/{output_id}/files/{file_id}/preview", app.previewAdminOutputFile)
+	apiMux.HandleFunc("GET /v1/admin/outputs/{output_id}/files/{file_id}/download", app.downloadAdminOutputFile)
 	apiMux.HandleFunc("POST /v1/admin/outputs/{output_id}/approve", app.approveOutput)
 	apiMux.HandleFunc("GET /v1/workspace/files", app.listWorkspaceFiles)
 	apiMux.HandleFunc("GET /v1/workspace/files/{file_id}/preview", app.previewWorkspaceFile)

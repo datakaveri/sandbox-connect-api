@@ -54,7 +54,8 @@ func TestInternalPreviewAndDownloadRoutesUseOpaqueIdentities(t *testing.T) {
 		case "/outputs/internal/workspaces/user-1/files/" + fileID + "/preview",
 			"/outputs/internal/review/output-1/files/" + fileID + "/preview":
 			_, _ = w.Write([]byte(`{"success":true,"data":{"content":[["a"],["1"]],"format":"csv","truncated":false}}`))
-		case "/outputs/internal/workspaces/user-1/files/" + fileID + "/download":
+		case "/outputs/internal/workspaces/user-1/files/" + fileID + "/download",
+			"/outputs/internal/review/output-1/files/" + fileID + "/download":
 			_, _ = w.Write([]byte(`{"success":true,"data":{"url":"https://download.example/file","expiresAt":"2026-09-07T00:05:00Z"}}`))
 		default:
 			http.NotFound(w, r)
@@ -77,6 +78,13 @@ func TestInternalPreviewAndDownloadRoutesUseOpaqueIdentities(t *testing.T) {
 	download, err := client.DownloadWorkspaceFile(context.Background(), "user-1", fileID)
 	if err != nil || download.URL != "https://download.example/file" {
 		t.Fatalf("unexpected download=%#v err=%v", download, err)
+	}
+	download, err = client.DownloadReviewFile(context.Background(), "output-1", fileID)
+	if err != nil || download.URL != "https://download.example/file" {
+		t.Fatalf("unexpected review download=%#v err=%v", download, err)
+	}
+	if _, err := client.DownloadReviewFile(context.Background(), "../output-1", fileID); err == nil {
+		t.Fatal("expected unsafe output identity to be rejected")
 	}
 }
 

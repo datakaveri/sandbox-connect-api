@@ -48,6 +48,7 @@ type outputStore interface {
 type outputFiles interface {
 	ListWorkspace(context.Context, string) ([]filesconnect.File, error)
 	PreviewReviewFile(context.Context, string, string) (filesconnect.Preview, error)
+	DownloadReviewFile(context.Context, string, string) (filesconnect.Download, error)
 	PreviewWorkspaceFile(context.Context, string, string) (filesconnect.Preview, error)
 	DownloadWorkspaceFile(context.Context, string, string) (filesconnect.Download, error)
 }
@@ -342,6 +343,44 @@ func (app *application) previewAdminOutputFile(w http.ResponseWriter, r *http.Re
 			return
 		}
 		sendResponseJson(w, getLogger(r), http.StatusOK, preview)
+		return
+	}
+	sendError(w, getLogger(r), http.StatusNotFound, "Output file not found")
+}
+
+// downloadAdminOutputFile godoc
+// @Summary      Get a short-lived download URL for a pending output file
+// @Description  Lets an output approver download the full file before approving. Each call is audit-logged.
+// @Tags         output-admin
+// @Produce      json
+// @Param        output_id path string true "Output ID"
+// @Param        file_id path string true "Stable file ID"
+// @Success      200  {object} filesconnect.Download
+// @Security     BearerAuth
+// @Router       /v1/admin/outputs/{output_id}/files/{file_id}/download [get]
+func (app *application) downloadAdminOutputFile(w http.ResponseWriter, r *http.Request) {
+	if !app.outputFilesReady(w, r) || !app.requireOutputAdminRole(w, r) {
+		return
+	}
+	record, manifest, ok := app.loadAdminManifest(w, r)
+	if !ok {
+		return
+	}
+	fileID := r.PathValue("file_id")
+	for _, file := range manifest.Files {
+		if file.FileID != fileID {
+			continue
+		}
+		download, err := app.outputFiles.DownloadReviewFile(r.Context(), record.ID, file.FileID)
+		if err != nil {
+			handleFilesConnectError(w, r, err)
+			return
+		}
+		user, _ := r.Context().Value(UserContextKey).(UserInfo)
+		getLogger(r).Info("output review file download issued",
+			"output_id", record.ID, "file_id", file.FileID, "file", file.Path,
+			"reviewer", user.Sub, "expires_at", download.ExpiresAt)
+		sendResponseJson(w, getLogger(r), http.StatusOK, download)
 		return
 	}
 	sendError(w, getLogger(r), http.StatusNotFound, "Output file not found")

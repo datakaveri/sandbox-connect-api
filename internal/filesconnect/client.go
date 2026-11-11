@@ -194,12 +194,26 @@ func (c *Client) DownloadWorkspaceFile(ctx context.Context, userID, fileID strin
 	if !safeSegment(userID) || !safeSegment(fileID) {
 		return Download{}, fmt.Errorf("user or file identity is unsafe")
 	}
+	return c.download(ctx, c.baseURL+"/outputs/internal/workspaces/"+url.PathEscape(userID)+
+		"/files/"+url.PathEscape(fileID)+"/download")
+}
+
+// DownloadReviewFile returns a short-lived URL for a file of an output that is
+// still pending review. Files Connect must expose the matching
+// /outputs/internal/review/{outputId}/files/{fileId}/download route.
+func (c *Client) DownloadReviewFile(ctx context.Context, outputID, fileID string) (Download, error) {
+	if !safeSegment(outputID) || !safeSegment(fileID) {
+		return Download{}, fmt.Errorf("output or file identity is unsafe")
+	}
+	return c.download(ctx, c.baseURL+"/outputs/internal/review/"+url.PathEscape(outputID)+
+		"/files/"+url.PathEscape(fileID)+"/download")
+}
+
+func (c *Client) download(ctx context.Context, endpoint string) (Download, error) {
 	var response struct {
 		Success bool     `json:"success"`
 		Data    Download `json:"data"`
 	}
-	endpoint := c.baseURL + "/outputs/internal/workspaces/" + url.PathEscape(userID) +
-		"/files/" + url.PathEscape(fileID) + "/download"
 	if err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response); err != nil {
 		return Download{}, err
 	}

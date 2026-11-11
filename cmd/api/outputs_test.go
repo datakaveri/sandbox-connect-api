@@ -69,6 +69,8 @@ func (s *fakeOutputStore) RequestApproval(_ context.Context, params output.Appro
 type fakeOutputFiles struct {
 	previewOutputID string
 	previewFileID   string
+	downloadOutput  string
+	downloadFileID  string
 	files           []filesconnect.File
 }
 
@@ -79,6 +81,11 @@ func (f *fakeOutputFiles) PreviewReviewFile(_ context.Context, outputID, fileID 
 	f.previewOutputID = outputID
 	f.previewFileID = fileID
 	return filesconnect.Preview{Format: "csv", Content: []any{"value"}}, nil
+}
+func (f *fakeOutputFiles) DownloadReviewFile(_ context.Context, outputID, fileID string) (filesconnect.Download, error) {
+	f.downloadOutput = outputID
+	f.downloadFileID = fileID
+	return filesconnect.Download{URL: "https://download.example/review"}, nil
 }
 func (f *fakeOutputFiles) PreviewWorkspaceFile(context.Context, string, string) (filesconnect.Preview, error) {
 	return filesconnect.Preview{Format: "csv"}, nil
@@ -184,8 +191,42 @@ func TestAdminPreviewResolvesFileIDFromValidatedManifest(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if files.previewOutputID != "o" || files.previewFileID != "file-1" {
+	if files.previewOutputID != "10000000-0000-0000-0000-000000000001" || files.previewFileID != "file-1" {
 		t.Fatalf("unexpected review identity: output=%q file=%q", files.previewOutputID, files.previewFileID)
+	}
+}
+
+func TestAdminDownloadResolvesFileIDFromValidatedManifest(t *testing.T) {
+	files := &fakeOutputFiles{}
+	app := adminOutputApp(&fakeOutputStore{record: output.Record{
+		ID:             "10000000-0000-0000-0000-000000000001",
+		Status:         output.StatusPendingApproval,
+		ReviewPrefix:   "nha-review/users/u/sandboxes/n/outputs/o/",
+		OutputManifest: validOutputManifest(t),
+	}}, files)
+	request := func(roles []string, fileID string) *httptest.ResponseRecorder {
+		req := requestWithIdentity(http.MethodGet, "/download",
+			UserInfo{Sub: "20000000-0000-0000-0000-000000000001", Roles: roles})
+		req.SetPathValue("output_id", "10000000-0000-0000-0000-000000000001")
+		req.SetPathValue("file_id", fileID)
+		rec := httptest.NewRecorder()
+		app.downloadAdminOutputFile(rec, req)
+		return rec
+	}
+
+	rec := request([]string{"cos_admin"}, "file-1")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "https://download.example/review") {
+		t.Fatalf("expected 200 with URL, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if files.downloadOutput != "10000000-0000-0000-0000-000000000001" || files.downloadFileID != "file-1" {
+		t.Fatalf("unexpected review identity: output=%q file=%q", files.downloadOutput, files.downloadFileID)
+	}
+
+	if rec := request([]string{"cos_admin"}, "not-in-manifest"); rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for a file outside the manifest, got %d", rec.Code)
+	}
+	if rec := request([]string{"user"}, "file-1"); rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for a non-approver, got %d", rec.Code)
 	}
 }
 
