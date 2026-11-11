@@ -130,6 +130,47 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/admin/outputs/{output_id}/files/{file_id}/download": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Lets an output approver download the full file before approving. Each call is audit-logged.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "output-admin"
+                ],
+                "summary": "Get a short-lived download URL for a pending output file",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Output ID",
+                        "name": "output_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Stable file ID",
+                        "name": "file_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sandbox-backend-service_internal_filesconnect.Download"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/admin/outputs/{output_id}/files/{file_id}/preview": {
             "get": {
                 "security": [

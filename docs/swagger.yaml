@@ -818,6 +818,33 @@ paths:
       summary: List CSV files for an output awaiting approval
       tags:
       - output-admin
+  /v1/admin/outputs/{output_id}/files/{file_id}/download:
+    get:
+      description: Lets an output approver download the full file before approving.
+        Each call is audit-logged.
+      parameters:
+      - description: Output ID
+        in: path
+        name: output_id
+        required: true
+        type: string
+      - description: Stable file ID
+        in: path
+        name: file_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sandbox-backend-service_internal_filesconnect.Download'
+      security:
+      - BearerAuth: []
+      summary: Get a short-lived download URL for a pending output file
+      tags:
+      - output-admin
   /v1/admin/outputs/{output_id}/files/{file_id}/preview:
     get:
       parameters:
@@ -1814,8 +1841,8 @@ paths:
   /v1/outputs/{output_id}/logs:
     get:
       description: Streams Server-Sent Events for the prepare, convert, configure,
-        execute, and upload workflow stages. The stream is live-only and may be
-        unavailable after workflow pod cleanup.
+        execute, and upload workflow stages. The stream is live-only and may be unavailable
+        after workflow pod cleanup.
       parameters:
       - description: Output ID
         in: path
