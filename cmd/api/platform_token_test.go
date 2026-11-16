@@ -198,6 +198,63 @@ func TestCreateOrUpdatePlatformTokenSecretSetsNotebookOwnerReference(t *testing.
 	}
 }
 
+func TestCreateOrUpdatePlatformTokenSessionTriggersProjection(t *testing.T) {
+	ctx := context.Background()
+	namespace := "user-namespace"
+	notebookName := "demo-notebook"
+
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	notebook := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "kubeflow.org/v1beta1",
+		"kind":       "Notebook",
+		"metadata": map[string]any{
+			"name":      notebookName,
+			"namespace": namespace,
+			"uid":       "11111111-2222-3333-4444-555555555555",
+		},
+	}}
+	pod := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "v1",
+		"kind":       "Pod",
+		"metadata": map[string]any{
+			"name":      notebookName + "-0",
+			"namespace": namespace,
+			"labels": map[string]any{
+				platformTokenNotebookLabel: notebookName,
+			},
+		},
+	}}
+	client := dynamicfake.NewSimpleDynamicClient(scheme, notebook, pod)
+	app := application{
+		env:       ApiEnv{PlatformTokenExchangeClientSecret: "client-secret"},
+		k8sClient: &k8spkg.K8sClient{Dynamic: client},
+	}
+
+	secretName, sessionID, patchedPods, projectionErr, err := app.createOrUpdatePlatformTokenSession(
+		ctx, namespace, notebookName, nil, namespace, "refresh-token", "access-token", "session-1",
+	)
+	if err != nil {
+		t.Fatalf("createOrUpdatePlatformTokenSession failed: %v", err)
+	}
+	if projectionErr != nil {
+		t.Fatalf("trigger platform token projection failed: %v", projectionErr)
+	}
+	if secretName != notebookName+platformTokenSecretNameSuffix || sessionID != "session-1" || patchedPods != 1 {
+		t.Fatalf("result = secret %q, session %q, patched %d", secretName, sessionID, patchedPods)
+	}
+
+	updatedPod, err := client.Resource(platformTokenPodGVR).Namespace(namespace).Get(ctx, notebookName+"-0", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get patched pod: %v", err)
+	}
+	if updatedPod.GetAnnotations()[platformTokenProjectionAnnotation] == "" {
+		t.Fatal("projection refresh annotation is empty")
+	}
+}
+
 func TestTriggerPlatformTokenProjectionPatchesFallbackPod(t *testing.T) {
 	ctx := context.Background()
 	namespace := "user-namespace"

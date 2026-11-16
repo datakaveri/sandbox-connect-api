@@ -1,0 +1,133 @@
+# Confines output-argo-service's namespace provisioning writes.
+#
+# RBAC must grant cluster-wide `create` on secrets/configmaps/serviceaccounts/
+# rolebindings (create cannot be limited by resourceNames). This policy limits
+# what the controller's ServiceAccount may actually create or update:
+#   - only in profile namespaces (label app.kubernetes.io/part-of=kubeflow-profile)
+#     or sandbox;
+#   - only the provisioned object names;
+#   - service-account-token Secrets only for output-runner;
+#   - RoleBindings only output-runner -> ClusterRole output-runner-executor
+#     (legacy namespace Role output-runner accepted) for that namespace's
+#     output-runner ServiceAccount.
+# Rollout: ran with [Warn, Audit] on 9 Nov 2026 (dry-run tests passed), now [Deny].
+# Split into three policies so each CEL rule is type-checked only against the
+# resource kinds it applies to.
+# Rollback: delete the three ValidatingAdmissionPolicyBindings.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: output-provisioner-scope
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["secrets", "configmaps", "serviceaccounts"]
+      - apiGroups: ["rbac.authorization.k8s.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["rolebindings"]
+  matchConditions:
+    - name: controller-service-account-only
+      expression: "request.userInfo.username == 'system:serviceaccount:sandbox:output-argo-service'"
+  variables:
+    - name: kind
+      expression: "request.resource.resource"
+    - name: name
+      expression: "object.metadata.name"
+    - name: labels
+      expression: "has(namespaceObject.metadata.labels) ? namespaceObject.metadata.labels : {}"
+  validations:
+    - expression: >-
+        request.namespace == 'sandbox' ||
+        ('app.kubernetes.io/part-of' in variables.labels &&
+         variables.labels['app.kubernetes.io/part-of'] == 'kubeflow-profile')
+      messageExpression: "'output provisioner may only write in profile namespaces or sandbox, not ' + request.namespace"
+      reason: Forbidden
+    - expression: >-
+        (variables.kind == 'secrets' && variables.name in
+          ['nha-registry-cred', 'output-file-service', 'output-data-access-mtls',
+           'output-production-env', 'output-runner.service-account-token']) ||
+        (variables.kind == 'configmaps' && variables.name == 'output-replacements-v1') ||
+        (variables.kind == 'serviceaccounts' && variables.name == 'output-runner') ||
+        (variables.kind == 'rolebindings' && variables.name == 'output-runner')
+      messageExpression: "'output provisioner may not write ' + variables.kind + '/' + variables.name"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: output-provisioner-scope
+spec:
+  policyName: output-provisioner-scope
+  validationActions: ["Deny"]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: output-provisioner-tokens
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["secrets"]
+  matchConditions:
+    - name: controller-service-account-only
+      expression: "request.userInfo.username == 'system:serviceaccount:sandbox:output-argo-service'"
+  validations:
+    - expression: >-
+        !has(object.type) || object.type != 'kubernetes.io/service-account-token' ||
+        (object.metadata.name == 'output-runner.service-account-token' &&
+         has(object.metadata.annotations) &&
+         'kubernetes.io/service-account.name' in object.metadata.annotations &&
+         object.metadata.annotations['kubernetes.io/service-account.name'] == 'output-runner')
+      message: "output provisioner may only create service-account tokens for output-runner"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: output-provisioner-tokens
+spec:
+  policyName: output-provisioner-tokens
+  validationActions: ["Deny"]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: output-provisioner-rolebindings
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["rbac.authorization.k8s.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["rolebindings"]
+  matchConditions:
+    - name: controller-service-account-only
+      expression: "request.userInfo.username == 'system:serviceaccount:sandbox:output-argo-service'"
+  validations:
+    - expression: >-
+        ((object.roleRef.kind == 'ClusterRole' && object.roleRef.name == 'output-runner-executor') ||
+         (object.roleRef.kind == 'Role' && object.roleRef.name == 'output-runner')) &&
+        has(object.subjects) && size(object.subjects) == 1 &&
+        object.subjects[0].kind == 'ServiceAccount' &&
+        object.subjects[0].name == 'output-runner' &&
+        has(object.subjects[0].namespace) && object.subjects[0].namespace == request.namespace
+      message: "output provisioner may only bind output-runner-executor to this namespace's output-runner"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: output-provisioner-rolebindings
+spec:
+  policyName: output-provisioner-rolebindings
+  validationActions: ["Deny"]

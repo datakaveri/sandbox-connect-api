@@ -214,8 +214,11 @@ comfortably exceed `TICK_INTERVAL_SECS`. Change them as a set.
 
 ### Feature flags
 
-None. `SLOT_CONFIG_PROFILE` selects a profile rather than toggling behaviour, but note that this
-component is only meaningful when the API runs with `API_BOOKINGS_ENABLED=true`.
+`SLOT_LIFECYCLE_OUTPUTS_ENABLED` defaults to `false`. Enable it only after
+`migrations/001_outputs.sql` is applied. When enabled, completed-booking cleanup skips notebook
+PVCs that have an active row in `output_jobs`; this preserves source storage while an output
+workflow is running. It is needed only when the API runs with `API_BOOKINGS_ENABLED=true`.
+`SLOT_CONFIG_PROFILE` selects a profile rather than toggling behaviour.
 
 ### External provider fields
 

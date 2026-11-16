@@ -540,7 +540,7 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := tx.Query(ctx, "SELECT id, name, gpu_type, gpu_request, gpu_limit, events[array_upper(events, 1)] as latest_event FROM notebooks WHERE user_id = $1 AND events[array_upper(events, 1)] <> 'deleted'", userInfo.Sub)
+	rows, err := tx.Query(ctx, "SELECT id, name, gpu_type, gpu_request, gpu_limit, events[array_upper(events, 1)] as latest_event FROM notebooks WHERE user_id = $1 AND events[array_upper(events, 1)] <> 'deleted' FOR UPDATE", userInfo.Sub)
 	if err != nil {
 		logger.Error("failed to fetch notebooks for user", "error", err)
 		sendError(w, logger, http.StatusInternalServerError, "Internal server error")
@@ -552,6 +552,7 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 	var latestEvent constants.Events
 	var gpuType *string
 	var gpuRequest, gpuLimit *int
+	var notebookRowID int64
 	foundNotebook := false
 	for rows.Next() {
 		var id int64
@@ -574,6 +575,7 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 			LatestEvent: rowLatestEvent,
 		})
 		if name == startReq.Name {
+			notebookRowID = id
 			latestEvent = rowLatestEvent
 			gpuType = rowGpuType
 			gpuRequest = rowGpuRequest
@@ -589,6 +591,17 @@ func (app *application) startNotebook(w http.ResponseWriter, r *http.Request) {
 	if !foundNotebook {
 		logger.Error("failed to find notebook", "name", startReq.Name)
 		sendError(w, logger, http.StatusNotFound, "Notebook not found")
+		return
+	}
+
+	held, err := app.hasOutputHoldInTx(ctx, tx, notebookRowID)
+	if err != nil {
+		logger.Error("failed to check output hold", "error", err)
+		sendError(w, logger, http.StatusInternalServerError, "Failed to check output state")
+		return
+	}
+	if held {
+		sendError(w, logger, http.StatusConflict, "Notebook cannot be started while output is in progress")
 		return
 	}
 
@@ -688,6 +701,7 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 		FROM notebooks
 		WHERE name = $1 AND namespace = $2
 		  AND events[array_upper(events, 1)] <> 'deleted'
+		FOR UPDATE
 	`
 	var notebookRowID int64
 	var notebookBookingID *int64
@@ -695,7 +709,14 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 	var gpuType *string
 	var gpuRequest, gpuLimit *int
 	ctx := r.Context()
-	err = app.pgPool.Pool.QueryRow(ctx, query, deleteReq.Name, namespace).Scan(
+	tx, err := app.pgPool.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		logger.Error("failed to begin notebook delete transaction", "error", err)
+		sendError(w, logger, http.StatusInternalServerError, "Failed to delete notebook")
+		return
+	}
+	defer tx.Rollback(ctx)
+	err = tx.QueryRow(ctx, query, deleteReq.Name, namespace).Scan(
 		&notebookRowID, &notebookBookingID, &latestEvent, &gpuType, &gpuRequest, &gpuLimit)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -708,9 +729,20 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	held, err := app.hasOutputHoldInTx(ctx, tx, notebookRowID)
+	if err != nil {
+		logger.Error("failed to check output hold", "error", err)
+		sendError(w, logger, http.StatusInternalServerError, "Failed to check output state")
+		return
+	}
+	if held {
+		sendError(w, logger, http.StatusConflict, "Notebook cannot be deleted while output is in progress")
+		return
+	}
+
 	var blockingBookingID int64
 	var blockingBookingStatus string
-	err = app.pgPool.Pool.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		SELECT id, status FROM bookings
 		WHERE user_id = $1
 		  AND status IN ('scheduled', 'ready', 'active', 'shutting_down')
@@ -728,7 +760,7 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		switch blockingBookingStatus {
 		case "scheduled":
-			result, updateErr := app.pgPool.Pool.Exec(ctx, `
+			result, updateErr := tx.Exec(ctx, `
 				UPDATE bookings
 				SET status = 'cancelled',
 				    notebook_id = NULL
@@ -751,7 +783,7 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case "ready", "active", "shutting_down":
-			result, updateErr := app.pgPool.Pool.Exec(ctx, `
+			result, updateErr := tx.Exec(ctx, `
 				UPDATE bookings
 				SET status = 'completed',
 				    session_ended_at = NOW(),
@@ -808,8 +840,17 @@ func (app *application) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 		  AND namespace = $2
 		  AND events[array_upper(events, 1)] <> 'deleted'
 	`
-	_, err = app.pgPool.Pool.Exec(ctx, softDeleteQuery, deleteReq.Name, namespace)
+	result, err := tx.Exec(ctx, softDeleteQuery, deleteReq.Name, namespace)
 	if err != nil {
+		sendError(w, logger, http.StatusInternalServerError, "Failed to delete notebook")
+		return
+	}
+	if result.RowsAffected() == 0 {
+		sendError(w, logger, http.StatusConflict, "Notebook state changed while deleting; please retry")
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		logger.Error("failed to commit notebook delete transaction", "error", err)
 		sendError(w, logger, http.StatusInternalServerError, "Failed to delete notebook")
 		return
 	}

@@ -47,6 +47,8 @@ type ApiEnv struct {
 	ReadTimeoutSecs                   int    `env:"API_READ_TIMEOUT_SECS"`
 	Version                           string `env:"API_VERSION,required"`
 	NotebookConfig                    NotebookConfig
+	OutputConfig                      OutputConfig
+	FilesConnectConfig                FilesConnectConfig
 	RegistrySecretConfig              RegistrySecretConfig
 	RabbitMQConfig                    RabbitMQConfig
 }
@@ -100,6 +102,9 @@ type application struct {
 	auditService   *AuditService // nil if auditing is disabled
 	dashboardStore dashboardStore
 	dashboardCache dashboardRuntimeCache
+	outputStore    outputStore
+	outputFiles    outputFiles
+	outputLogs     outputPodLogSource
 }
 type Resource struct {
 	Request float64 `json:"request" validate:"required,gt=0.1"`
@@ -491,10 +496,11 @@ func (p *JWTPayload) GetAudience() (jwt.ClaimStrings, error) {
 }
 
 type UserInfo struct {
-	Sub      string   `json:"sub" validate:"required,uuid"`
-	Email    string   `json:"email" validate:"required,email"`
-	Roles    []string `json:"roles"`
-	ClientID string   `json:"clientId"`
+	Sub       string    `json:"sub" validate:"required,uuid"`
+	Email     string    `json:"email" validate:"required,email"`
+	Roles     []string  `json:"roles"`
+	ClientID  string    `json:"clientId"`
+	ExpiresAt time.Time `json:"-"`
 }
 
 type userContextKey string

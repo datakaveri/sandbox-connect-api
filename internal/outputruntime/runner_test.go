@@ -1,0 +1,214 @@
+package outputruntime
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+func preparedRunner(t *testing.T) Runner {
+	t.Helper()
+	source := filepath.Join(t.TempDir(), "input.ipynb")
+	if err := os.WriteFile(source, []byte(`{"nbformat":4,"cells":[],"metadata":{"language_info":{"name":"python"}}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	r := Runner{Workspace: filepath.Join(t.TempDir(), "scratch")}
+	if err := r.Prepare(source, "run-123"); err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+func TestPrepareRejectsSymlinks(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "real.ipynb")
+	os.WriteFile(target, []byte(`{}`), 0600)
+	link := filepath.Join(root, "link.ipynb")
+	os.Symlink(target, link)
+	if err := (Runner{Workspace: t.TempDir()}).Prepare(link, "run"); err == nil {
+		t.Fatal("accepted source symlink")
+	}
+	os.Symlink(root, filepath.Join(root, "dir"))
+	if _, err := ReadBounded(filepath.Join(root, "dir", "real.ipynb"), 1024); err == nil {
+		t.Fatal("accepted parent symlink")
+	}
+}
+func TestConfigureExactReplacements(t *testing.T) {
+	for _, tc := range []struct {
+		name, mapping string
+		fail          bool
+	}{
+		{"valid", `{"version":"v1","required":{"SANDBOX_URL":"PROD_URL"},"optional":{"ABSENT":"x"}}`, false},
+		{"missing", `{"version":"v1","required":{"MISSING":"x"}}`, true},
+		{"overlap", `{"version":"v1","required":{"SANDBOX_URL":"x","SANDBOX":"y"}}`, true},
+		{"unresolved", `{"version":"v1","required":{"SANDBOX_URL":"SANDBOX_URL"}}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := preparedRunner(t)
+			WriteFile(filepath.Join(r.Workspace, "notebook.py"), []byte("url = 'SANDBOX_URL'\n"))
+			m := filepath.Join(t.TempDir(), "map.json")
+			os.WriteFile(m, []byte(tc.mapping), 0600)
+			err := r.Configure(m)
+			if (err != nil) != tc.fail {
+				t.Fatalf("err=%v", err)
+			}
+			if !tc.fail {
+				b, _ := ReadBounded(filepath.Join(r.Workspace, "notebook.py"), 1024)
+				if string(b) != "url = 'PROD_URL'\n" {
+					t.Fatalf("script=%s", b)
+				}
+			}
+		})
+	}
+}
+func TestExecuteProducesCSVAndBoundsLogs(t *testing.T) {
+	r := preparedRunner(t)
+	var streamed bytes.Buffer
+	r.StreamOutput = &streamed
+	r.MaxLogBytes = 1024
+	t.Setenv("PRODUCTION_EXAMPLE", "approved")
+	t.Setenv("FILE_SERVICE_TOKEN", "must-not-reach-script")
+	code := "import os\nassert os.environ['PRODUCTION_EXAMPLE'] == 'approved'\nassert 'FILE_SERVICE_TOKEN' not in os.environ\nopen('result.csv','w').write('name,value\\na,1\\n')\nprint('x' * 2000000)\n"
+	if err := WriteFile(filepath.Join(r.Workspace, "notebook.py"), []byte(code)); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := r.Execute(ctx, filepath.Join(r.Workspace, "output")); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Join(r.Workspace, "execute.log"))
+	if err != nil || info.Size() != r.MaxLogBytes {
+		t.Fatalf("log size: %v %v", info, err)
+	}
+	logData, err := os.ReadFile(filepath.Join(r.Workspace, "execute.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(streamed.Bytes(), logData) || !strings.Contains(streamed.String(), "Raw process output reached the 1024-byte limit") {
+		t.Fatalf("stream did not include bounded output and truncation notice: streamed=%d scratch=%d", streamed.Len(), len(logData))
+	}
+	b, err := os.ReadFile(filepath.Join(r.Workspace, "output", "result.csv"))
+	if err != nil || !strings.Contains(string(b), "a,1") {
+		t.Fatalf("CSV: %s %v", b, err)
+	}
+	s, err := r.loadSummary()
+	if err != nil || !s.Succeeded || s.Stage != "execute" || len(s.SourceSHA256) != 64 {
+		t.Fatalf("summary: %+v %v", s, err)
+	}
+}
+
+func TestExecuteWaitsForPlatformTokenWithoutLoggingIt(t *testing.T) {
+	r := preparedRunner(t)
+	var streamed bytes.Buffer
+	r.StreamOutput = &streamed
+	tokenFile := filepath.Join(t.TempDir(), "token")
+	t.Setenv("NHA_TOKEN_FILE", tokenFile)
+	if err := WriteFile(filepath.Join(r.Workspace, "notebook.py"), []byte("import os\nassert open(os.environ['NHA_TOKEN_FILE']).read().strip() == 'test-token'\nopen('result.csv','w').write('ok\\n')\n")); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		_ = os.WriteFile(tokenFile, []byte("test-token\n"), 0600)
+	}()
+	if err := r.Execute(ctx, filepath.Join(r.Workspace, "output")); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(streamed.String(), "Delegated platform token is ready") || strings.Contains(streamed.String(), "test-token") {
+		t.Fatal("readiness must be logged without leaking the token")
+	}
+}
+
+func TestExecuteFailsWhenPlatformTokenUnavailable(t *testing.T) {
+	r := preparedRunner(t)
+	t.Setenv("NHA_TOKEN_FILE", filepath.Join(t.TempDir(), "missing-token"))
+	if err := WriteFile(filepath.Join(r.Workspace, "notebook.py"), []byte("open('result.csv','w').write('unexpected\\n')\n")); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
+	defer cancel()
+	if err := r.Execute(ctx, filepath.Join(r.Workspace, "output")); err == nil || !strings.Contains(err.Error(), "delegated platform token unavailable") {
+		t.Fatalf("expected token wait failure, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(r.Workspace, "output", "result.csv")); !os.IsNotExist(err) {
+		t.Fatal("notebook must not execute before token is ready")
+	}
+}
+
+func TestBoundedLogStreamsOnlyRetainedBytes(t *testing.T) {
+	var retained bytes.Buffer
+	var streamed bytes.Buffer
+	log := &boundedLog{writer: &retained, stream: &streamed, remaining: 4}
+
+	if n, err := log.Write([]byte("abcdef")); err != nil || n != 6 {
+		t.Fatalf("first write: n=%d err=%v", n, err)
+	}
+	if retained.String() != "abcd" || streamed.String() != retained.String() {
+		t.Fatalf("unexpected retained or streamed data: retained=%q streamed=%q", retained.String(), streamed.String())
+	}
+	if n, err := log.Write([]byte("ignored")); err != nil || n != 7 {
+		t.Fatalf("capped write: n=%d err=%v", n, err)
+	}
+	if retained.String() != "abcd" || streamed.String() != "abcd" {
+		t.Fatal("log cap did not stop subsequent retained and streamed output")
+	}
+}
+func TestExecuteTimeoutAndSummaryTampering(t *testing.T) {
+	for _, code := range []string{"import time; time.sleep(30)", "import os; os.unlink('../execution-summary.json'); os.symlink('/etc/passwd','../execution-summary.json')"} {
+		r := preparedRunner(t)
+		WriteFile(filepath.Join(r.Workspace, "notebook.py"), []byte(code))
+		ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+		err := r.Execute(ctx, filepath.Join(r.Workspace, "output"))
+		cancel()
+		if err == nil {
+			t.Fatal("expected timeout or unsafe summary failure")
+		}
+	}
+}
+func TestPrepareChecksumAndNoSupportFiles(t *testing.T) {
+	r := preparedRunner(t)
+	b, err := ReadBounded(filepath.Join(r.Workspace, "execution-summary.json"), 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var summary Summary
+	if err := json.Unmarshal(b, &summary); err != nil || len(summary.SourceSHA256) != 64 {
+		t.Fatal("missing checksum")
+	}
+}
+
+// Enable with OUTPUT_NBCONVERT_TEST=1 and a PATH containing the pinned Python environment.
+func TestRealNotebookConversion(t *testing.T) {
+	if os.Getenv("OUTPUT_NBCONVERT_TEST") != "1" {
+		t.Skip("requires the runner Python dependencies")
+	}
+	r := preparedRunner(t)
+	notebook := `{"nbformat":4,"nbformat_minor":5,"metadata":{"language_info":{"name":"python","file_extension":".py"}},"cells":[{"id":"output","cell_type":"code","metadata":{},"execution_count":null,"outputs":[],"source":["open('result.csv','w').write('name,value\\na,1\\n')"]}]}`
+	if err := WriteFile(filepath.Join(r.Workspace, "notebook.ipynb"), []byte(notebook)); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := r.Convert(ctx); err != nil {
+		b, _ := os.ReadFile(filepath.Join(r.Workspace, "convert.log"))
+		t.Fatalf("convert: %v: %s", err, b)
+	}
+	mapping := filepath.Join(t.TempDir(), "map.json")
+	os.WriteFile(mapping, []byte(`{"version":"v1","required":{},"optional":{}}`), 0600)
+	if err := r.Configure(mapping); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Execute(ctx, filepath.Join(r.Workspace, "output")); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(r.Workspace, "output", "result.csv"))
+	if err != nil || string(b) != "name,value\na,1\n" {
+		t.Fatalf("output: %s %v", b, err)
+	}
+}

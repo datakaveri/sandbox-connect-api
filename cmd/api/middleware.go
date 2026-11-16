@@ -34,7 +34,7 @@ func (app *application) enableCORS(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		if r.Method == http.MethodOptions {
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, PUT, PATCH, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID, Idempotency-Key")
 			w.WriteHeader(http.StatusOK)
 			return
 		}
@@ -101,6 +101,10 @@ func (app *application) rateLimitMiddleware(next http.Handler) http.Handler {
 
 func (app *application) contextTimeout(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isOutputLogStreamRequest(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		ctx, cancel := context.WithTimeout(r.Context(), time.Duration(app.env.TimeoutInSecs)*time.Second)
 		defer cancel()
 		r = r.WithContext(ctx)
@@ -285,6 +289,9 @@ func (app *application) authMiddleware(next http.Handler) http.Handler {
 			Email:    jwtPayload.Email,
 			Roles:    jwtPayload.RealmAccess.Roles,
 			ClientID: jwtPayload.Azp,
+		}
+		if exp != nil {
+			userInfo.ExpiresAt = exp.Time
 		}
 
 		// Debug: Log successful authentication with user context

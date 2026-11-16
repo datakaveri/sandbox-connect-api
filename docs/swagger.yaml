@@ -34,6 +34,45 @@ definitions:
     - StatusRuntimeInjectionFailed
     - StatusNotebookApplied
     - StatusNotebookApplyFailed
+  filesconnect.Download:
+    properties:
+      expiresAt:
+        type: string
+      url:
+        type: string
+    type: object
+  filesconnect.File:
+    properties:
+      contentType:
+        type: string
+      fileId:
+        type: string
+      lastModified:
+        type: string
+      name:
+        type: string
+      size:
+        type: integer
+    type: object
+  filesconnect.Preview:
+    properties:
+      content: {}
+      firstNLines:
+        type: integer
+      format:
+        type: string
+      totalLines:
+        type: integer
+      truncated:
+        type: boolean
+    type: object
+  main.ApprovalResponse:
+    properties:
+      outputId:
+        type: string
+      status:
+        type: string
+    type: object
   main.AvailableSlot:
     properties:
       alreadyBooked:
@@ -821,6 +860,45 @@ definitions:
       status:
         type: string
     type: object
+  main.OutputFile:
+    properties:
+      fileId:
+        type: string
+      mediaType:
+        type: string
+      name:
+        type: string
+      sha256:
+        type: string
+      size:
+        type: integer
+    type: object
+  main.OutputFilesResponse:
+    properties:
+      files:
+        items:
+          $ref: '#/definitions/main.OutputFile'
+        type: array
+      outputId:
+        type: string
+      status:
+        type: string
+    type: object
+  main.OutputResponse:
+    properties:
+      approvalStatus:
+        type: string
+      errorCode:
+        type: string
+      errorMessage:
+        type: string
+      notebookName:
+        type: string
+      outputId:
+        type: string
+      status:
+        type: string
+    type: object
   main.PaginationInfo:
     properties:
       hasNext:
@@ -835,6 +913,13 @@ definitions:
         type: integer
       totalPages:
         type: integer
+    type: object
+  main.PendingOutputsResponse:
+    properties:
+      outputs:
+        items:
+          $ref: '#/definitions/main.OutputResponse'
+        type: array
     type: object
   main.SlotTemplateResponse:
     properties:
@@ -885,6 +970,13 @@ definitions:
         example: string
         type: string
     type: object
+  main.WorkspaceFilesResponse:
+    properties:
+      files:
+        items:
+          $ref: '#/definitions/filesconnect.File'
+        type: array
+    type: object
 info:
   contact: {}
   description: |-
@@ -903,6 +995,128 @@ info:
   title: Sandbox Connect API
   version: "1.0"
 paths:
+  /v1/admin/outputs:
+    get:
+      parameters:
+      - description: Maximum outputs (1-200)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.PendingOutputsResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/main.Error403'
+      security:
+      - BearerAuth: []
+      summary: List outputs pending NHA approval
+      tags:
+      - output-admin
+  /v1/admin/outputs/{output_id}/approve:
+    post:
+      description: Queues idempotent Files Connect publication into the owner's object-backed
+        workspace.
+      parameters:
+      - description: Output ID
+        in: path
+        name: output_id
+        required: true
+        type: string
+      - description: Unique request key
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/main.ApprovalResponse'
+      security:
+      - BearerAuth: []
+      summary: Approve and publish output files
+      tags:
+      - output-admin
+  /v1/admin/outputs/{output_id}/files:
+    get:
+      parameters:
+      - description: Output ID
+        in: path
+        name: output_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.OutputFilesResponse'
+      security:
+      - BearerAuth: []
+      summary: List CSV files for an output awaiting approval
+      tags:
+      - output-admin
+  /v1/admin/outputs/{output_id}/files/{file_id}/download:
+    get:
+      description: Lets an output approver download the full file before approving.
+        Each call is audit-logged.
+      parameters:
+      - description: Output ID
+        in: path
+        name: output_id
+        required: true
+        type: string
+      - description: Stable file ID
+        in: path
+        name: file_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/filesconnect.Download'
+      security:
+      - BearerAuth: []
+      summary: Get a short-lived download URL for a pending output file
+      tags:
+      - output-admin
+  /v1/admin/outputs/{output_id}/files/{file_id}/preview:
+    get:
+      parameters:
+      - description: Output ID
+        in: path
+        name: output_id
+        required: true
+        type: string
+      - description: Stable file ID
+        in: path
+        name: file_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/filesconnect.Preview'
+      security:
+      - BearerAuth: []
+      summary: Preview a pending CSV output file
+      tags:
+      - output-admin
   /v1/bookings:
     get:
       description: |-
@@ -1830,6 +2044,131 @@ paths:
       summary: Stop notebook
       tags:
       - notebook
+  /v1/notebooks/{notebook_name}/outputs:
+    post:
+      description: Stops an owned, ready notebook and queues an asynchronous output
+        run. In booking mode the linked booking must be active.
+      parameters:
+      - description: Notebook Name
+        in: path
+        name: notebook_name
+        required: true
+        type: string
+      - description: Unique request key
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/main.OutputResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/main.Error400'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/main.Error401'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/main.Error404'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/main.Error409'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/main.Error500'
+      security:
+      - BearerAuth: []
+      summary: Submit a notebook output run
+      tags:
+      - outputs
+  /v1/outputs/{output_id}:
+    get:
+      description: Returns an owned output run's status without exposing review-bucket
+        keys.
+      parameters:
+      - description: Output ID
+        in: path
+        name: output_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.OutputResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/main.Error400'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/main.Error401'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/main.Error404'
+      security:
+      - BearerAuth: []
+      summary: Get an output run
+      tags:
+      - outputs
+  /v1/outputs/{output_id}/logs:
+    get:
+      description: Streams Server-Sent Events for the prepare, convert, configure,
+        execute, and upload workflow stages. The stream is live-only and may be unavailable
+        after workflow pod cleanup.
+      parameters:
+      - description: Output ID
+        in: path
+        name: output_id
+        required: true
+        type: string
+      - default: 1000
+        description: Initial lines per workflow pod (1-5000)
+        in: query
+        name: tailLines
+        type: integer
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: 'Server-Sent Events: status, log, warning, unavailable, complete'
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/main.Error400'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/main.Error401'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/main.Error404'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/main.Error503'
+      security:
+      - BearerAuth: []
+      summary: Stream an owned output run's live execution logs
+      tags:
+      - outputs
   /v1/platform/sandbox-dashboard/sandboxes:
     get:
       description: Requires cos_admin. Non-deleted managed notebooks, numeric ID descending.
@@ -2233,6 +2572,60 @@ paths:
       summary: List monthly availability summary
       tags:
       - bookings
+  /v1/workspace/files:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.WorkspaceFilesResponse'
+      security:
+      - BearerAuth: []
+      summary: List approved output files in the user's workspace
+      tags:
+      - workspace
+  /v1/workspace/files/{file_id}/download:
+    get:
+      parameters:
+      - description: Stable file ID
+        in: path
+        name: file_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/filesconnect.Download'
+      security:
+      - BearerAuth: []
+      summary: Get a short-lived download URL for an approved workspace CSV
+      tags:
+      - workspace
+  /v1/workspace/files/{file_id}/preview:
+    get:
+      parameters:
+      - description: Stable file ID
+        in: path
+        name: file_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/filesconnect.Preview'
+      security:
+      - BearerAuth: []
+      summary: Preview an approved workspace CSV
+      tags:
+      - workspace
 produces:
 - application/json
 schemes:

@@ -1348,6 +1348,19 @@ func (app *application) resetGPUBooking(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	if nbFound {
+		held, holdErr := app.hasOutputHoldInTx(ctx, tx, nbID)
+		if holdErr != nil {
+			logger.Error("resetGPUBooking: failed to check output hold", "booking_id", bookingID, "error", holdErr)
+			sendError(w, logger, http.StatusInternalServerError, "Failed to check output state")
+			return
+		}
+		if held {
+			sendError(w, logger, http.StatusConflict, "Booking cannot be reset while notebook output is in progress")
+			return
+		}
+	}
+
 	// Update booking state first.
 	if sessionEndedNow {
 		if _, err := tx.Exec(ctx, `
@@ -1503,6 +1516,19 @@ func (app *application) terminateGPUBooking(w http.ResponseWriter, r *http.Reque
 			LIMIT 1
 		`, bookingID).Scan(&nbID, &nbName, &nbNS, &nbPVC); err == nil {
 			nbFound = true
+		}
+	}
+
+	if nbFound {
+		held, holdErr := app.hasOutputHoldInTx(ctx, tx, nbID)
+		if holdErr != nil {
+			logger.Error("terminateGPUBooking: failed to check output hold", "booking_id", bookingID, "error", holdErr)
+			sendError(w, logger, http.StatusInternalServerError, "Failed to check output state")
+			return
+		}
+		if held {
+			sendError(w, logger, http.StatusConflict, "Booking cannot be terminated while notebook output is in progress")
+			return
 		}
 	}
 

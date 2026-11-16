@@ -15,6 +15,199 @@
     },
     "basePath": "/",
     "paths": {
+        "/v1/admin/outputs": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "output-admin"
+                ],
+                "summary": "List outputs pending NHA approval",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Maximum outputs (1-200)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/main.PendingOutputsResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error403"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/admin/outputs/{output_id}/approve": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Queues idempotent Files Connect publication into the owner's object-backed workspace.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "output-admin"
+                ],
+                "summary": "Approve and publish output files",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Output ID",
+                        "name": "output_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Unique request key",
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/main.ApprovalResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/admin/outputs/{output_id}/files": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "output-admin"
+                ],
+                "summary": "List CSV files for an output awaiting approval",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Output ID",
+                        "name": "output_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/main.OutputFilesResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/admin/outputs/{output_id}/files/{file_id}/download": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Lets an output approver download the full file before approving. Each call is audit-logged.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "output-admin"
+                ],
+                "summary": "Get a short-lived download URL for a pending output file",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Output ID",
+                        "name": "output_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Stable file ID",
+                        "name": "file_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/filesconnect.Download"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/admin/outputs/{output_id}/files/{file_id}/preview": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "output-admin"
+                ],
+                "summary": "Preview a pending CSV output file",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Output ID",
+                        "name": "output_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Stable file ID",
+                        "name": "file_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/filesconnect.Preview"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/bookings": {
             "get": {
                 "security": [
@@ -1345,6 +1538,194 @@
                 }
             }
         },
+        "/v1/notebooks/{notebook_name}/outputs": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Stops an owned, ready notebook and queues an asynchronous output run. In booking mode the linked booking must be active.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "outputs"
+                ],
+                "summary": "Submit a notebook output run",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Notebook Name",
+                        "name": "notebook_name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Unique request key",
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/main.OutputResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error400"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error401"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error404"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error409"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error500"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/outputs/{output_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns an owned output run's status without exposing review-bucket keys.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "outputs"
+                ],
+                "summary": "Get an output run",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Output ID",
+                        "name": "output_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/main.OutputResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error400"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error401"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error404"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/outputs/{output_id}/logs": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Streams Server-Sent Events for the prepare, convert, configure, execute, and upload workflow stages. The stream is live-only and may be unavailable after workflow pod cleanup.",
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "outputs"
+                ],
+                "summary": "Stream an owned output run's live execution logs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Output ID",
+                        "name": "output_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "default": 1000,
+                        "description": "Initial lines per workflow pod (1-5000)",
+                        "name": "tailLines",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Server-Sent Events: status, log, warning, unavailable, complete",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error400"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error401"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error404"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/main.Error503"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/platform/sandbox-dashboard/sandboxes": {
             "get": {
                 "security": [
@@ -1934,6 +2315,96 @@
                     }
                 }
             }
+        },
+        "/v1/workspace/files": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workspace"
+                ],
+                "summary": "List approved output files in the user's workspace",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/main.WorkspaceFilesResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/workspace/files/{file_id}/download": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workspace"
+                ],
+                "summary": "Get a short-lived download URL for an approved workspace CSV",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Stable file ID",
+                        "name": "file_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/filesconnect.Download"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/workspace/files/{file_id}/preview": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workspace"
+                ],
+                "summary": "Preview an approved workspace CSV",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Stable file ID",
+                        "name": "file_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/filesconnect.Preview"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -1973,6 +2444,66 @@
                 "StatusNotebookApplied",
                 "StatusNotebookApplyFailed"
             ]
+        },
+        "filesconnect.Download": {
+            "type": "object",
+            "properties": {
+                "expiresAt": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "filesconnect.File": {
+            "type": "object",
+            "properties": {
+                "contentType": {
+                    "type": "string"
+                },
+                "fileId": {
+                    "type": "string"
+                },
+                "lastModified": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "size": {
+                    "type": "integer"
+                }
+            }
+        },
+        "filesconnect.Preview": {
+            "type": "object",
+            "properties": {
+                "content": {},
+                "firstNLines": {
+                    "type": "integer"
+                },
+                "format": {
+                    "type": "string"
+                },
+                "totalLines": {
+                    "type": "integer"
+                },
+                "truncated": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "main.ApprovalResponse": {
+            "type": "object",
+            "properties": {
+                "outputId": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
         },
         "main.AvailableSlot": {
             "type": "object",
@@ -3144,6 +3675,66 @@
                 }
             }
         },
+        "main.OutputFile": {
+            "type": "object",
+            "properties": {
+                "fileId": {
+                    "type": "string"
+                },
+                "mediaType": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "sha256": {
+                    "type": "string"
+                },
+                "size": {
+                    "type": "integer"
+                }
+            }
+        },
+        "main.OutputFilesResponse": {
+            "type": "object",
+            "properties": {
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/main.OutputFile"
+                    }
+                },
+                "outputId": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "main.OutputResponse": {
+            "type": "object",
+            "properties": {
+                "approvalStatus": {
+                    "type": "string"
+                },
+                "errorCode": {
+                    "type": "string"
+                },
+                "errorMessage": {
+                    "type": "string"
+                },
+                "notebookName": {
+                    "type": "string"
+                },
+                "outputId": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
         "main.PaginationInfo": {
             "type": "object",
             "properties": {
@@ -3164,6 +3755,17 @@
                 },
                 "totalPages": {
                     "type": "integer"
+                }
+            }
+        },
+        "main.PendingOutputsResponse": {
+            "type": "object",
+            "properties": {
+                "outputs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/main.OutputResponse"
+                    }
                 }
             }
         },
@@ -3235,6 +3837,17 @@
                     "description": "Success message",
                     "type": "string",
                     "example": "string"
+                }
+            }
+        },
+        "main.WorkspaceFilesResponse": {
+            "type": "object",
+            "properties": {
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/filesconnect.File"
+                    }
                 }
             }
         }

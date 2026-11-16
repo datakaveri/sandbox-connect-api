@@ -65,6 +65,17 @@ func (app *application) router() http.Handler {
 		apiMux.HandleFunc("/v1/categories", app.bookingsDisabled)
 	}
 	apiMux.HandleFunc("POST /v1/jupyterlite/session", app.createJupyterLiteSession)
+	apiMux.HandleFunc("POST /v1/notebooks/{notebook_name}/outputs", app.submitOutput)
+	apiMux.HandleFunc("GET /v1/outputs/{output_id}", app.getOutput)
+	apiMux.HandleFunc("GET /v1/outputs/{output_id}/logs", app.streamOutputLogs)
+	apiMux.HandleFunc("GET /v1/admin/outputs", app.listPendingOutputs)
+	apiMux.HandleFunc("GET /v1/admin/outputs/{output_id}/files", app.listAdminOutputFiles)
+	apiMux.HandleFunc("GET /v1/admin/outputs/{output_id}/files/{file_id}/preview", app.previewAdminOutputFile)
+	apiMux.HandleFunc("GET /v1/admin/outputs/{output_id}/files/{file_id}/download", app.downloadAdminOutputFile)
+	apiMux.HandleFunc("POST /v1/admin/outputs/{output_id}/approve", app.approveOutput)
+	apiMux.HandleFunc("GET /v1/workspace/files", app.listWorkspaceFiles)
+	apiMux.HandleFunc("GET /v1/workspace/files/{file_id}/preview", app.previewWorkspaceFile)
+	apiMux.HandleFunc("GET /v1/workspace/files/{file_id}/download", app.downloadWorkspaceFile)
 
 	// Profile routes
 	apiMux.HandleFunc("POST /v1/profile/create", app.createProfile)

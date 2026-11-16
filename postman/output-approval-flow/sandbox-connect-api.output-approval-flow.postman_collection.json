@@ -1,0 +1,644 @@
+{
+  "info": {
+    "name": "Sandbox Connect API - Output Submission and Approval Flow",
+    "_postman_id": "f6ec1cb9-f8ea-49dc-83b3-287687d87c96",
+    "description": "End-to-end collection for notebook output submission, Argo status polling, cos_admin review and approval, owner workspace access, and authorization-boundary checks. Run folders in numeric order. Submission intentionally stops the notebook. Approval intentionally publishes the reviewed CSV into the owner's workspace. The current API has no reject route and no admin download route.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "01 - Owner Submission",
+      "description": "Use owner_token. The notebook must be running and must contain nha_ps4_output_template.ipynb at its workspace root. Submission stops the notebook and saves output_id from the 202 response.",
+      "item": [
+        {
+          "name": "Check Notebook Status",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{owner_token}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{sandbox_base_url}}/v1/notebook/status/{{notebook_name}}",
+              "host": ["{{sandbox_base_url}}"],
+              "path": ["v1", "notebook", "status", "{{notebook_name}}"]
+            },
+            "description": "Confirm the owned notebook is ready before submission. The submit request will stop it."
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });"
+              ]
+            }
+          }]
+        },
+        {
+          "name": "Submit Notebook Output",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{owner_token}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [
+              { "key": "Idempotency-Key", "value": "{{submit_idempotency_key}}", "type": "text" }
+            ],
+            "url": {
+              "raw": "{{sandbox_base_url}}/v1/notebooks/{{notebook_name}}/outputs",
+              "host": ["{{sandbox_base_url}}"],
+              "path": ["v1", "notebooks", "{{notebook_name}}", "outputs"]
+            },
+            "description": "Creates an output job and intentionally stops the notebook. Clear submit_idempotency_key before starting a genuinely new run; rerunning with the same key is idempotent."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"submit_idempotency_key\")) {",
+                  "    pm.environment.set(\"submit_idempotency_key\", \"postman-submit-\" + Date.now() + \"-\" + Math.random().toString(16).slice(2));",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Submission is accepted\", function () { pm.response.to.have.status(202); });",
+                  "if (pm.response.code === 202) {",
+                  "    const body = pm.response.json();",
+                  "    pm.test(\"Response contains an output ID\", function () { pm.expect(body.outputId).to.be.a(\"string\").and.not.empty; });",
+                  "    pm.expect(body.notebookName).to.eql(pm.environment.get(\"notebook_name\"));",
+                  "    pm.environment.set(\"output_id\", body.outputId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Poll Owner Output Status",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{owner_token}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{sandbox_base_url}}/v1/outputs/{{output_id}}",
+              "host": ["{{sandbox_base_url}}"],
+              "path": ["v1", "outputs", "{{output_id}}"]
+            },
+            "description": "Run repeatedly until status is pending_approval or failed. Typical progression: waiting_for_pvc, preparing, converting, configuring, executing, uploading, pending_approval. After approval, inspect approvalStatus as well as status."
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                "if (pm.response.code === 200) {",
+                "    const body = pm.response.json();",
+                "    pm.test(\"Output identity matches\", function () { pm.expect(body.outputId).to.eql(pm.environment.get(\"output_id\")); });",
+                "    console.log(\"Output status:\", body.status, \"approval status:\", body.approvalStatus || \"none\");",
+                "}"
+              ]
+            }
+          }]
+        }
+      ]
+    },
+    {
+      "name": "02 - COS Admin Review and Approval",
+      "description": "Use admin_token containing the cos_admin realm role. Review the list, file identity, and preview before running Approve Output.",
+      "item": [
+        {
+          "name": "List Pending Outputs",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{admin_token}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{sandbox_base_url}}/v1/admin/outputs?status=pending_approval&limit=50",
+              "host": ["{{sandbox_base_url}}"],
+              "path": ["v1", "admin", "outputs"],
+              "query": [
+                { "key": "status", "value": "pending_approval" },
+                { "key": "limit", "value": "50" }
+              ]
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                "if (pm.response.code === 200) {",
+                "    const body = pm.response.json();",
+                "    pm.test(\"Submitted output is pending\", function () {",
+                "        pm.expect(body.outputs.some(item => item.outputId === pm.environment.get(\"output_id\"))).to.eql(true);",
+                "    });",
+                "}"
+              ]
+            }
+          }]
+        },
+        {
+          "name": "List Review Files",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{admin_token}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{sandbox_base_url}}/v1/admin/outputs/{{output_id}}/files",
+              "host": ["{{sandbox_base_url}}"],
+              "path": ["v1", "admin", "outputs", "{{output_id}}", "files"]
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                "if (pm.response.code === 200) {",
+                "    const body = pm.response.json();",
+                "    const file = body.files.find(item => item.name === pm.environment.get(\"expected_file_name\"));",
+                "    pm.test(\"Expected CSV is present\", function () { pm.expect(file).to.exist; });",
+                "    if (file) {",
+                "        pm.environment.set(\"review_file_id\", file.fileId);",
+                "        pm.environment.set(\"expected_sha256\", file.sha256);",
+                "    }",
+                "}"
+              ]
+            }
+          }]
+        },
+        {
+          "name": "Preview Review CSV",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{admin_token}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{sandbox_base_url}}/v1/admin/outputs/{{output_id}}/files/{{review_file_id}}/preview",
+              "host": ["{{sandbox_base_url}}"],
+              "path": ["v1", "admin", "outputs", "{{output_id}}", "files", "{{review_file_id}}", "preview"]
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                "if (pm.response.code === 200) {",
+                "    const body = pm.response.json();",
+                "    pm.test(\"Preview is CSV\", function () { pm.expect(body.format).to.eql(\"csv\"); });",
+                "    pm.test(\"Preview contains rows\", function () { pm.expect(body.content.data.length).to.be.above(0); });",
+                "}"
+              ]
+            }
+          }]
+        },
+        {
+          "name": "Approve Output - Publishes Files",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{admin_token}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [
+              { "key": "Idempotency-Key", "value": "{{approval_idempotency_key}}", "type": "text" }
+            ],
+            "url": {
+              "raw": "{{sandbox_base_url}}/v1/admin/outputs/{{output_id}}/approve",
+              "host": ["{{sandbox_base_url}}"],
+              "path": ["v1", "admin", "outputs", "{{output_id}}", "approve"]
+            },
+            "description": "State-changing request. Queues publication into the owner's workspace. Clear approval_idempotency_key only when approving a different output."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"approval_idempotency_key\")) {",
+                  "    pm.environment.set(\"approval_idempotency_key\", \"postman-approve-\" + Date.now() + \"-\" + Math.random().toString(16).slice(2));",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Approval is accepted\", function () { pm.response.to.have.status(202); });",
+                  "if (pm.response.code === 202) {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.outputId).to.eql(pm.environment.get(\"output_id\"));",
+                  "    pm.expect([\"requested\", \"publishing\", \"approved\"]).to.include(body.status);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verify Output Leaves Pending Queue",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{admin_token}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{sandbox_base_url}}/v1/admin/outputs?status=pending_approval&limit=50",
+              "host": ["{{sandbox_base_url}}"],
+              "path": ["v1", "admin", "outputs"],
+              "query": [
+                { "key": "status", "value": "pending_approval" },
+                { "key": "limit", "value": "50" }
+              ]
+            },
+            "description": "Publication is asynchronous. Retry until the submitted output is absent from this list."
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                "if (pm.response.code === 200) {",
+                "    const body = pm.response.json();",
+                "    pm.test(\"Approved output left pending queue\", function () {",
+                "        pm.expect(body.outputs.some(item => item.outputId === pm.environment.get(\"output_id\"))).to.eql(false);",
+                "    });",
+                "}"
+              ]
+            }
+          }]
+        }
+      ]
+    },
+    {
+      "name": "03 - Owner Workspace After Approval",
+      "description": "Use owner_token again after publication. Tokens are short-lived, so refresh it before running this folder. List Workspace Files captures workspace_file_id.",
+      "item": [
+        {
+          "name": "Get Final Owner Output Status",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{owner_token}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{sandbox_base_url}}/v1/outputs/{{output_id}}",
+              "host": ["{{sandbox_base_url}}"],
+              "path": ["v1", "outputs", "{{output_id}}"]
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                "if (pm.response.code === 200) {",
+                "    const body = pm.response.json();",
+                "    pm.test(\"Approval is complete\", function () { pm.expect(body.approvalStatus).to.eql(\"approved\"); });",
+                "}"
+              ]
+            }
+          }]
+        },
+        {
+          "name": "List Workspace Files",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{owner_token}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{sandbox_base_url}}/v1/workspace/files",
+              "host": ["{{sandbox_base_url}}"],
+              "path": ["v1", "workspace", "files"]
+            },
+            "description": "Retry after approval if publication is still in progress. Captures workspace_file_id for <output_id>/result.csv."
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                "if (pm.response.code === 200) {",
+                "    const body = pm.response.json();",
+                "    const expectedName = pm.environment.get(\"output_id\") + \"/\" + pm.environment.get(\"expected_file_name\");",
+                "    const file = body.files.find(item => item.name === expectedName);",
+                "    pm.test(\"Approved CSV exists in owner workspace\", function () { pm.expect(file).to.exist; });",
+                "    if (file) pm.environment.set(\"workspace_file_id\", file.fileId);",
+                "}"
+              ]
+            }
+          }]
+        },
+        {
+          "name": "Preview Workspace CSV",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{owner_token}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{sandbox_base_url}}/v1/workspace/files/{{workspace_file_id}}/preview",
+              "host": ["{{sandbox_base_url}}"],
+              "path": ["v1", "workspace", "files", "{{workspace_file_id}}", "preview"]
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                "if (pm.response.code === 200) {",
+                "    const body = pm.response.json();",
+                "    pm.test(\"Workspace preview is CSV with rows\", function () {",
+                "        pm.expect(body.format).to.eql(\"csv\");",
+                "        pm.expect(body.content.data.length).to.be.above(0);",
+                "    });",
+                "}"
+              ]
+            }
+          }]
+        },
+        {
+          "name": "Get Workspace Download URL",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{owner_token}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{sandbox_base_url}}/v1/workspace/files/{{workspace_file_id}}/download",
+              "host": ["{{sandbox_base_url}}"],
+              "path": ["v1", "workspace", "files", "{{workspace_file_id}}", "download"]
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                "if (pm.response.code === 200) {",
+                "    const body = pm.response.json();",
+                "    pm.test(\"Short-lived download URL is returned\", function () { pm.expect(body.url).to.match(/^https?:\\/\\//); });",
+                "    pm.environment.set(\"download_url\", body.url);",
+                "}"
+              ]
+            }
+          }]
+        },
+        {
+          "name": "Download Workspace CSV",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{download_url}}",
+              "host": ["{{download_url}}"]
+            },
+            "description": "Uses the short-lived presigned URL captured by the previous request. Run immediately after obtaining it."
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                "pm.test(\"Downloaded CSV is non-empty\", function () { pm.expect(pm.response.text().length).to.be.above(0); });",
+                "pm.test(\"Downloaded CSV contains a header\", function () { pm.expect(pm.response.text()).to.include(\"name,value\"); });"
+              ]
+            }
+          }]
+        }
+      ]
+    },
+    {
+      "name": "04 - Access-Control Checks",
+      "description": "Negative tests. These requests should not change output state. Set other_user_token and uploader_token only when testing those credentials.",
+      "item": [
+        {
+          "name": "Unauthenticated Owner Status Is Rejected",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{sandbox_base_url}}/v1/outputs/{{output_id}}",
+              "host": ["{{sandbox_base_url}}"],
+              "path": ["v1", "outputs", "{{output_id}}"]
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": ["pm.test(\"Status code is 401\", function () { pm.response.to.have.status(401); });"]
+            }
+          }]
+        },
+        {
+          "name": "Non-Admin Cannot List Pending Outputs",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{owner_token}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{sandbox_base_url}}/v1/admin/outputs?status=pending_approval",
+              "host": ["{{sandbox_base_url}}"],
+              "path": ["v1", "admin", "outputs"],
+              "query": [{ "key": "status", "value": "pending_approval" }]
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": ["pm.test(\"Status code is 403\", function () { pm.response.to.have.status(403); });"]
+            }
+          }]
+        },
+        {
+          "name": "Non-Admin Cannot Approve - Safe Missing ID",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{owner_token}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Idempotency-Key", "value": "postman-denial-check", "type": "text" }],
+            "url": {
+              "raw": "{{sandbox_base_url}}/v1/admin/outputs/00000000-0000-0000-0000-000000000000/approve",
+              "host": ["{{sandbox_base_url}}"],
+              "path": ["v1", "admin", "outputs", "00000000-0000-0000-0000-000000000000", "approve"]
+            },
+            "description": "Uses a nonexistent UUID so the real output cannot be approved even if role configuration is wrong. The role check should return 403 first."
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": ["pm.test(\"Status code is 403\", function () { pm.response.to.have.status(403); });"]
+            }
+          }]
+        },
+        {
+          "name": "COS Admin Cannot Read Another User's Owner Status",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{admin_token}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{sandbox_base_url}}/v1/outputs/{{output_id}}",
+              "host": ["{{sandbox_base_url}}"],
+              "path": ["v1", "outputs", "{{output_id}}"]
+            },
+            "description": "The cos_admin identity is different from the output owner. Owner-only status must not be bypassed by the admin role."
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": ["pm.test(\"Status code is 404\", function () { pm.response.to.have.status(404); });"]
+            }
+          }]
+        },
+        {
+          "name": "Another User Cannot Read Owner Output",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{other_user_token}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{sandbox_base_url}}/v1/outputs/{{output_id}}",
+              "host": ["{{sandbox_base_url}}"],
+              "path": ["v1", "outputs", "{{output_id}}"]
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test(\"other_user_token is configured\", function () { pm.expect(pm.environment.get(\"other_user_token\")).to.be.a(\"string\").and.not.empty; });",
+                "pm.test(\"Status code is 404\", function () { pm.response.to.have.status(404); });"
+              ]
+            }
+          }]
+        },
+        {
+          "name": "Another User Workspace Excludes Owner Output",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{other_user_token}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{sandbox_base_url}}/v1/workspace/files",
+              "host": ["{{sandbox_base_url}}"],
+              "path": ["v1", "workspace", "files"]
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test(\"other_user_token is configured\", function () { pm.expect(pm.environment.get(\"other_user_token\")).to.be.a(\"string\").and.not.empty; });",
+                "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                "if (pm.response.code === 200) {",
+                "    const body = pm.response.json();",
+                "    pm.test(\"Owner output is not exposed\", function () {",
+                "        pm.expect(body.files.some(item => item.name.startsWith(pm.environment.get(\"output_id\") + \"/\"))).to.eql(false);",
+                "    });",
+                "}"
+              ]
+            }
+          }]
+        },
+        {
+          "name": "Uploader Token Cannot Browse Workspaces",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{uploader_token}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{files_connect_base_url}}/v1/outputs/internal/workspaces/{{owner_id}}/files",
+              "host": ["{{files_connect_base_url}}"],
+              "path": ["v1", "outputs", "internal", "workspaces", "{{owner_id}}", "files"]
+            },
+            "description": "Direct Files Connect boundary check. The output uploader credential must receive 403 on sandbox browsing routes."
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test(\"uploader_token is configured\", function () { pm.expect(pm.environment.get(\"uploader_token\")).to.be.a(\"string\").and.not.empty; });",
+                "pm.test(\"Status code is 403\", function () { pm.response.to.have.status(403); });"
+              ]
+            }
+          }]
+        }
+      ]
+    }
+  ]
+}
