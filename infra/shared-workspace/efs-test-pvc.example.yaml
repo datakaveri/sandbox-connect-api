@@ -1,0 +1,14 @@
+# Smoke test: proves the RWX class can dynamically provision before enabling WORKSPACE_ENABLED.
+# Must reach Bound; delete it afterwards. See infra/shared-workspace/README.md.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: efs-rwx-smoke-test
+  namespace: default
+spec:
+  storageClassName: efs-sc
+  accessModes: [ReadWriteMany]
+  volumeMode: Filesystem
+  resources:
+    requests:
+      storage: 1Gi

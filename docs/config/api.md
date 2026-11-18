@@ -636,7 +636,8 @@ the same thing for each — the distinction is the point of this subsection.
   across services. Notebooks mount the claim **read-only** at `/home/jovyan/workspace`; the claim
   stays writable so an external copy pod can populate it. If an existing `workspace` PVC does not
   match the configured class, access mode, volume mode and minimum size, the API logs a mismatch
-  rather than silently adopting it.
+  rather than silently adopting it. Cluster storage setup (RWX provisioner, AWS EFS CSI driver,
+  verification) is in [infra/shared-workspace/README.md](../../infra/shared-workspace/README.md).
 
 ### `API_WORKSPACE_STORAGE_CLASS` and `API_WORKSPACE_STORAGE_SIZE`
 

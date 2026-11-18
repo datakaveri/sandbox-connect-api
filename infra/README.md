@@ -11,7 +11,8 @@ Provision these dependencies before deploying the services:
 - Kubernetes with Kubeflow Notebook (`kubeflow.org/v1beta1`) and Profile CRDs/controllers.
 - Service accounts and reviewed RBAC for API, worker, and background-controller access.
 - A writable StorageClass for managed notebook PVCs. The example templates use `ceph-block`;
-  shared workspaces require an appropriate RWX class when enabled.
+  shared workspaces require an RWX class with a working dynamic provisioner when enabled. See
+  [shared-workspace/README.md](shared-workspace/README.md) for CephFS/EFS setup and verification.
 - Any existing PVCs and read-only NFS exports referenced by your Notebook templates.
 - Keycloak, a browser client for API authentication, and the confidential notebook client when
   delegated downloads are enabled.
@@ -38,6 +39,7 @@ for the release and resources actually installed.
 | Profile credit sync CronJob | `cron/profile-credit-sync/` |
 | Notebook token sidecar | `platform-token-sidecar/Dockerfile`, `platform-token-sidecar/sandbox-notebook-client.json` |
 | Permissions | `rbac.yaml` |
+| Shared workspace storage | [shared-workspace/README.md](shared-workspace/README.md), `shared-workspace/efs-storageclass.example.yaml` |
 | Notebook token readiness policy | [istio/README.md](istio/README.md) |
 | User documentation site | `userdocs/`; build instructions in [user-docs/README.md](../user-docs/README.md) |
 

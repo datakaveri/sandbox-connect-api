@@ -1,0 +1,20 @@
+# Deployment example: replace environment-specific values before applying.
+# RWX StorageClass for the profile shared workspace on AWS EKS (Amazon EFS CSI driver).
+# Prerequisites and verification steps: infra/shared-workspace/README.md
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: efs-sc
+provisioner: efs.csi.aws.com
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+parameters:
+  provisioningMode: efs-ap
+  fileSystemId: <fs-id>
+  basePath: /dynamic_provisioning
+  directoryPerms: "750"
+  # Access-point identity; matches the notebook user (runAsUser 1000, fsGroup 100).
+  uid: "1000"
+  gid: "100"
+mountOptions:
+  - tls

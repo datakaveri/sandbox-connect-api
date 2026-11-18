@@ -124,6 +124,8 @@ As above, loaded with kind `"gpu"` and used for GPU notebooks.
   notebook at creation.
 - **Notes / gotchas:** unprefixed and shared with the API — set both from one source of truth. The
   worker only *omits or keeps* the volume; it never creates the PVC. That is the API's job.
+  Storage prerequisites and enable/disable steps:
+  [infra/shared-workspace/README.md](../../infra/shared-workspace/README.md).
 
 ### `WORKER_KUBE_CONFIG_MODE` / `WORKER_KUBE_CONFIG_PATH`
 
